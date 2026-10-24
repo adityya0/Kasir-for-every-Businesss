@@ -18,12 +18,21 @@ class FileManager {
   }
 
   ImageProvider getImageProvider(String path) {
+    if (path.startsWith('assets/')) {
+      return AssetImage(path);
+    }
     // If it's a web URL, use NetworkImage
-    if (path.startsWith('http') || path.startsWith('https')) {
+    if (path.startsWith('http://') || path.startsWith('https://')) {
       return NetworkImage(path);
     }
-    // Otherwise it's a local file
-    return FileImage(File(path));
+    // Otherwise it's a local file - verify existence safely
+    try {
+      final file = File(path);
+      if (file.existsSync()) {
+        return FileImage(file);
+      }
+    } catch (_) {}
+    return const AssetImage('assets/logo/logo.png');
   }
 
   Future<Uint8List?> readBytes(String path) async {
@@ -43,12 +52,44 @@ class FileManager {
       final dir = await getTemporaryDirectory();
       final file = File('${dir.path}/$filename');
       await file.writeAsBytes(bytes);
-      await SharePlus.instance.share(
-        ShareParams(files: [XFile(file.path)], text: 'Export File'),
+      await Share.shareXFiles(
+        [XFile(file.path)],
+        subject: 'Export File',
       );
       return file.path;
     } catch (e) {
       debugPrint("Error sharing file: $e");
+      return null;
+    }
+  }
+
+  /// Saves bytes directly to Downloads (or Documents) folder — no share dialog.
+  /// Returns the saved file path, or null on failure.
+  Future<String?> saveBytes(
+    String filename,
+    Uint8List bytes,
+  ) async {
+    try {
+      Directory? saveDir;
+
+      // Try Downloads folder first (Windows / Linux / macOS)
+      if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+        final home = Platform.environment['USERPROFILE'] // Windows
+            ?? Platform.environment['HOME'];              // macOS / Linux
+        if (home != null) {
+          final downloads = Directory('$home/Downloads');
+          if (await downloads.exists()) saveDir = downloads;
+        }
+      }
+
+      // Fallback: app documents directory
+      saveDir ??= await getApplicationDocumentsDirectory();
+
+      final savePath = p.join(saveDir.path, filename);
+      await File(savePath).writeAsBytes(bytes);
+      return savePath;
+    } catch (e) {
+      debugPrint('Error saving file: $e');
       return null;
     }
   }

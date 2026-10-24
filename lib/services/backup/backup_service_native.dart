@@ -1,14 +1,15 @@
 import 'dart:io';
 import 'package:archive/archive_io.dart';
+import 'package:intl/intl.dart';
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
-import 'package:restart_app/restart_app.dart';
 import 'package:share_plus/share_plus.dart';
 import '../app_database.dart'; // Adjusted path
+
 
 class BackupService {
   final AppDatabase _db;
@@ -102,9 +103,10 @@ class BackupService {
       debugPrint("Backup: Copied $copiedCount images.");
 
       // 4. Create ZIP
+      final dateStr = DateFormat('ddMMyyyy_HHmm').format(DateTime.now());
       final zipPath = p.join(
         tempDir.path,
-        'pos_backup_${DateTime.now().millisecondsSinceEpoch}.zip',
+        'pos_backup_$dateStr.zip',
       );
       final encoder = ZipFileEncoder();
       encoder.create(zipPath);
@@ -120,8 +122,9 @@ class BackupService {
       // Share
       if (share) {
         final xFile = XFile(zipPath);
-        await SharePlus.instance.share(
-          ShareParams(files: [xFile], text: 'POS Kasir Asri Full Backup'),
+        await Share.shareXFiles(
+          [xFile],
+          subject: 'POS Kasir Bersama Full Backup',
         );
       }
 
@@ -132,8 +135,9 @@ class BackupService {
     }
   }
 
-  /// Restores a full backup from a ZIP file and RESTARTS the app.
-  Future<void> restoreFullBackup(String zipPath) async {
+  /// Restores a full backup from a ZIP file by importing data directly into the active database
+  /// without closing the database connection or triggering Windows file locks.
+  Future<String?> restoreFullBackup(String zipPath) async {
     try {
       final zipFile = File(zipPath);
       final appDir = await getApplicationDocumentsDirectory();
@@ -168,13 +172,11 @@ class BackupService {
       File? newDbFile;
       Directory? newImagesDir;
 
-      // Check root
       final rootDb = File(p.join(stagingDir.path, 'db.sqlite'));
       if (await rootDb.exists()) {
         newDbFile = rootDb;
         newImagesDir = Directory(p.join(stagingDir.path, 'images'));
       } else {
-        // Check 1 level deep (if zipped with folder)
         await for (var entity in stagingDir.list()) {
           if (entity is Directory) {
             final subDb = File(p.join(entity.path, 'db.sqlite'));
@@ -188,103 +190,181 @@ class BackupService {
       }
 
       if (newDbFile == null) {
-        throw "Invalid Backup: db.sqlite not found in zip.";
+        throw "File cadangan tidak valid: db.sqlite tidak ditemukan di dalam file ZIP.";
       }
 
-      // 3. OVERWRITE DATABASE
-      // Close current DB to release locks
-      await _db.close();
-
-      final targetDbPath = p.join(appDir.path, 'db.sqlite');
-      // Adding a small delay to ensure file handle release?
-      await Future.delayed(const Duration(milliseconds: 500));
-
-      if (await File(targetDbPath).exists()) {
-        await File(targetDbPath).delete();
-      }
-      await newDbFile.copy(targetDbPath);
-
-      // 4. RESTORE IMAGES
+      // 3. RESTORE IMAGES to App Documents Root
       if (newImagesDir != null && await newImagesDir.exists()) {
         await for (var img in newImagesDir.list()) {
           if (img is File) {
             final filename = p.basename(img.path);
-            // Copy to App Documents Root (where FileManager creates files)
             await img.copy(p.join(appDir.path, filename));
           }
         }
       }
 
-      // 5. FIX IMAGE PATHS (Critical for cross-device restore)
-      // Open the restored DB temporarily to update paths
-      final tempDb = NativeDatabase(File(targetDbPath));
-      final executor = tempDb;
+      // 4. SMART IMPORT DATA directly into active database (NO _db.close(), NO connection loss!)
+      final backupDb = NativeDatabase(newDbFile);
+      final executor = backupDb;
       await executor.ensureOpen(_QueryExecutorUser());
 
+      // Ambil Admin aktif lokal saat ini sebelum ditimpa agar kredensial tidak hilang
+      final localAdmins = await (_db.select(_db.profiles)
+            ..where((t) => t.role.equals('admin') | t.role.equals('owner')))
+          .get();
+      final Profile? currentAdmin = localAdmins.isNotEmpty ? localAdmins.first : null;
+
+      final tables = [
+        'stores',
+        'categories',
+        'units',
+        'products',
+        'product_options',
+        'product_option_values',
+        'transactions',
+        'transaction_items',
+        'attendance_logs',
+        'promotions',
+        'promotion_items',
+        'expenses',
+        'customers',
+        'payment_methods',
+        'store_tables',
+        'profiles',
+      ];
+
       try {
-        // We need to update paths in: Products, Stores, Profiles, AttendanceLogs
-        // Helper to update a table
-        Future<void> fixTable(
-          String tableName,
-          String colName,
-          String idCol,
-        ) async {
-          try {
-            // Select all rows where column is not null
-            final result = await executor.runSelect(
-              'SELECT $idCol, $colName FROM $tableName WHERE $colName IS NOT NULL',
-              [],
-            );
+        await _db.transaction(() async {
+          await _db.customStatement('PRAGMA foreign_keys = OFF;');
 
-            for (final row in result) {
-              final id = row[idCol];
-              final oldPath = row[colName] as String;
+          for (final table in tables) {
+            try {
+              // Cek apakah tabel ada di database backup
+              final check = await executor.runSelect(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name = ?",
+                [table],
+              );
+              if (check.isEmpty) continue;
 
-              // Skip http/https URLs
-              if (oldPath.toLowerCase().startsWith('http')) continue;
-
-              // Handle both forward and backward slashes for cross-platform backup/restore
-              final filename = oldPath.split(RegExp(r'[/\\]')).last;
-              final newPath = p.join(appDir.path, filename);
-
-              if (oldPath != newPath) {
-                await executor.runUpdate(
-                  'UPDATE $tableName SET $colName = ? WHERE $idCol = ?',
-                  [newPath, id],
-                );
+              final rows = await executor.runSelect('SELECT * FROM "$table"', []);
+              if (rows.isEmpty) {
+                await _db.customStatement('DELETE FROM "$table";');
+                continue;
               }
+
+              // Hapus data lokal pada tabel ini
+              await _db.customStatement('DELETE FROM "$table";');
+
+              // Ambil daftar kolom
+              final firstRow = rows.first;
+              final colNames = firstRow.keys.toList();
+              final placeholders = List.filled(colNames.length, '?').join(', ');
+              final quotedCols = colNames.map((c) => '"$c"').join(', ');
+              final insertSql = 'INSERT OR REPLACE INTO "$table" ($quotedCols) VALUES ($placeholders);';
+
+              for (final row in rows) {
+                final values = colNames.map((c) => row[c]).toList();
+                await _db.customStatement(insertSql, values);
+              }
+            } catch (err) {
+              debugPrint("Smart Restore: warning importing table $table: $err");
             }
-          } catch (e) {
-            debugPrint("Restore: skipping table $tableName: $e");
           }
-        }
 
-        await fixTable('products', 'image_url', 'id');
-        await fixTable('stores', 'logo_url', 'id');
-        await fixTable('stores', 'admin_avatar', 'id');
-        await fixTable('profiles', 'avatar_url', 'id');
-        await fixTable('attendance_logs', 'photo_url', 'id');
-        await fixTable('categories', 'icon_url', 'id');
-
-        debugPrint("Restore: Image paths updated successfully.");
-      } catch (e) {
-        debugPrint("Restore: General error during path fix: $e");
+          await _db.customStatement('PRAGMA foreign_keys = ON;');
+        });
       } finally {
         await executor.close();
       }
 
-      // Cleanup
-      await stagingDir.delete(recursive: true);
+      // 5. SINKRONISASI TOKO UTAMA & AFILIASI ADMIN
+      // Temukan Toko Utama dari data hasil restore (toko yang memiliki data)
+      final allStores = await _db.select(_db.stores).get();
+      String? primaryStoreId;
+      String? primaryStoreName;
 
-      // RESTART
-      if (defaultTargetPlatform == TargetPlatform.windows ||
-          defaultTargetPlatform == TargetPlatform.linux ||
-          defaultTargetPlatform == TargetPlatform.macOS) {
-        // Desktop platforms might not support restart_app
-        // Just return, the UI will show success message/dialog
-      } else {
-        await Restart.restartApp();
+      if (allStores.isNotEmpty) {
+        primaryStoreId = allStores.first.id;
+        primaryStoreName = allStores.first.name;
       }
+
+      if (primaryStoreId != null) {
+        // Jika ada admin lokal aktif (misal Streak Asri), pastikan tetap ada dan terikat ke toko hasil restore
+        if (currentAdmin != null) {
+          await _db.into(_db.profiles).insertOnConflictUpdate(
+                ProfilesCompanion(
+                  id: Value(currentAdmin.id),
+                  fullName: Value(currentAdmin.fullName),
+                  email: Value(currentAdmin.email),
+                  password: Value(currentAdmin.password),
+                  role: const Value('admin'),
+                  storeId: Value(primaryStoreId),
+                  lastUpdated: Value(DateTime.now()),
+                ),
+              );
+
+          // Update nama toko menjadi nama toko yang sedang dikelola jika relevan
+          if (currentAdmin.fullName != null && currentAdmin.fullName!.isNotEmpty) {
+            await (_db.update(_db.stores)..where((t) => t.id.equals(primaryStoreId!))).write(
+                  StoresCompanion(
+                    name: Value(currentAdmin.fullName!.toLowerCase().contains('toko')
+                        ? currentAdmin.fullName
+                        : 'Toko ${currentAdmin.fullName}'),
+                    adminName: Value(currentAdmin.fullName),
+                  ),
+                );
+          }
+        }
+
+        // Pastikan seluruh staf & kasir & admin terafiliasi ke Toko Utama hasil restore
+        await (_db.update(_db.profiles)..where((t) => t.role.isIn(['cashier', 'staff', 'admin', 'owner']))).write(
+              ProfilesCompanion(storeId: Value(primaryStoreId)),
+            );
+
+
+      }
+
+      // 6. FIX IMAGE PATHS untuk platform saat ini
+      Future<void> fixImageTable(String tableName, String colName, String idCol) async {
+        try {
+          final rows = await _db.customSelect(
+            'SELECT $idCol, $colName FROM "$tableName" WHERE $colName IS NOT NULL',
+          ).get();
+
+          for (final row in rows) {
+            final id = row.read<String>(idCol);
+            final oldPath = row.read<String?>(colName);
+            if (oldPath == null || oldPath.toLowerCase().startsWith('http')) continue;
+
+            final filename = oldPath.split(RegExp(r'[/\\]')).last;
+            final newPath = p.join(appDir.path, filename);
+
+            if (oldPath != newPath) {
+              await _db.customStatement(
+                'UPDATE "$tableName" SET "$colName" = ? WHERE "$idCol" = ?',
+                [newPath, id],
+              );
+            }
+          }
+        } catch (e) {
+          debugPrint("Smart Restore: skip fixImageTable $tableName: $e");
+        }
+      }
+
+      await fixImageTable('products', 'image_url', 'id');
+      await fixImageTable('stores', 'logo_url', 'id');
+      await fixImageTable('stores', 'admin_avatar', 'id');
+      await fixImageTable('profiles', 'avatar_url', 'id');
+      await fixImageTable('attendance_logs', 'photo_url', 'id');
+      await fixImageTable('categories', 'icon_url', 'id');
+
+      // 7. Bersihkan Staging Directory
+      try {
+        if (await stagingDir.exists()) await stagingDir.delete(recursive: true);
+      } catch (_) {}
+
+      debugPrint("Smart Restore selesai: Toko Utama $primaryStoreId ($primaryStoreName)");
+      return primaryStoreId;
     } catch (e) {
       debugPrint("Restore Error: $e");
       rethrow;
@@ -299,5 +379,5 @@ class _QueryExecutorUser extends QueryExecutorUser {
     OpeningDetails details,
   ) async {}
   @override
-  int get schemaVersion => 5;
+  int get schemaVersion => 10;
 }

@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 enum OrderNumpadMode { qty, disc, price }
@@ -29,7 +29,7 @@ class OrderNumpad extends StatelessWidget {
     final defaultBtnColor = isDark
         ? Colors.white.withValues(alpha: 0.05)
         : Colors.grey[100]!;
-    const activeBtnColor = Color(0xFFFF8E53);
+    const activeBtnColor = Color(0xFFC0392B);
     final defaultTextColor = isDark ? Colors.white : Colors.black87;
 
     return LayoutBuilder(
@@ -237,7 +237,7 @@ class OrderNumpad extends StatelessWidget {
                   ? Icon(icon, color: tColor, size: fSize * 1.2)
                   : Text(
                       value,
-                      style: GoogleFonts.poppins(
+                      style: GoogleFonts.plusJakartaSans(
                         fontSize: fSize,
                         fontWeight: FontWeight.w600,
                         color: tColor,
@@ -272,9 +272,9 @@ class OrderNumpad extends StatelessWidget {
             child: Center(
               child: Text(
                 label,
-                style: GoogleFonts.poppins(
+                style: GoogleFonts.plusJakartaSans(
                   fontSize: fSize * 0.9,
-                  fontWeight: FontWeight.bold,
+                  fontWeight: FontWeight.w600,
                   color: isActive ? Colors.white : tColor,
                 ),
               ),
@@ -285,3 +285,4 @@ class OrderNumpad extends StatelessWidget {
     );
   }
 }
+

@@ -4,6 +4,11 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:printing/printing.dart'; // For sharing PDF
 import 'package:intl/intl.dart';
 import '../../../services/bluetooth_printer_service.dart';
+import '../../../widgets/kasir_dialog.dart';
+import '../../../core/app_theme.dart';
+import 'package:provider/provider.dart';
+import '../../../controllers/settings_controller.dart';
+import '../../../controllers/admin_controller.dart';
 
 class PaymentSuccessDialog extends StatelessWidget {
   final Uint8List pdfData;
@@ -11,6 +16,8 @@ class PaymentSuccessDialog extends StatelessWidget {
   final double totalAmount;
   final double? subtotal;
   final double? discount;
+  final double? pajakAmount;
+  final String? pajakName;
   final double cashReceived;
   final double change;
   final VoidCallback onNewTransaction;
@@ -20,6 +27,10 @@ class PaymentSuccessDialog extends StatelessWidget {
   final DateTime createdAt;
   final List<Map<String, dynamic>> items;
   final String paymentMethod;
+  final bool isDebt;
+  final String? tableNumber; // Added
+  final String? customerName;
+  final String? discountLabel;
 
   const PaymentSuccessDialog({
     super.key,
@@ -28,6 +39,10 @@ class PaymentSuccessDialog extends StatelessWidget {
     required this.totalAmount,
     this.subtotal,
     this.discount,
+    this.discountLabel,
+    this.customerName,
+    this.pajakAmount,
+    this.pajakName,
     required this.cashReceived,
     required this.change,
     required this.onNewTransaction,
@@ -35,6 +50,8 @@ class PaymentSuccessDialog extends StatelessWidget {
     required this.createdAt,
     required this.items,
     required this.paymentMethod,
+    this.isDebt = false,
+    this.tableNumber, // Added
   });
 
   @override
@@ -76,9 +93,9 @@ class PaymentSuccessDialog extends StatelessWidget {
                 const SizedBox(height: 24),
                 Text(
                   "Pembayaran Berhasil!",
-                  style: GoogleFonts.poppins(
+                  style: GoogleFonts.plusJakartaSans(
                     fontSize: 24,
-                    fontWeight: FontWeight.bold,
+                    fontWeight: FontWeight.w600,
                     color: isDark ? Colors.white : Colors.black87,
                   ),
                   textAlign: TextAlign.center,
@@ -86,9 +103,41 @@ class PaymentSuccessDialog extends StatelessWidget {
                 const SizedBox(height: 8),
                 Text(
                   "Transaksi #$transactionId telah tersimpan.",
-                  style: GoogleFonts.inter(fontSize: 15, color: Colors.grey),
+                  style: GoogleFonts.openSans(fontSize: 15, color: Colors.grey),
                   textAlign: TextAlign.center,
                 ),
+                if (tableNumber != null && tableNumber!.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: AppTheme.primaryColor.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: AppTheme.primaryColor.withValues(alpha: 0.3),
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.table_restaurant_rounded,
+                          size: 18,
+                          color: AppTheme.primaryColor,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          "MEJA: ${tableNumber!.toUpperCase()}",
+                          style: GoogleFonts.plusJakartaSans(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                            color: AppTheme.primaryColor,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 32),
 
                 // Summary
@@ -103,20 +152,30 @@ class PaymentSuccessDialog extends StatelessWidget {
                   ),
                   child: Column(
                     children: [
+                      if (customerName != null && customerName!.trim().isNotEmpty) ...[
+                        _row("Pelanggan", customerName!.trim()),
+                        const SizedBox(height: 8),
+                      ],
                       if (subtotal != null &&
                           discount != null &&
                           discount! > 0) ...[
                         _row("Subtotal", currencyFormat.format(subtotal!)),
                         const SizedBox(height: 8),
                         _row(
-                          "Diskon",
+                          discountLabel != null && discountLabel!.trim().isNotEmpty
+                              ? discountLabel!.trim()
+                              : "Diskon",
                           "-${currencyFormat.format(discount!)}",
-                          color: Colors.orange,
+                          color: AppTheme.primaryColor,
                         ),
                         const SizedBox(height: 8),
-                        Divider(color: Colors.grey.withValues(alpha: 0.1)),
+                      ],
+                      if (pajakAmount != null && pajakAmount! > 0) ...[
+                        _row(pajakName ?? "Pajak", currencyFormat.format(pajakAmount!)),
                         const SizedBox(height: 8),
                       ],
+                      Divider(color: Colors.grey.withValues(alpha: 0.1)),
+                      const SizedBox(height: 8),
                       _row(
                         "Total Tagihan",
                         currencyFormat.format(totalAmount),
@@ -129,10 +188,10 @@ class PaymentSuccessDialog extends StatelessWidget {
                       Divider(color: Colors.grey.withValues(alpha: 0.2)),
                       const SizedBox(height: 12),
                       _row(
-                        "Kembalian",
-                        currencyFormat.format(change),
+                        isDebt ? "Kekurangan (Hutang)" : "Kembalian",
+                        currencyFormat.format(isDebt ? (totalAmount - cashReceived) : change),
                         isBold: true,
-                        color: Colors.green,
+                        color: isDebt ? Colors.redAccent : Colors.green,
                         fontSize: 16,
                       ),
                     ],
@@ -204,21 +263,19 @@ class PaymentSuccessDialog extends StatelessWidget {
                     ),
                     label: Text(
                       "Transaksi Baru",
-                      style: GoogleFonts.inter(
-                        fontWeight: FontWeight.bold,
+                      style: GoogleFonts.openSans(
+                        fontWeight: FontWeight.w600,
                         fontSize: 16,
                         color: Colors.white,
                       ),
                     ),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFFFF4D4D),
+                      backgroundColor: AppTheme.primaryColor,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(16),
                       ),
                       elevation: 0,
-                      shadowColor: const Color(
-                        0xFFFF4D4D,
-                      ).withValues(alpha: 0.4),
+                      shadowColor: AppTheme.primaryColor.withValues(alpha: 0.4),
                     ),
                   ),
                 ),
@@ -238,18 +295,30 @@ class PaymentSuccessDialog extends StatelessWidget {
     double fontSize = 14,
   }) {
     return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(
-          label,
-          style: GoogleFonts.inter(fontSize: fontSize, color: Colors.grey[600]),
+        Expanded(
+          child: Text(
+            label,
+            style: GoogleFonts.robotoMono(
+              fontSize: fontSize,
+              color: Colors.grey[600],
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
         ),
-        Text(
-          value,
-          style: GoogleFonts.inter(
-            fontSize: fontSize,
-            fontWeight: isBold ? FontWeight.bold : FontWeight.w500,
-            color: color,
+        const SizedBox(width: 8),
+        Flexible(
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              value,
+              style: GoogleFonts.robotoMono(
+                fontSize: fontSize,
+                fontWeight: isBold ? FontWeight.bold : FontWeight.w500,
+                color: color,
+              ),
+            ),
           ),
         ),
       ],
@@ -257,23 +326,24 @@ class PaymentSuccessDialog extends StatelessWidget {
   }
 
   Future<void> _handlePrint(BuildContext context) async {
+    final settings = SettingsController.instance;
+    final adminCtrl = context.read<AdminController>();
     final printerService = BluetoothPrinterService();
 
     // Check connection first
-    final isConnected = await printerService.isConnectedStatus;
-    if (isConnected != true) {
-      // Not connected
-    }
-
-    if (!printerService.isConnected) {
+    final isConnected = await printerService.isConnectedStatus ?? false;
+    if (!isConnected) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              "Printer belum terhubung! Silakan hubungkan di menu Pengaturan.",
-            ),
-            backgroundColor: Colors.red,
-            behavior: SnackBarBehavior.floating,
+        showDialog(
+          context: context,
+          builder: (ctx) => KasirDialog(
+            title: "Printer Tidak Terhubung",
+            message:
+                "Printer bluetooth Anda belum terhubung. Silakan hubungkan printer melalui menu Pengaturan Printer.",
+            icon: Icons.print_disabled_rounded,
+            iconColor: AppTheme.primaryColor,
+            primaryActionLabel: "TUTUP",
+            onPrimaryAction: () => Navigator.pop(ctx),
           ),
         );
       }
@@ -290,6 +360,24 @@ class PaymentSuccessDialog extends StatelessWidget {
         cashReceived: cashReceived,
         change: change,
         paymentMethod: paymentMethod,
+        subtotal: subtotal,
+        discount: discount,
+        discountLabel: discountLabel,
+        customerName: customerName,
+        pajakAmount: pajakAmount,
+        pajakName: pajakName,
+        tableNumber: tableNumber,
+        isDebt: isDebt,
+        showStoreName: settings.receiptShowStoreName.value,
+        showAddress: settings.receiptShowAddress.value,
+        showDate: settings.receiptShowDate.value,
+        showDetails: settings.receiptShowDetails.value,
+        showThankYou: settings.receiptShowThankYou.value,
+        showEmail: settings.receiptShowEmail.value,
+        showTable: settings.receiptShowTable.value,
+        storeAddress: adminCtrl.storeAddress,
+        storeEmail: adminCtrl.storeEmail,
+        thankYouMessage: settings.receiptThankYouMessage.value,
       );
       if (context.mounted) {
         ScaffoldMessenger.of(

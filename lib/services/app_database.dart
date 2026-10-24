@@ -11,6 +11,7 @@ class Stores extends Table {
   TextColumn get id => text()();
   TextColumn get name => text().nullable()();
   TextColumn get address => text().nullable()(); // Added
+  TextColumn get email => text().nullable()(); // Added for receipt
   TextColumn get phoneNumber => text().nullable()(); // Added
   TextColumn get logoUrl => text().nullable()();
   TextColumn get description => text().nullable()(); // Added
@@ -57,17 +58,31 @@ class Categories extends Table {
   Set<Column> get primaryKey => {id};
 }
 
+class Units extends Table {
+  TextColumn get id => text()();
+  TextColumn get storeId => text().nullable()();
+  TextColumn get name => text()(); // e.g. Kilogram
+  TextColumn get code => text()(); // e.g. Kg
+  BoolColumn get isFractional => boolean().withDefault(const Constant(true))();
+  DateTimeColumn get createdAt => dateTime().nullable()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
 class Products extends Table {
   TextColumn get id => text()();
   TextColumn get name => text().nullable()();
   RealColumn get buyPrice => real().nullable()(); // Added match SQL
   RealColumn get basePrice => real().nullable()(); // Keep for backward compat
   RealColumn get salePrice => real().nullable()();
-  IntColumn get stockQuantity => integer().nullable()();
+  TextColumn get wholesalePricesJson => text().nullable()(); // Added for Wholesale Pricing (JSON)
+  RealColumn get stockQuantity => real().nullable()(); // Changed to Real for fractional stock (0.5 kg)
   BoolColumn get isStockManaged =>
       boolean().withDefault(const Constant(false))();
   BoolColumn get isAvailable => boolean().withDefault(const Constant(true))();
   TextColumn get sku => text().nullable()();
+  TextColumn get unitId => text().nullable()(); // Added for UoM
   TextColumn get description => text().nullable()();
   TextColumn get imageUrl => text().nullable()();
   TextColumn get categoryId => text().nullable()();
@@ -75,6 +90,17 @@ class Products extends Table {
   BoolColumn get isDeleted => boolean().withDefault(const Constant(false))();
   DateTimeColumn get createdAt => dateTime().nullable()(); // Added
   DateTimeColumn get lastUpdated => dateTime().nullable()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
+class StoreTables extends Table {
+  TextColumn get id => text()();
+  TextColumn get storeId => text().nullable()();
+  TextColumn get name => text()(); // e.g., Meja 1, VIP A
+  TextColumn get status => text().withDefault(const Constant('available'))(); // available, occupied, reserved
+  DateTimeColumn get createdAt => dateTime().nullable()();
 
   @override
   Set<Column> get primaryKey => {id};
@@ -98,6 +124,7 @@ class ProductOptionValues extends Table {
   TextColumn get optionId => text().nullable()();
   TextColumn get valueName => text().nullable()();
   RealColumn get priceAdjustment => real().nullable()();
+  RealColumn get stockMultiplier => real().withDefault(const Constant(1.0))(); // Added to allow variant stock deduction (e.g., 0.5)
   DateTimeColumn get createdAt => dateTime().nullable()(); // Added
 
   @override
@@ -144,7 +171,7 @@ class TransactionItems extends Table {
   TextColumn get transactionId => text().nullable()();
   TextColumn get productId => text().nullable()();
   TextColumn get productName => text().nullable()(); // Not in SQL?
-  IntColumn get quantity => integer().nullable()();
+  IntColumn get quantity => integer().nullable()(); // Keep as Int for variants
   RealColumn get unitPrice => real().nullable()();
   RealColumn get priceAtTime => real().nullable()(); // Added match SQL
   RealColumn get totalPrice => real().nullable()();
@@ -208,6 +235,9 @@ class Expenses extends Table {
   RealColumn get amount => real().nullable()();
   DateTimeColumn get date => dateTime().nullable()();
   TextColumn get notes => text().nullable()();
+  // Recurrence fields
+  TextColumn get recurrenceType => text().nullable()(); // sekali, bulanan, tahunan, kustom
+  IntColumn get recurrenceDurationMonths => integer().nullable()(); // in months, e.g. 12 = 1 year
 
   @override
   Set<Column> get primaryKey => {id};
@@ -246,13 +276,15 @@ class PaymentMethods extends Table {
     Expenses,
     Customers,
     PaymentMethods,
+    Units,
+    StoreTables,
   ],
 )
 class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_openConnection());
 
   @override
-  int get schemaVersion => 6;
+  int get schemaVersion => 10;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -291,6 +323,55 @@ class AppDatabase extends _$AppDatabase {
       }
       if (from < 6) {
         await m.createTable(paymentMethods);
+      }
+      if (from < 7) {
+        try {
+          // Use m.addColumn with the specific column definition
+          await m.addColumn(stores, stores.email);
+        } catch (e) {
+          debugPrint("Migration: 'email' already exists in 'stores', skipping...");
+        }
+      }
+      if (from < 8) {
+        try {
+          await m.addColumn(expenses, expenses.recurrenceType);
+        } catch (e) {
+          debugPrint("Migration: 'recurrence_type' already exists, skipping...");
+        }
+        try {
+          await m.addColumn(expenses, expenses.recurrenceDurationMonths);
+        } catch (e) {
+          debugPrint("Migration: 'recurrence_duration_months' already exists, skipping...");
+        }
+      }
+      if (from < 9) {
+        await m.createTable(units);
+        try { await m.addColumn(products, products.unitId); } catch (_) {}
+        try { await m.addColumn(productOptionValues, productOptionValues.stockMultiplier); } catch (_) {}
+        
+        // Populate dummy units immediately during migration
+        try {
+          await into(units).insert(UnitsCompanion.insert(id: 'uKg', name: 'Kilogram', code: 'Kg'));
+          await into(units).insert(UnitsCompanion.insert(id: 'uGram', name: 'Gram', code: 'Gr'));
+          await into(units).insert(UnitsCompanion.insert(id: 'uLiter', name: 'Liter', code: 'L'));
+          await into(units).insert(UnitsCompanion.insert(id: 'uPcs', name: 'Pieces', code: 'Pcs', isFractional: const Value(false)));
+          await into(units).insert(UnitsCompanion.insert(id: 'uPack', name: 'Pack', code: 'Pack', isFractional: const Value(false)));
+        } catch (_) {}
+      }
+      if (from < 10) {
+        await m.createTable(storeTables);
+        try {
+          await m.addColumn(products, products.wholesalePricesJson);
+        } catch (_) {}
+        try {
+          await m.addColumn(products, products.buyPrice);
+        } catch (_) {}
+        try {
+          await m.addColumn(transactions, transactions.tableNumber);
+        } catch (_) {}
+        try {
+          await m.addColumn(transactionItems, transactionItems.priceAtTime);
+        } catch (_) {}
       }
     },
   );

@@ -1,16 +1,21 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:flutter/cupertino.dart';
 import 'package:provider/provider.dart';
 import '../../services/app_database.dart';
 import 'package:drift/drift.dart' as drift;
 import 'package:uuid/uuid.dart';
-import '../../widgets/asri_dialog.dart';
+import '../../widgets/kasir_dialog.dart';
 
 class CategoryPage extends StatefulWidget {
   final String storeId;
-  final VoidCallback? onMenuPressed;
-  const CategoryPage({super.key, required this.storeId, this.onMenuPressed});
+  final VoidCallback? onBack;
+  final VoidCallback? onNavigateToProducts;
+  const CategoryPage({
+    super.key,
+    required this.storeId,
+    this.onBack,
+    this.onNavigateToProducts,
+  });
 
   @override
   State<CategoryPage> createState() => _CategoryPageState();
@@ -19,6 +24,7 @@ class CategoryPage extends StatefulWidget {
 class _CategoryPageState extends State<CategoryPage> {
   bool _isLoading = true;
   List<Category> _categories = [];
+  Map<String, int> _productCounts = {};
 
   @override
   void initState() {
@@ -35,9 +41,24 @@ class _CategoryPageState extends State<CategoryPage> {
                 ..orderBy([(t) => drift.OrderingTerm.asc(t.name)]))
               .get();
 
+      // 2. Fetch non-deleted products to count them
+      final products =
+          await (db.select(db.products)
+                ..where((t) => t.storeId.equals(widget.storeId))
+                ..where((t) => t.isDeleted.equals(false)))
+              .get();
+
+      final Map<String, int> counts = {};
+      for (var p in products) {
+        if (p.categoryId != null) {
+          counts[p.categoryId!] = (counts[p.categoryId!] ?? 0) + 1;
+        }
+      }
+
       if (mounted) {
         setState(() {
           _categories = data;
+          _productCounts = counts;
           _isLoading = false;
         });
       }
@@ -80,23 +101,23 @@ class _CategoryPageState extends State<CategoryPage> {
               const SizedBox(height: 20),
               Text(
                 isEditing ? "Edit Kategori" : "Tambah Kategori",
-                style: GoogleFonts.poppins(
+                style: GoogleFonts.plusJakartaSans(
                   fontSize: 20,
-                  fontWeight: FontWeight.bold,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
               const SizedBox(height: 20),
               TextField(
                 controller: controller,
                 autofocus: true,
-                style: GoogleFonts.inter(
+                style: GoogleFonts.openSans(
                   color: Theme.of(context).brightness == Brightness.dark
                       ? Colors.white
                       : Colors.black87,
                 ),
                 decoration: InputDecoration(
                   hintText: "Nama Kategori (Contoh: Makanan)",
-                  hintStyle: GoogleFonts.inter(
+                  hintStyle: GoogleFonts.openSans(
                     color: Theme.of(context).brightness == Brightness.dark
                         ? Colors.white38
                         : Colors.grey[400],
@@ -110,7 +131,7 @@ class _CategoryPageState extends State<CategoryPage> {
                     borderSide: BorderSide.none,
                   ),
                   prefixIcon: Icon(
-                    CupertinoIcons.grid,
+                    Icons.grid_view,
                     color: Theme.of(context).brightness == Brightness.dark
                         ? Colors.white70
                         : Colors.grey,
@@ -159,15 +180,15 @@ class _CategoryPageState extends State<CategoryPage> {
                     }
                   },
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFFEA5700),
+                    backgroundColor: const Color(0xFFC0392B),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(16),
                     ),
                   ),
                   child: Text(
                     isEditing ? "Simpan Perubahan" : "Tambah Kategori",
-                    style: GoogleFonts.poppins(
-                      fontWeight: FontWeight.bold,
+                    style: GoogleFonts.plusJakartaSans(
+                      fontWeight: FontWeight.w600,
                       color: Colors.white,
                     ),
                   ),
@@ -184,11 +205,11 @@ class _CategoryPageState extends State<CategoryPage> {
     final category = _categories.firstWhere((c) => c.id == id);
     final confirm = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AsriDialog(
+      builder: (ctx) => KasirDialog(
         title: "Hapus Kategori?",
         message:
             "Tindakan ini tidak dapat dibatalkan. Kategori '${category.name}' akan dihapus.",
-        icon: CupertinoIcons.trash_fill,
+        icon: Icons.delete,
         iconColor: Colors.redAccent,
         primaryActionLabel: "Hapus",
         isDestructive: true,
@@ -216,49 +237,45 @@ class _CategoryPageState extends State<CategoryPage> {
       appBar: AppBar(
         title: Text(
           "Manajemen Kategori",
-          style: GoogleFonts.poppins(
-            fontWeight: FontWeight.bold,
+          style: GoogleFonts.plusJakartaSans(
+            fontWeight: FontWeight.w600,
             color: isDark ? Colors.white : const Color(0xFF2D3436),
           ),
         ),
         backgroundColor: Colors.transparent,
         elevation: 0,
         centerTitle: true,
-        leading: Builder(
-          builder: (ctx) {
-            final isWide = MediaQuery.of(ctx).size.width >= 720;
-            if (isWide) return const SizedBox.shrink();
-
-            if (widget.onMenuPressed != null) {
-              return IconButton(
+        leading: widget.onBack != null
+            ? IconButton(
                 icon: Icon(
-                  CupertinoIcons.bars,
+                  Icons.arrow_back,
                   color: isDark ? Colors.white : const Color(0xFF2D3436),
                 ),
-                onPressed: widget.onMenuPressed,
-              );
-            }
-
-            if (Navigator.canPop(context)) {
-              return IconButton(
+                onPressed: widget.onBack,
+              )
+            : const SizedBox.shrink(),
+        actions: [
+          if (widget.onNavigateToProducts != null)
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: TextButton.icon(
+                onPressed: widget.onNavigateToProducts,
                 icon: Icon(
-                  CupertinoIcons.back,
-                  color: isDark ? Colors.white : const Color(0xFF2D3436),
+                  Icons.inventory_2_outlined,
+                  size: 18,
+                  color: isDark ? Colors.white70 : const Color(0xFF2D3436),
                 ),
-                onPressed: () => Navigator.pop(context),
-              );
-            }
-
-            return IconButton(
-              icon: Icon(
-                CupertinoIcons.bars,
-                color: isDark ? Colors.white : const Color(0xFF2D3436),
+                label: Text(
+                  "Produk",
+                  style: GoogleFonts.openSans(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: isDark ? Colors.white70 : const Color(0xFF2D3436),
+                  ),
+                ),
               ),
-              onPressed: () => Scaffold.of(ctx).openDrawer(),
-            );
-          },
-        ),
-        actions: const [],
+            ),
+        ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
@@ -267,11 +284,11 @@ class _CategoryPageState extends State<CategoryPage> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(CupertinoIcons.grid, size: 80, color: Colors.grey[300]),
+                  Icon(Icons.grid_view, size: 80, color: Colors.grey[300]),
                   const SizedBox(height: 16),
                   Text(
                     "Belum ada kategori",
-                    style: GoogleFonts.inter(color: Colors.grey),
+                    style: GoogleFonts.openSans(color: Colors.grey),
                   ),
                 ],
               ),
@@ -300,16 +317,25 @@ class _CategoryPageState extends State<CategoryPage> {
                     leading: CircleAvatar(
                       backgroundColor: Colors.indigo.withValues(alpha: 0.1),
                       child: const Icon(
-                        CupertinoIcons.grid,
+                        Icons.grid_view,
                         color: Colors.indigo,
                         size: 20,
                       ),
                     ),
                     title: Text(
                       cat.name ?? '',
-                      style: GoogleFonts.poppins(
+                      style: GoogleFonts.plusJakartaSans(
                         fontWeight: FontWeight.w600,
+                        fontSize: 15,
                         color: isDark ? Colors.white : const Color(0xFF2D3436),
+                      ),
+                    ),
+                    subtitle: Text(
+                      "${_productCounts[cat.id] ?? 0} Produk",
+                      style: GoogleFonts.openSans(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        color: isDark ? Colors.white38 : Colors.grey[600],
                       ),
                     ),
                     trailing: Row(
@@ -317,7 +343,7 @@ class _CategoryPageState extends State<CategoryPage> {
                       children: [
                         IconButton(
                           icon: const Icon(
-                            CupertinoIcons.pencil,
+                            Icons.edit,
                             size: 20,
                             color: Colors.grey,
                           ),
@@ -325,7 +351,7 @@ class _CategoryPageState extends State<CategoryPage> {
                         ),
                         IconButton(
                           icon: const Icon(
-                            CupertinoIcons.trash,
+                            Icons.delete_outline,
                             size: 20,
                             color: Colors.redAccent,
                           ),
@@ -339,12 +365,12 @@ class _CategoryPageState extends State<CategoryPage> {
             ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _showCategorySheet(),
-        backgroundColor: const Color(0xFFEA5700),
+        backgroundColor: const Color(0xFFC0392B),
         icon: const Icon(Icons.add, color: Colors.white),
         label: Text(
           "Tambah Kategori",
-          style: GoogleFonts.poppins(
-            fontWeight: FontWeight.bold,
+          style: GoogleFonts.plusJakartaSans(
+            fontWeight: FontWeight.w600,
             color: Colors.white,
           ),
         ),
@@ -352,3 +378,4 @@ class _CategoryPageState extends State<CategoryPage> {
     );
   }
 }
+

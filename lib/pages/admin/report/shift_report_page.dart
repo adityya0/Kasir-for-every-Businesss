@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
@@ -58,7 +58,7 @@ class _ShiftReportPageState extends State<ShiftReportPage> {
         return Theme(
           data: Theme.of(context).copyWith(
             colorScheme: const ColorScheme.light(
-              primary: Color(0xFFEA5700),
+              primary: Color(0xFFC0392B),
               onPrimary: Colors.white,
               onSurface: Colors.black,
             ),
@@ -99,8 +99,8 @@ class _ShiftReportPageState extends State<ShiftReportPage> {
       appBar: AppBar(
         title: Text(
           "Laporan Shift",
-          style: GoogleFonts.poppins(
-            fontWeight: FontWeight.bold,
+          style: GoogleFonts.plusJakartaSans(
+            fontWeight: FontWeight.w600,
             color: textColor,
           ),
         ),
@@ -110,7 +110,7 @@ class _ShiftReportPageState extends State<ShiftReportPage> {
         iconTheme: IconThemeData(color: textColor),
         actions: [
           IconButton(
-            icon: const Icon(CupertinoIcons.calendar),
+            icon: const Icon(Icons.calendar_today),
             onPressed: _pickDateRange,
             tooltip: "Filter Tanggal",
           ),
@@ -126,7 +126,7 @@ class _ShiftReportPageState extends State<ShiftReportPage> {
                   Chip(
                     label: Text(
                       "${DateFormat('dd MMM').format(_selectedDateRange!.start)} - ${DateFormat('dd MMM').format(_selectedDateRange!.end)}",
-                      style: GoogleFonts.inter(fontSize: 12),
+                      style: GoogleFonts.openSans(fontSize: 12),
                     ),
                     deleteIcon: const Icon(Icons.close, size: 16),
                     onDeleted: () {
@@ -134,7 +134,7 @@ class _ShiftReportPageState extends State<ShiftReportPage> {
                       _fetchShifts();
                     },
                     backgroundColor: const Color(
-                      0xFFEA5700,
+                      0xFFC0392B,
                     ).withValues(alpha: 0.1),
                     side: BorderSide.none,
                   ),
@@ -150,14 +150,14 @@ class _ShiftReportPageState extends State<ShiftReportPage> {
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Icon(
-                          CupertinoIcons.clock,
+                          Icons.access_time,
                           size: 64,
                           color: Colors.grey[400],
                         ),
                         const SizedBox(height: 16),
                         Text(
                           "Belum ada data shift.",
-                          style: GoogleFonts.inter(color: Colors.grey),
+                          style: GoogleFonts.openSans(color: Colors.grey),
                         ),
                       ],
                     ),
@@ -221,7 +221,7 @@ class _ShiftReportPageState extends State<ShiftReportPage> {
                                     children: [
                                       Text(
                                         name,
-                                        style: GoogleFonts.poppins(
+                                        style: GoogleFonts.plusJakartaSans(
                                           fontWeight: FontWeight.w600,
                                           fontSize: 16,
                                           color: textColor,
@@ -229,10 +229,10 @@ class _ShiftReportPageState extends State<ShiftReportPage> {
                                       ),
                                       Text(
                                         role.toString().toUpperCase(),
-                                        style: GoogleFonts.inter(
+                                        style: GoogleFonts.openSans(
                                           fontSize: 11,
                                           color: Colors.grey,
-                                          fontWeight: FontWeight.bold,
+                                          fontWeight: FontWeight.w600,
                                         ),
                                       ),
                                     ],
@@ -255,9 +255,9 @@ class _ShiftReportPageState extends State<ShiftReportPage> {
                                         : status == 'finished'
                                         ? 'SELESAI'
                                         : status.toString().toUpperCase(),
-                                    style: GoogleFonts.inter(
+                                    style: GoogleFonts.openSans(
                                       fontSize: 10,
-                                      fontWeight: FontWeight.bold,
+                                      fontWeight: FontWeight.w600,
                                       color: _getStatusColor(status),
                                     ),
                                   ),
@@ -276,7 +276,7 @@ class _ShiftReportPageState extends State<ShiftReportPage> {
                                   isLeft: true,
                                 ),
                                 const Icon(
-                                  CupertinoIcons.arrow_right,
+                                  Icons.arrow_forward,
                                   size: 16,
                                   color: Colors.grey,
                                 ),
@@ -304,14 +304,14 @@ class _ShiftReportPageState extends State<ShiftReportPage> {
                               child: Row(
                                 children: [
                                   const Icon(
-                                    CupertinoIcons.timer,
+                                    Icons.timer,
                                     size: 14,
                                     color: Colors.grey,
                                   ),
                                   const SizedBox(width: 8),
                                   Text(
                                     "Durasi: ${_formatDuration(shift['clock_in'], shift['clock_out'])}",
-                                    style: GoogleFonts.inter(
+                                    style: GoogleFonts.openSans(
                                       fontSize: 12,
                                       color: Colors.grey[700],
                                     ),
@@ -344,9 +344,9 @@ class _ShiftReportPageState extends State<ShiftReportPage> {
       children: [
         Text(
           label,
-          style: GoogleFonts.inter(
+          style: GoogleFonts.openSans(
             fontSize: 10,
-            fontWeight: FontWeight.bold,
+            fontWeight: FontWeight.w600,
             color: Colors.grey,
             letterSpacing: 1,
           ),
@@ -354,7 +354,7 @@ class _ShiftReportPageState extends State<ShiftReportPage> {
         const SizedBox(height: 4),
         Text(
           time,
-          style: GoogleFonts.poppins(
+          style: GoogleFonts.plusJakartaSans(
             fontSize: 18,
             fontWeight: FontWeight.w600,
             color: textColor,
@@ -363,7 +363,7 @@ class _ShiftReportPageState extends State<ShiftReportPage> {
         if (date.isNotEmpty)
           Text(
             date,
-            style: GoogleFonts.inter(fontSize: 11, color: Colors.grey[600]),
+            style: GoogleFonts.openSans(fontSize: 11, color: Colors.grey[600]),
           ),
       ],
     );
@@ -382,3 +382,4 @@ class _ShiftReportPageState extends State<ShiftReportPage> {
     }
   }
 }
+

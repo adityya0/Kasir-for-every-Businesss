@@ -3,27 +3,26 @@ import 'package:flutter/cupertino.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../../../controllers/admin_controller.dart';
-
 import 'tabs/transactions_tab.dart';
-import 'tabs/performance_tab.dart';
 import '../../../services/export_service.dart';
 import '../../../services/platform/file_manager.dart';
 import 'package:intl/intl.dart';
-
-import '../../../widgets/kasir_drawer.dart';
-import '../../user/widgets/kasir_side_navigation.dart';
 import '../../../services/app_database.dart';
 import 'package:drift/drift.dart' hide Column;
 import '../../../controllers/settings_controller.dart';
+import '../../../widgets/custom_toast.dart';
+import '../../../widgets/reset_transactions_dialog.dart';
 
 class HistoryPage extends StatefulWidget {
   final String? storeId;
   final VoidCallback? onMenuPressed;
+  final VoidCallback? onBack;
   final bool showSidebar;
   const HistoryPage({
     super.key,
     this.storeId,
     this.onMenuPressed,
+    this.onBack,
     this.showSidebar = true,
   });
 
@@ -34,6 +33,7 @@ class HistoryPage extends StatefulWidget {
 class _HistoryPageState extends State<HistoryPage> {
   String? _storeId;
   bool _isLoading = true;
+  Key _tabKey = UniqueKey();
 
   @override
   void initState() {
@@ -50,7 +50,7 @@ class _HistoryPageState extends State<HistoryPage> {
     final adminCtrl = Provider.of<AdminController>(context, listen: false);
     if (mounted) {
       setState(() {
-        _storeId = adminCtrl.userProfile?['store_id'];
+        _storeId = adminCtrl.storeId;
         _isLoading = false;
       });
     }
@@ -61,133 +61,109 @@ class _HistoryPageState extends State<HistoryPage> {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
-    return DefaultTabController(
-      length: 2,
-      child: Scaffold(
-        backgroundColor: theme.scaffoldBackgroundColor,
-        drawer: widget.showSidebar
-            ? const KasirDrawer(currentRoute: '/order-history')
-            : null,
-        body: LayoutBuilder(
-          builder: (context, constraints) {
-            final isWideScreen = constraints.maxWidth >= 720;
-
-            final content = Scaffold(
-              backgroundColor: Colors.transparent,
-              appBar: AppBar(
-                title: Text(
-                  SettingsController.instance.getString('history_performance'),
-                  style: GoogleFonts.poppins(
-                    fontWeight: FontWeight.bold,
-                    color: isDark ? Colors.white : const Color(0xFF2D3436),
-                  ),
-                ),
-                backgroundColor: Colors.transparent,
-                elevation: 0,
-                centerTitle: true,
-                actions: [
-                  IconButton(
-                    onPressed: () => _showExportMenu(context),
-                    icon: const Icon(Icons.ios_share_rounded),
-                    tooltip: SettingsController.instance.getString(
-                      'export_report',
+    return Scaffold(
+      backgroundColor: isDark ? const Color(0xFF121212) : Colors.white,
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          final content = Scaffold(
+            backgroundColor: isDark ? const Color(0xFF121212) : Colors.white,
+            appBar: AppBar(
+              title: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Image.asset(
+                      'assets/logo/logo.png',
+                      height: 24,
+                      fit: BoxFit.contain,
                     ),
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 12),
+                  Text(
+                    "Riwayat Transaksi",
+                    style: GoogleFonts.plusJakartaSans(
+                      fontWeight: FontWeight.w700,
+                      color: isDark ? Colors.white : const Color(0xFF2D3436),
+                      fontSize: 18,
+                    ),
+                  ),
                 ],
-                leading: Builder(
-                  builder: (ctx) {
-                    if (isWideScreen) return const SizedBox.shrink();
-
-                    if (widget.onMenuPressed != null) {
-                      return IconButton(
-                        icon: Icon(
-                          CupertinoIcons.bars,
-                          color: isDark
-                              ? Colors.white
-                              : const Color(0xFF2D3436),
-                        ),
-                        onPressed: widget.onMenuPressed,
-                      );
-                    }
-
-                    if (Navigator.canPop(context)) {
-                      return IconButton(
-                        icon: Icon(
-                          CupertinoIcons.back,
-                          color: isDark
-                              ? Colors.white
-                              : const Color(0xFF2D3436),
-                        ),
-                        onPressed: () => Navigator.pop(context),
-                      );
-                    }
-
+              ),
+              backgroundColor: isDark ? const Color(0xFF1A1C1E) : Colors.white,
+              elevation: 0,
+              centerTitle: false,
+              automaticallyImplyLeading: false,
+              bottom: PreferredSize(
+                preferredSize: const Size.fromHeight(1),
+                child: Container(
+                  color: isDark ? const Color(0xFF374151) : const Color(0xFFE2E8F0),
+                  height: 1,
+                ),
+              ),
+              actions: [
+                Consumer<AdminController>(
+                  builder: (context, adminCtrl, _) {
+                    final isAdmin = adminCtrl.role == 'admin' || adminCtrl.role == 'owner';
+                    if (!isAdmin || _storeId == null) return const SizedBox.shrink();
                     return IconButton(
-                      icon: Icon(
-                        CupertinoIcons.bars,
-                        color: isDark ? Colors.white : const Color(0xFF2D3436),
+                      onPressed: () => ResetTransactionsDialog.show(
+                        context,
+                        storeId: _storeId!,
+                        onResetSuccess: () {
+                          setState(() {
+                            _tabKey = UniqueKey();
+                          });
+                        },
                       ),
-                      onPressed: () => Scaffold.of(ctx).openDrawer(),
+                      icon: const Icon(Icons.delete_sweep_rounded, color: Color(0xFFEF4444)),
+                      tooltip: "Reset Riwayat Transaksi",
                     );
                   },
                 ),
-                bottom: TabBar(
-                  indicatorColor: const Color(0xFFEA5700),
-                  labelColor: const Color(0xFFEA5700),
-                  unselectedLabelColor: Colors.grey,
-                  labelStyle: GoogleFonts.poppins(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 13,
+                IconButton(
+                  onPressed: () => _showExportMenu(context),
+                  icon: const Icon(Icons.ios_share_rounded),
+                  tooltip: SettingsController.instance.getString(
+                    'export_report',
                   ),
-                  tabs: [
-                    Tab(
-                      text: SettingsController.instance
-                          .getString('transactions')
-                          .toUpperCase(),
-                      icon: const Icon(CupertinoIcons.list_bullet, size: 20),
-                    ),
-                    Tab(
-                      text: SettingsController.instance.getString(
-                        'performance_staff',
-                      ),
-                      icon: const Icon(CupertinoIcons.graph_square, size: 20),
-                    ),
-                  ],
                 ),
-              ),
-              body: Consumer<AdminController>(
-                builder: (context, adminCtrl, child) {
-                  if (_isLoading || adminCtrl.isInitializing) {
-                    return const Center(child: CupertinoActivityIndicator());
+                const SizedBox(width: 8),
+              ],
+              leading: IconButton(
+                icon: Icon(
+                  Icons.arrow_back,
+                  color: isDark ? Colors.white : const Color(0xFF2D3436),
+                ),
+                onPressed: () {
+                  if (widget.onBack != null) {
+                    widget.onBack!();
+                  } else if (Navigator.canPop(context)) {
+                    Navigator.pop(context);
                   }
-
-                  if (_storeId == null) {
-                    return const Center(child: Text("Toko tidak ditemukan"));
-                  }
-
-                  return TabBarView(
-                    children: [
-                      TransactionsTab(storeId: _storeId!),
-                      PerformanceTab(storeId: _storeId!),
-                    ],
-                  );
                 },
               ),
-            );
+            ),
+            body: Consumer<AdminController>(
+              builder: (context, adminCtrl, child) {
+                if (_isLoading || adminCtrl.isInitializing) {
+                  return const Center(child: CupertinoActivityIndicator());
+                }
 
-            if (isWideScreen && widget.showSidebar) {
-              return Row(
-                children: [
-                  const KasirSideNavigation(currentRoute: '/order-history'),
-                  Expanded(child: content),
-                ],
-              );
-            }
+                if (_storeId == null) {
+                  return const Center(child: Text("Toko tidak ditemukan"));
+                }
 
-            return content;
-          },
-        ),
+                return TransactionsTab(key: _tabKey, storeId: _storeId!);
+              },
+            ),
+          );
+
+          return content;
+        },
       ),
     );
   }
@@ -206,8 +182,8 @@ class _HistoryPageState extends State<HistoryPage> {
               padding: const EdgeInsets.symmetric(vertical: 20),
               child: Text(
                 SettingsController.instance.getString('export_history_title'),
-                style: GoogleFonts.poppins(
-                  fontWeight: FontWeight.bold,
+                style: GoogleFonts.plusJakartaSans(
+                  fontWeight: FontWeight.w600,
                   fontSize: 16,
                 ),
               ),
@@ -243,7 +219,6 @@ class _HistoryPageState extends State<HistoryPage> {
     final db = context.read<AppDatabase>();
     final exportService = ExportService();
 
-    // Show loading? Maybe just do it.
     try {
       final transactions =
           await (db.select(db.transactions)
@@ -253,9 +228,7 @@ class _HistoryPageState extends State<HistoryPage> {
 
       if (transactions.isEmpty) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Tidak ada transaksi untuk diekspor")),
-          );
+          CustomToast.show(context, "Tidak ada transaksi untuk diekspor", isError: true);
         }
         return;
       }
@@ -266,7 +239,7 @@ class _HistoryPageState extends State<HistoryPage> {
 
       if (type == 'pdf') {
         bytes = await exportService.generateTransactionsPdf(
-          "ASRI Store",
+          "Warkop Alam POS",
           transactions,
         );
         filename =
@@ -274,7 +247,7 @@ class _HistoryPageState extends State<HistoryPage> {
         mimeType = "application/pdf";
       } else {
         bytes = await exportService.generateTransactionsExcel(
-          "ASRI Store",
+          "Warkop Alam POS",
           transactions,
         );
         filename =
@@ -290,9 +263,7 @@ class _HistoryPageState extends State<HistoryPage> {
       );
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text("Gagal ekspor: $e")));
+        CustomToast.show(context, "Gagal ekspor: $e", isError: true);
       }
     }
   }

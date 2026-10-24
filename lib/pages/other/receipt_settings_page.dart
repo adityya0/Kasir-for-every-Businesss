@@ -11,7 +11,7 @@ class ReceiptSettingsPage extends StatelessWidget {
       appBar: AppBar(
         title: const Text(
           "Atur Layout Struk",
-          style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+          style: TextStyle(fontWeight: FontWeight.w600, color: Colors.white),
         ),
         flexibleSpace: Container(
           decoration: const BoxDecoration(gradient: AppTheme.defaultGradient),

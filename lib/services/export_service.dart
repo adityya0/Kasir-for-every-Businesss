@@ -277,11 +277,245 @@ class ExportService {
         TextCellValue(p.categoryId ?? '-'),
         DoubleCellValue(p.basePrice ?? 0.0),
         DoubleCellValue(p.salePrice ?? 0.0),
-        IntCellValue(p.stockQuantity ?? 0),
+        DoubleCellValue(p.stockQuantity ?? 0.0),
         TextCellValue('pcs'), // Default unit
       ]);
     }
 
     return Uint8List.fromList(excel.encode()!);
+  }
+
+  /// Generates a comprehensive financial report
+  Future<Uint8List> generateFinancialReportExcel({
+    required String storeName,
+    required List<Transaction> transactions,
+    required List<Expense> expenses,
+  }) async {
+    var excel = Excel.createExcel();
+
+    // 1. Summary Sheet
+    var summarySheetName = "Ringkasan";
+    excel.rename("Sheet1", summarySheetName);
+    var summary = excel[summarySheetName];
+
+    double totalSales = transactions.fold(
+      0,
+      (sum, tx) => sum + (tx.totalAmount ?? 0),
+    );
+    double totalExpenses = expenses.fold(
+      0,
+      (sum, ex) => sum + (ex.amount ?? 0),
+    );
+
+    summary.appendRow([
+      TextCellValue("Laporan Keuangan Komprehensif - $storeName"),
+    ]);
+    summary.appendRow([TextCellValue("Periode: Semua Waktu")]);
+    summary.appendRow([]);
+    summary.appendRow([TextCellValue("RINGKASAN"), TextCellValue("TOTAL")]);
+    summary.appendRow([
+      TextCellValue("Total Pemasukan"),
+      DoubleCellValue(totalSales),
+    ]);
+    summary.appendRow([
+      TextCellValue("Total Pengeluaran"),
+      DoubleCellValue(totalExpenses),
+    ]);
+    summary.appendRow([
+      TextCellValue("Laba Bersih"),
+      DoubleCellValue(totalSales - totalExpenses),
+    ]);
+
+    // 2. Transactions Sheet
+    var txSheetName = "Transaksi_Detail";
+    var txSheet = excel[txSheetName];
+    txSheet.appendRow([
+      TextCellValue("Tanggal"),
+      TextCellValue("ID"),
+      TextCellValue("Metode"),
+      TextCellValue("Total"),
+    ]);
+    for (var tx in transactions) {
+      txSheet.appendRow([
+        TextCellValue(
+          DateFormat('yyyy-MM-dd HH:mm').format(tx.createdAt ?? DateTime.now()),
+        ),
+        TextCellValue(tx.id),
+        TextCellValue(tx.paymentMethod ?? '-'),
+        DoubleCellValue(tx.totalAmount ?? 0),
+      ]);
+    }
+
+    // 3. Expenses Sheet
+    var expSheetName = "Pengeluaran_Detail";
+    var expSheet = excel[expSheetName];
+    expSheet.appendRow([
+      TextCellValue("Tanggal"),
+      TextCellValue("Kategori"),
+      TextCellValue("Keterangan"),
+      TextCellValue("Jumlah"),
+    ]);
+    for (var ex in expenses) {
+      expSheet.appendRow([
+        TextCellValue(
+          DateFormat('yyyy-MM-dd HH:mm').format(ex.date ?? DateTime.now()),
+        ),
+        TextCellValue(ex.category),
+        TextCellValue(ex.notes ?? '-'),
+        DoubleCellValue(ex.amount ?? 0),
+      ]);
+    }
+
+    return Uint8List.fromList(excel.encode()!);
+  }
+
+  /// Generates a comprehensive financial report in PDF
+  Future<Uint8List> generateFinancialReportPdf({
+    required String storeName,
+    required List<Transaction> transactions,
+    required List<Expense> expenses,
+  }) async {
+    final pdf = pw.Document();
+
+    double totalSales = transactions.fold(
+      0,
+      (sum, tx) => sum + (tx.totalAmount ?? 0),
+    );
+    double totalExpenses = expenses.fold(
+      0,
+      (sum, ex) => sum + (ex.amount ?? 0),
+    );
+
+    pdf.addPage(
+      pw.MultiPage(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(32),
+        build: (context) => [
+          pw.Header(
+            level: 0,
+            child: pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                pw.Text(
+                  "Laporan Keuangan Keseluruhan",
+                  style: pw.TextStyle(
+                    fontSize: 18,
+                    fontWeight: pw.FontWeight.bold,
+                  ),
+                ),
+                pw.Text(storeName, style: const pw.TextStyle(fontSize: 12)),
+              ],
+            ),
+          ),
+          pw.SizedBox(height: 20),
+
+          // summary section
+          pw.Text(
+            "RINGKASAN",
+            style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold),
+          ),
+          pw.Divider(),
+          pw.Row(
+            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+            children: [
+              pw.Text("Total Pemasukan (Omzet)"),
+              pw.Text(
+                _currencyFormat.format(totalSales),
+                style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+              ),
+            ],
+          ),
+          pw.Row(
+            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+            children: [
+              pw.Text("Total Pengeluaran"),
+              pw.Text(
+                _currencyFormat.format(totalExpenses),
+                style: pw.TextStyle(
+                  fontWeight: pw.FontWeight.bold,
+                  color: PdfColors.red,
+                ),
+              ),
+            ],
+          ),
+          pw.Divider(),
+          pw.Row(
+            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+            children: [
+              pw.Text("LABA BERSIH"),
+              pw.Text(
+                _currencyFormat.format(totalSales - totalExpenses),
+                style: pw.TextStyle(
+                  fontWeight: pw.FontWeight.bold,
+                  fontSize: 14,
+                  color: (totalSales - totalExpenses) >= 0
+                      ? PdfColors.green
+                      : PdfColors.red,
+                ),
+              ),
+            ],
+          ),
+          pw.SizedBox(height: 30),
+
+          // Transactions List
+          pw.Text(
+            "DETAIL PEMASUKAN",
+            style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold),
+          ),
+          pw.SizedBox(height: 10),
+          pw.TableHelper.fromTextArray(
+            headers: ['Tanggal', 'ID', 'Metode', 'Total'],
+            data: transactions.map((tx) {
+              return [
+                DateFormat(
+                  'dd/MM/yy HH:mm',
+                ).format(tx.createdAt ?? DateTime.now()),
+                tx.id.substring(0, 8),
+                (tx.paymentMethod ?? '-').toUpperCase(),
+                _currencyFormat.format(tx.totalAmount ?? 0),
+              ];
+            }).toList(),
+            headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+            cellAlignment: pw.Alignment.centerLeft,
+            cellAlignments: {3: pw.Alignment.centerRight},
+          ),
+          pw.SizedBox(height: 30),
+
+          // Expenses List
+          pw.Text(
+            "DETAIL PENGELUARAN",
+            style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold),
+          ),
+          pw.SizedBox(height: 10),
+          pw.TableHelper.fromTextArray(
+            headers: ['Tanggal', 'Kategori', 'Keterangan', 'Jumlah'],
+            data: expenses.map((ex) {
+              return [
+                DateFormat('dd/MM/yy HH:mm').format(ex.date ?? DateTime.now()),
+                ex.category,
+                ex.notes ?? '-',
+                _currencyFormat.format(ex.amount ?? 0),
+              ];
+            }).toList(),
+            headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+            cellAlignment: pw.Alignment.centerLeft,
+            cellAlignments: {3: pw.Alignment.centerRight},
+          ),
+          pw.Footer(
+            margin: const pw.EdgeInsets.only(top: 20),
+            padding: const pw.EdgeInsets.only(top: 10),
+            decoration: const pw.BoxDecoration(
+              border: pw.Border(top: pw.BorderSide(color: PdfColors.grey300)),
+            ),
+            trailing: pw.Text(
+              "Dicetak pada: ${DateFormat('dd MMM yyyy, HH:mm').format(DateTime.now())}",
+              style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    return pdf.save();
   }
 }

@@ -5,17 +5,8 @@ import 'package:path/path.dart' as p;
 import '../../services/platform/file_manager.dart';
 
 import 'package:provider/provider.dart';
-import '../../controllers/theme_controller.dart';
 import '../../controllers/admin_controller.dart';
 import '../../services/app_database.dart';
-import 'employee_page.dart';
-import 'package:flutter/cupertino.dart';
-import '../../controllers/settings_controller.dart';
-import '../../services/backup_service.dart';
-
-import 'package:file_picker/file_picker.dart';
-import 'dart:io';
-import 'payment_settings_page.dart';
 
 class ProfilePage extends StatefulWidget {
   final String storeId;
@@ -28,12 +19,10 @@ class ProfilePage extends StatefulWidget {
 
 class _ProfilePageState extends State<ProfilePage> {
   bool _isLoading = false;
-  String? _fullName;
-  String? _avatarUrl;
   String? _storeName;
   String? _storeLogo;
 
-  final Color _primaryColor = const Color(0xFFEA5700);
+  final Color _primaryColor = const Color(0xFFC0392B);
 
   @override
   void initState() {
@@ -52,8 +41,6 @@ class _ProfilePageState extends State<ProfilePage> {
     try {
       if (mounted) {
         setState(() {
-          _fullName = adminCtrl.userName;
-          _avatarUrl = adminCtrl.profileUrl;
           _storeName = adminCtrl.storeName;
           _storeLogo = adminCtrl.storeLogo;
         });
@@ -69,7 +56,6 @@ class _ProfilePageState extends State<ProfilePage> {
           setState(() {
             _storeName = storeData.name;
             _storeLogo = storeData.logoUrl;
-            _avatarUrl = storeData.adminAvatar;
           });
         }
       }
@@ -80,121 +66,89 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
-  Future<void> _updateAvatar() async {
-    final picker = ImagePicker();
-    final image = await picker.pickImage(
-      source: ImageSource.gallery,
-      imageQuality: 70,
-    );
-    if (image == null) return;
-    if (!mounted) return;
-
-    setState(() => _isLoading = true);
-    try {
-      final adminCtrl = context.read<AdminController>();
-      final userId = adminCtrl.userId;
-
-      final fileName =
-          'profile_${userId}_${DateTime.now().millisecondsSinceEpoch}${p.extension(image.path)}';
-      final savedPath = await FileManager().saveFile(image, fileName);
-
-      await adminCtrl.updateProfile(avatarUrl: savedPath);
-
-      setState(() {
-        _avatarUrl = savedPath;
-      });
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Foto profil diperbarui!"),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
-    } catch (e) {
-      debugPrint("Update Avatar Error: $e");
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text("Gagal memperbarui foto: $e"),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
-    }
-  }
-
-  Future<void> _editName() async {
-    final controller = TextEditingController(text: _fullName);
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-
-    final newName = await showDialog<String>(
+  void _showLogoSourceDialog() {
+    showModalBottomSheet(
       context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: theme.cardColor,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Text(
-          "Ubah Nama",
-          style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          color: Theme.of(context).cardColor,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
         ),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          style: GoogleFonts.inter(
-            color: isDark ? Colors.white : Colors.black87,
-          ),
-          decoration: InputDecoration(
-            hintText: "Nama Lengkap",
-            fillColor: Colors.grey.withValues(alpha: 0.1),
-            filled: true,
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide.none,
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text("Batal", style: GoogleFonts.inter(color: Colors.grey)),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: _primaryColor,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              "Ganti Logo Toko",
+              style: GoogleFonts.plusJakartaSans(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
               ),
             ),
-            onPressed: () => Navigator.pop(context, controller.text.trim()),
-            child: const Text("Simpan", style: TextStyle(color: Colors.white)),
+            const SizedBox(height: 24),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                _buildSourceOption(
+                  icon: Icons.camera_alt_rounded,
+                  label: "Kamera",
+                  onTap: () {
+                    Navigator.pop(context);
+                    _pickStoreLogo(ImageSource.camera);
+                  },
+                ),
+                _buildSourceOption(
+                  icon: Icons.photo_library_rounded,
+                  label: "Galeri",
+                  onTap: () {
+                    Navigator.pop(context);
+                    _pickStoreLogo(ImageSource.gallery);
+                  },
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSourceOption({
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: _primaryColor.withValues(alpha: 0.1),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, color: _primaryColor, size: 30),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            label,
+            style: GoogleFonts.openSans(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ],
       ),
     );
-
-    if (newName != null && newName.isNotEmpty) {
-      if (!mounted) return;
-      setState(() => _isLoading = true);
-      try {
-        final adminCtrl = context.read<AdminController>();
-        await adminCtrl.updateProfile(name: newName);
-        setState(() => _fullName = newName);
-      } catch (e) {
-        debugPrint("Update Name Error: $e");
-      } finally {
-        if (mounted) setState(() => _isLoading = false);
-      }
-    }
   }
 
-  Future<void> _updateStoreLogo() async {
+  Future<void> _pickStoreLogo(ImageSource source) async {
     final picker = ImagePicker();
     final image = await picker.pickImage(
-      source: ImageSource.gallery,
+      source: source,
       imageQuality: 70,
     );
     if (image == null) return;
@@ -207,10 +161,15 @@ class _ProfilePageState extends State<ProfilePage> {
       final savedPath = await FileManager().saveFile(image, fileName);
 
       if (!mounted) return;
+      PaintingBinding.instance.imageCache.clear();
+      PaintingBinding.instance.imageCache.clearLiveImages();
+
       final adminCtrl = context.read<AdminController>();
       await adminCtrl.updateStoreBranding(logoUrl: savedPath);
 
-      setState(() => _storeLogo = savedPath);
+      if (mounted) {
+        setState(() => _storeLogo = savedPath);
+      }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -239,16 +198,16 @@ class _ProfilePageState extends State<ProfilePage> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Text(
           "Ubah Nama Toko",
-          style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
+          style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w600),
         ),
         content: TextField(
           controller: controller,
           autofocus: true,
-          style: GoogleFonts.inter(
+          style: GoogleFonts.openSans(
             color: isDark ? Colors.white : Colors.black87,
           ),
           decoration: InputDecoration(
-            hintText: "Nama Toko (Contoh: Steak Asri)",
+            hintText: "Nama Toko (Contoh: Warkop Alam POS)",
             fillColor: Colors.grey.withValues(alpha: 0.1),
             filled: true,
             border: OutlineInputBorder(
@@ -260,7 +219,7 @@ class _ProfilePageState extends State<ProfilePage> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: Text("Batal", style: GoogleFonts.inter(color: Colors.grey)),
+            child: Text("Batal", style: GoogleFonts.openSans(color: Colors.grey)),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
@@ -307,8 +266,8 @@ class _ProfilePageState extends State<ProfilePage> {
               ),
               title: Text(
                 "RESET TOKO?",
-                style: GoogleFonts.poppins(
-                  fontWeight: FontWeight.bold,
+                style: GoogleFonts.plusJakartaSans(
+                  fontWeight: FontWeight.w600,
                   color: Colors.red,
                 ),
               ),
@@ -317,7 +276,7 @@ class _ProfilePageState extends State<ProfilePage> {
                 children: [
                   Text(
                     "Tindakan ini akan MENGHAPUS SEMUA RIWAYAT PENJUALAN dan LAPORAN. Data yang dihapus tidak dapat dikembalikan.",
-                    style: GoogleFonts.inter(fontSize: 13),
+                    style: GoogleFonts.openSans(fontSize: 13),
                   ),
                   const SizedBox(height: 16),
                   CheckboxListTile(
@@ -325,7 +284,7 @@ class _ProfilePageState extends State<ProfilePage> {
                     onChanged: (val) => setState(() => deleteProducts = val!),
                     title: Text(
                       "Hapus juga semua produk?",
-                      style: GoogleFonts.inter(fontSize: 13),
+                      style: GoogleFonts.openSans(fontSize: 13),
                     ),
                     controlAffinity: ListTileControlAffinity.leading,
                     contentPadding: EdgeInsets.zero,
@@ -391,792 +350,409 @@ class _ProfilePageState extends State<ProfilePage> {
     });
   }
 
-  Future<void> _backupData() async {
-    setState(() => _isLoading = true);
-    try {
-      final db = context.read<AppDatabase>();
-      // share: true triggers the system share-sheet (old method)
-      await BackupService(db).createFullBackup();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Backup berhasil dibuat & dibagikan!"),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text("Gagal backup: $e"),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
-    }
-  }
-
-  Future<void> _restoreData() async {
-    // 1. Pick File
-    FilePickerResult? result = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: ['zip'],
-    );
-
-    if (result == null || result.files.single.path == null) return;
-
-    final path = result.files.single.path;
-    if (path == null) return;
-
-    if (!mounted) return;
-
-    // 2. Confirmation Dialog
-    final confirm = await showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        title: Text(
-          "RESTORE DATA?",
-          style: GoogleFonts.poppins(
-            fontWeight: FontWeight.bold,
-            color: Colors.orange,
-          ),
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(
-              Icons.warning_amber_rounded,
-              size: 48,
-              color: Colors.orange,
-            ),
-            const SizedBox(height: 10),
-            Text(
-              "Perhatian: Tindakan ini akan MENGGANTI SEMUA DATA yang ada di aplikasi ini dengan data dari file backup.",
-              textAlign: TextAlign.center,
-              style: GoogleFonts.inter(),
-            ),
-            const SizedBox(height: 10),
-            Text(
-              "Aplikasi akan otomatis RESTART setelah proses selesai.",
-              textAlign: TextAlign.center,
-              style: GoogleFonts.inter(fontWeight: FontWeight.bold),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text("Batal"),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text(
-              "TIMPA & RESTORE",
-              style: TextStyle(color: Colors.white),
-            ),
-          ),
-        ],
-      ),
-    );
-
-    if (confirm != true) return;
-
-    if (!mounted) return;
-    setState(() => _isLoading = true);
-
-    try {
-      final db = context.read<AppDatabase>();
-      await BackupService(db).restoreFullBackup(path);
-
-      // 6. Show Success & Restart/Prompt
-      if (mounted) {
-        setState(() => _isLoading = false);
-
-        // Check if Desktop
-        final isDesktop =
-            Theme.of(context).platform == TargetPlatform.windows ||
-            Theme.of(context).platform == TargetPlatform.linux ||
-            Theme.of(context).platform == TargetPlatform.macOS;
-
-        if (isDesktop) {
-          showDialog(
-            context: context,
-            barrierDismissible: false,
-            builder: (ctx) => AlertDialog(
-              title: const Text("Restore Berhasil"),
-              content: const Text(
-                "Data berhasil dipulihkan.\n\nSilakan RESTART aplikasi secara manual untuk melihat perubahan.",
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => exit(0), // Quit the app
-                  child: const Text("Keluar Aplikasi"),
-                ),
-              ],
-            ),
-          );
-        } else {
-          // Mobile: Will restart automatically
-        }
-      }
-    } catch (e, stackTrace) {
-      debugPrint("Restore Error: $e");
-      debugPrint("Stack Trace: $stackTrace");
-      if (mounted) {
-        setState(() => _isLoading = false);
-        showDialog(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Text("Gagal Restore"),
-            content: Text("Error: $e"),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text("OK"),
-              ),
-            ],
-          ),
-        );
-      }
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final adminCtrl = context.watch<AdminController>();
-
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
+    final borderColor = isDark ? const Color(0xFF374151) : const Color(0xFFCBD5E1);
+    final cardBg = isDark ? const Color(0xFF1E1E1E) : Colors.white;
+    final currentLogo = _storeLogo ?? adminCtrl.storeLogo;
+    final currentName = _storeName ?? adminCtrl.storeName ?? 'Toko Saya';
 
     return Scaffold(
-      backgroundColor: theme.scaffoldBackgroundColor,
+      backgroundColor: isDark ? const Color(0xFF121212) : const Color(0xFFF8FAFC),
       appBar: AppBar(
         title: Text(
-          SettingsController.instance.getString('profile_title'),
-          style: GoogleFonts.poppins(
-            fontWeight: FontWeight.bold,
-            color: isDark ? Colors.white : const Color(0xFF2D3436),
+          "Profil Toko",
+          style: GoogleFonts.plusJakartaSans(
+            fontWeight: FontWeight.w700,
+            fontSize: 18,
+            color: isDark ? Colors.white : const Color(0xFF0F172A),
           ),
         ),
-        leading: Builder(
-          builder: (ctx) {
-            final isWide = MediaQuery.of(ctx).size.width >= 720;
-            if (isWide) return const SizedBox.shrink();
-
-            if (Navigator.canPop(context)) {
-              return IconButton(
+        backgroundColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+        elevation: 0,
+        centerTitle: false,
+        automaticallyImplyLeading: false,
+        leading: Navigator.canPop(context)
+            ? IconButton(
                 icon: Icon(
-                  CupertinoIcons.back,
-                  color: isDark ? Colors.white : const Color(0xFF2D3436),
+                  Icons.arrow_back,
+                  color: isDark ? Colors.white : const Color(0xFF0F172A),
                 ),
                 onPressed: () => Navigator.pop(context),
-              );
-            }
-
-            return IconButton(
-              icon: Icon(
-                CupertinoIcons.bars,
-                color: isDark ? Colors.white : const Color(0xFF2D3436),
-              ),
-              onPressed: () {
-                if (widget.onMenuPressed != null) {
-                  widget.onMenuPressed!();
-                } else {
-                  Scaffold.of(context).openDrawer();
-                }
-              },
-            );
-          },
-        ),
-        iconTheme: IconThemeData(
-          color: isDark ? Colors.white : const Color(0xFF2D3436),
+              )
+            : (widget.onMenuPressed != null
+                ? IconButton(
+                    icon: Icon(
+                      Icons.menu,
+                      color: isDark ? Colors.white : const Color(0xFF0F172A),
+                    ),
+                    onPressed: widget.onMenuPressed,
+                  )
+                : null),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh_rounded),
+            tooltip: "Segarkan",
+            onPressed: _loadProfile,
+          ),
+          const SizedBox(width: 8),
+        ],
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(1),
+          child: Container(
+            color: borderColor,
+            height: 1,
+          ),
         ),
       ),
-      body: Column(
-        children: [
-          if (_isLoading) const LinearProgressIndicator(),
-          Expanded(
-            child: SingleChildScrollView(
-              child: Column(
-                children: [
-                  const SizedBox(height: 20),
-                  _buildProfileHeader(adminCtrl),
-                  const SizedBox(height: 30),
-                  _buildSectionTitle(
-                    SettingsController.instance.getString('admin_account'),
-                  ),
-                  _buildMenuSection([
-                    _ProfileMenuItem(
-                      label: SettingsController.instance.getString('edit_name'),
-                      icon: CupertinoIcons.person,
-                      onTap: _editName,
-                    ),
-                    _ProfileMenuItem(
-                      label: SettingsController.instance.getString(
-                        'change_admin_photo',
-                      ),
-                      icon: CupertinoIcons.camera,
-                      onTap: _updateAvatar,
-                    ),
-                    _ProfileMenuItem(
-                      label: SettingsController.instance.getString(
-                        'employee_list',
-                      ),
-                      icon: CupertinoIcons.person_3,
-                      onTap: () => Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => EmployeePage(storeId: widget.storeId),
-                        ),
-                      ),
-                    ),
-                  ]),
-                  const SizedBox(height: 30),
-                  _buildSectionTitle(
-                    SettingsController.instance.getString('branding'),
-                  ),
-                  _buildMenuSection([
-                    _ProfileMenuItem(
-                      label: SettingsController.instance.getString(
-                        'edit_store_name',
-                      ),
-                      icon: CupertinoIcons.tag,
-                      onTap: _editStoreName,
-                    ),
-                    _ProfileMenuItem(
-                      label: SettingsController.instance.getString(
-                        'change_store_logo',
-                      ),
-                      icon: CupertinoIcons.photo,
-                      onTap: _updateStoreLogo,
-                      trailing: _storeLogo != null
-                          ? Container(
-                              width: 32,
-                              height: 32,
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(6),
-                                image: DecorationImage(
-                                  image: FileManager().getImageProvider(
-                                    _storeLogo!,
-                                  ),
-                                  fit: BoxFit.cover,
-                                ),
-                              ),
-                            )
-                          : null,
-                    ),
-                  ]),
-                  const SizedBox(height: 30),
-                  _buildSectionTitle(
-                    SettingsController.instance.getString('payment_services'),
-                  ),
-                  _buildMenuSection([
-                    _ProfileMenuItem(
-                      label: SettingsController.instance.getString(
-                        'payment_methods',
-                      ),
-                      icon: CupertinoIcons.creditcard,
-                      onTap: () => Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) =>
-                              PaymentSettingsPage(storeId: widget.storeId),
-                        ),
-                      ),
-                    ),
-                  ]),
-                  const SizedBox(height: 30),
-                  _buildSectionTitle(
-                    SettingsController.instance.getString('app_settings'),
-                  ),
-                  _buildAppSettings(),
-                  const SizedBox(height: 30),
-                  _buildSectionTitle(
-                    SettingsController.instance.getString('backup_restore'),
-                  ),
-                  _buildMenuSection([
-                    _ProfileMenuItem(
-                      label: SettingsController.instance.getString(
-                        'export_backup',
-                      ),
-                      icon: CupertinoIcons.cloud_upload,
-                      onTap: _backupData,
-                      trailing: const Icon(
-                        CupertinoIcons.share,
-                        size: 18,
-                        color: Colors.grey,
-                      ),
-                    ),
-                    _ProfileMenuItem(
-                      label: SettingsController.instance.getString(
-                        'import_backup',
-                      ),
-                      icon: CupertinoIcons.cloud_download,
-                      onTap: _restoreData,
-                      trailing: const Icon(
-                        CupertinoIcons.add,
-                        size: 18,
-                        color: Colors.grey,
-                      ),
-                    ),
-                  ]),
-
-                  const SizedBox(height: 30),
-                  _buildSectionTitle(
-                    SettingsController.instance.getString('danger_zone'),
-                  ), // Zona Berbahaya
-                  Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 24),
-                    decoration: BoxDecoration(
-                      color: Colors.red.withValues(alpha: 0.05),
-                      borderRadius: BorderRadius.circular(24),
-                      border: Border.all(color: Colors.red, width: 1),
-                    ),
-                    child: ListTile(
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 20,
-                        vertical: 5,
-                      ),
-                      leading: Container(
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: Colors.red.withValues(alpha: 0.1),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: const Icon(
-                          Icons.delete_forever,
-                          color: Colors.red,
-                        ),
-                      ),
-                      title: Text(
-                        SettingsController.instance.getString('reset_store'),
-                        style: GoogleFonts.inter(
-                          fontWeight: FontWeight.bold,
-                          color: Colors.red,
-                        ),
-                      ),
-                      subtitle: Text(
-                        SettingsController.instance.getString('reset_subtitle'),
-                        style: GoogleFonts.inter(
-                          fontSize: 11,
-                          color: Colors.red[300],
-                        ),
-                      ),
-                      onTap: _confirmResetStore,
-                    ),
-                  ),
-                  const SizedBox(height: 30),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 24),
-                    child: SizedBox(
-                      width: double.infinity,
-                      height: 55,
-                      child: OutlinedButton.icon(
-                        onPressed: () async {
-                          final shouldLogout = await showCupertinoDialog<bool>(
-                            context: context,
-                            builder: (context) => CupertinoAlertDialog(
-                              title: const Text("Konfirmasi Keluar"),
-                              content: const Text(
-                                "Apakah Anda yakin ingin keluar dari aplikasi?",
-                              ),
-                              actions: [
-                                CupertinoDialogAction(
-                                  child: const Text("Batal"),
-                                  onPressed: () =>
-                                      Navigator.pop(context, false),
-                                ),
-                                CupertinoDialogAction(
-                                  isDestructiveAction: true,
-                                  child: const Text("Keluar"),
-                                  onPressed: () => Navigator.pop(context, true),
-                                ),
-                              ],
-                            ),
-                          );
-
-                          if (shouldLogout == true) {
-                            if (!context.mounted) return;
-                            Navigator.pushReplacementNamed(context, '/login');
-                          }
-                        },
-                        icon: const Icon(
-                          CupertinoIcons.power,
-                          color: Colors.red,
-                        ),
-                        label: Text(
-                          SettingsController.instance.getString('logout'),
-                          style: GoogleFonts.poppins(
-                            color: Colors.red,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        style: OutlinedButton.styleFrom(
-                          side: const BorderSide(color: Colors.red, width: 1.5),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-
-                  const SizedBox(height: 40),
-                  Text(
-                    "Developed by",
-                    style: GoogleFonts.inter(
-                      fontSize: 11,
-                      color: Colors.grey[500],
-                      fontWeight: FontWeight.w500,
-                      letterSpacing: 1.2,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator(color: Color(0xFFC0392B)))
+          : SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+              child: Center(
+                child: Container(
+                  constraints: const BoxConstraints(maxWidth: 820),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Text(
-                        "Aditya Maulana",
-                        style: GoogleFonts.poppins(
-                          fontSize: 13,
-                          fontWeight: FontWeight.bold,
-                          color: isDark ? Colors.white70 : Colors.grey[700],
+                      // ── Profile Header Card (Outline Style) ──────────────────
+                      _buildProfileHeaderCard(
+                        isDark: isDark,
+                        borderColor: borderColor,
+                        cardBg: cardBg,
+                        currentLogo: currentLogo,
+                        currentName: currentName,
+                      ),
+                      const SizedBox(height: 24),
+
+                      // ── Branding Section ─────────────────────────────────────
+                      _buildSectionHeader("BRANDING TOKO", isDark),
+                      const SizedBox(height: 10),
+                      Container(
+                        decoration: BoxDecoration(
+                          color: cardBg,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: borderColor, width: 1.2),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.02),
+                              blurRadius: 6,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: Column(
+                          children: [
+                            _buildActionTile(
+                              icon: Icons.edit_note_rounded,
+                              title: "Ubah Nama Toko",
+                              subtitle: currentName,
+                              isDark: isDark,
+                              onTap: _editStoreName,
+                            ),
+                            Divider(height: 1, indent: 56, color: borderColor),
+                            _buildActionTile(
+                              icon: Icons.image_rounded,
+                              title: "Ubah Logo Toko",
+                              subtitle: "Ketuk untuk memilih foto logo dari kamera atau galeri",
+                              isDark: isDark,
+                              trailing: currentLogo != null && currentLogo.isNotEmpty
+                                  ? Container(
+                                      width: 36,
+                                      height: 36,
+                                      decoration: BoxDecoration(
+                                        borderRadius: BorderRadius.circular(8),
+                                        border: Border.all(color: borderColor, width: 1),
+                                      ),
+                                      child: ClipRRect(
+                                        borderRadius: BorderRadius.circular(7),
+                                        child: Image(
+                                          image: FileManager().getImageProvider(currentLogo),
+                                          fit: BoxFit.cover,
+                                          errorBuilder: (_, __, ___) => const Icon(
+                                            Icons.broken_image_rounded,
+                                            size: 18,
+                                            color: Colors.grey,
+                                          ),
+                                        ),
+                                      ),
+                                    )
+                                  : null,
+                              onTap: _showLogoSourceDialog,
+                            ),
+                          ],
                         ),
                       ),
-                      Text(
-                        " & ",
-                        style: GoogleFonts.poppins(
-                          fontSize: 13,
-                          color: Colors.grey[500],
+                      const SizedBox(height: 28),
+
+                      // ── Danger Zone Section ──────────────────────────────────
+                      _buildSectionHeader("ZONA BERBAHAYA", isDark, isDanger: true),
+                      const SizedBox(height: 10),
+                      Container(
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFEF4444).withValues(alpha: 0.04),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: const Color(0xFFEF4444).withValues(alpha: 0.35),
+                            width: 1.2,
+                          ),
+                        ),
+                        child: ListTile(
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          leading: Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFEF4444).withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: const Icon(
+                              Icons.delete_forever_rounded,
+                              color: Color(0xFFEF4444),
+                              size: 22,
+                            ),
+                          ),
+                          title: Text(
+                            "Reset Toko",
+                            style: GoogleFonts.plusJakartaSans(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 14,
+                              color: const Color(0xFFEF4444),
+                            ),
+                          ),
+                          subtitle: Text(
+                            "Hapus semua riwayat transaksi & reset stok produk kembali ke awal",
+                            style: GoogleFonts.openSans(
+                              fontSize: 12,
+                              color: isDark ? Colors.white60 : const Color(0xFF64748B),
+                            ),
+                          ),
+                          trailing: const Icon(
+                            Icons.chevron_right_rounded,
+                            color: Color(0xFFEF4444),
+                          ),
+                          onTap: _confirmResetStore,
                         ),
                       ),
-                      Text(
-                        "Muhammad Parhan",
-                        style: GoogleFonts.poppins(
-                          fontSize: 13,
-                          fontWeight: FontWeight.bold,
-                          color: isDark ? Colors.white70 : Colors.grey[700],
+                      const SizedBox(height: 48),
+
+                      // ── Footer ───────────────────────────────────────────────
+                      Center(
+                        child: Column(
+                          children: [
+                            Text(
+                              "Developed by",
+                              style: GoogleFonts.openSans(
+                                fontSize: 11,
+                                color: isDark ? Colors.white38 : const Color(0xFF94A3B8),
+                                fontWeight: FontWeight.w500,
+                                letterSpacing: 0.8,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              "Aditya Maulana  &  Muhammad Parhan",
+                              style: GoogleFonts.plusJakartaSans(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: isDark ? Colors.white54 : const Color(0xFF64748B),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
+                      const SizedBox(height: 24),
                     ],
                   ),
-                  const SizedBox(height: 40),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildProfileHeader(AdminController adminCtrl) {
-    return Column(
-      children: [
-        Stack(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(4),
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                border: Border.all(color: _primaryColor, width: 2),
-              ),
-              child: CircleAvatar(
-                radius: 60,
-                backgroundColor: Colors.grey[200],
-                backgroundImage: _avatarUrl != null
-                    ? FileManager().getImageProvider(_avatarUrl!)
-                    : null,
-                child: _avatarUrl == null
-                    ? const Icon(Icons.person, size: 60, color: Colors.grey)
-                    : null,
-              ),
-            ),
-            Positioned(
-              bottom: 0,
-              right: 0,
-              child: GestureDetector(
-                onTap: _updateAvatar,
-                child: Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: _primaryColor,
-                    shape: BoxShape.circle,
-                    border: Border.all(color: Colors.white, width: 2),
-                  ),
-                  child: const Icon(
-                    CupertinoIcons.camera,
-                    color: Colors.white,
-                    size: 20,
-                  ),
                 ),
               ),
             ),
-          ],
-        ),
-        const SizedBox(height: 20),
-        Text(
-          _fullName ?? 'User',
-          style: GoogleFonts.poppins(
-            fontSize: 24,
-            fontWeight: FontWeight.bold,
-            color: Theme.of(context).brightness == Brightness.dark
-                ? Colors.white
-                : const Color(0xFF2D3436),
-          ),
-        ),
-        Text(
-          "Admin Local Session",
-          style: GoogleFonts.inter(color: Colors.grey[600]),
-        ),
-        const SizedBox(height: 10),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-          decoration: BoxDecoration(
-            color: Colors.blue.withValues(alpha: 0.1),
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: Text(
-            "Status Akun: Owner",
-            style: GoogleFonts.inter(
-              color: Colors.blue[700],
-              fontWeight: FontWeight.bold,
-              fontSize: 12,
-            ),
-          ),
-        ),
-      ],
     );
   }
 
-  Widget _buildMenuSection(List<_ProfileMenuItem> items) {
+  Widget _buildProfileHeaderCard({
+    required bool isDark,
+    required Color borderColor,
+    required Color cardBg,
+    required String? currentLogo,
+    required String currentName,
+  }) {
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 24),
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
       decoration: BoxDecoration(
-        color: Theme.of(context).cardColor,
-        borderRadius: BorderRadius.circular(24),
+        color: cardBg,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: borderColor, width: 1.2),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(
-              alpha: Theme.of(context).brightness == Brightness.dark
-                  ? 0.2
-                  : 0.03,
-            ),
-            blurRadius: 10,
-            offset: const Offset(0, 5),
-          ),
-        ],
-      ),
-      child: Column(
-        children: items.asMap().entries.map((entry) {
-          final idx = entry.key;
-          final item = entry.value;
-          return Column(
-            children: [
-              ListTile(
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 20,
-                  vertical: 5,
-                ),
-                leading: Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: _primaryColor.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Icon(item.icon, color: _primaryColor, size: 22),
-                ),
-                title: Text(
-                  item.label,
-                  style: GoogleFonts.inter(
-                    fontWeight: FontWeight.w600,
-                    color: Theme.of(context).brightness == Brightness.dark
-                        ? Colors.white
-                        : const Color(0xFF2D3436),
-                  ),
-                ),
-                trailing:
-                    item.trailing ??
-                    const Icon(
-                      CupertinoIcons.chevron_right,
-                      size: 18,
-                      color: Colors.grey,
-                    ),
-                onTap: item.onTap,
-              ),
-              if (idx < items.length - 1)
-                const Divider(indent: 70, endIndent: 20, height: 1),
-            ],
-          );
-        }).toList(),
-      ),
-    );
-  }
-
-  Widget _buildAppSettings() {
-    final settings = SettingsController.instance;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 24),
-      decoration: BoxDecoration(
-        color: Theme.of(context).cardColor,
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.03),
-            blurRadius: 10,
-            offset: const Offset(0, 5),
+            color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.02),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
           ),
         ],
       ),
       child: Column(
         children: [
-          // Language Setting
-          ValueListenableBuilder<Locale>(
-            valueListenable: settings.locale,
-            builder: (context, locale, child) {
-              final isIndo = locale.languageCode == 'id';
-              return ListTile(
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 20,
-                  vertical: 5,
+          Stack(
+            children: [
+              Container(
+                width: 112,
+                height: 112,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: isDark ? Colors.black26 : Colors.white,
+                  border: Border.all(color: _primaryColor, width: 2.5),
+                  boxShadow: [
+                    BoxShadow(
+                      color: _primaryColor.withValues(alpha: 0.15),
+                      blurRadius: 10,
+                      offset: const Offset(0, 3),
+                    ),
+                  ],
                 ),
-                leading: Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: Colors.blue.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: const Icon(
-                    CupertinoIcons.globe,
-                    color: Colors.blue,
-                    size: 22,
-                  ),
+                child: ClipOval(
+                  child: currentLogo != null && currentLogo.isNotEmpty
+                      ? Image(
+                          image: FileManager().getImageProvider(currentLogo),
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => const Icon(
+                            Icons.store_rounded,
+                            size: 52,
+                            color: Colors.grey,
+                          ),
+                        )
+                      : const Icon(
+                          Icons.store_rounded,
+                          size: 52,
+                          color: Colors.grey,
+                        ),
                 ),
-                title: Text(
-                  settings.getString('language'),
-                  style: GoogleFonts.inter(
-                    fontWeight: FontWeight.w600,
-                    color: isDark ? Colors.white : const Color(0xFF2D3436),
-                  ),
-                ),
-                trailing: TextButton(
-                  onPressed: () {
-                    settings.setLocale(isIndo ? 'en' : 'id');
-                  },
-                  child: Text(
-                    isIndo ? "Bhs. Indonesia" : "English",
-                    style: GoogleFonts.poppins(
-                      fontWeight: FontWeight.bold,
-                      color: Colors.blue,
+              ),
+              Positioned(
+                bottom: 2,
+                right: 2,
+                child: GestureDetector(
+                  onTap: _showLogoSourceDialog,
+                  child: Container(
+                    padding: const EdgeInsets.all(7),
+                    decoration: BoxDecoration(
+                      color: _primaryColor,
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+                        width: 2,
+                      ),
+                    ),
+                    child: const Icon(
+                      Icons.camera_alt_rounded,
+                      color: Colors.white,
+                      size: 16,
                     ),
                   ),
                 ),
-              );
-            },
+              ),
+            ],
           ),
-          const Divider(indent: 70, endIndent: 20, height: 1),
-          // Text Scale Setting
-          ValueListenableBuilder<double>(
-            valueListenable: settings.textScale,
-            builder: (context, scale, child) {
-              return ListTile(
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 20,
-                  vertical: 5,
-                ),
-                leading: Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: Colors.teal.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: const Icon(
-                    CupertinoIcons.textformat,
-                    color: Colors.teal,
-                    size: 22,
-                  ),
-                ),
-                title: Text(
-                  settings.getString('text_size'),
-                  style: GoogleFonts.inter(
-                    fontWeight: FontWeight.w600,
-                    color: isDark ? Colors.white : const Color(0xFF2D3436),
-                  ),
-                ),
-                subtitle: Slider(
-                  value: scale,
-                  min: 0.8,
-                  max: SettingsController.maxTextScale,
-                  divisions: 5,
-                  activeColor: Colors.teal,
-                  onChanged: (val) {
-                    settings.setTextScale(val);
-                  },
-                ),
-                trailing: Text(
-                  "${(scale * 100).toInt()}%",
-                  style: GoogleFonts.inter(
-                    fontWeight: FontWeight.bold,
-                    color: Colors.teal,
-                  ),
-                ),
-              );
-            },
+          const SizedBox(height: 16),
+          Text(
+            currentName,
+            style: GoogleFonts.plusJakartaSans(
+              fontSize: 20,
+              fontWeight: FontWeight.w700,
+              color: isDark ? Colors.white : const Color(0xFF0F172A),
+            ),
+            textAlign: TextAlign.center,
           ),
-          const Divider(indent: 70, endIndent: 20, height: 1),
-          // Dark Mode Setting
-          _buildThemeToggleInside(),
+          const SizedBox(height: 4),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              color: _primaryColor.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Text(
+              "Profil Toko",
+              style: GoogleFonts.plusJakartaSans(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: _primaryColor,
+              ),
+            ),
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildThemeToggleInside() {
-    return ValueListenableBuilder<ThemeMode>(
-      valueListenable: ThemeController.instance.themeMode,
-      builder: (context, mode, child) {
-        final isDarkMode = mode == ThemeMode.dark;
-        return ListTile(
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 20,
-            vertical: 5,
+  Widget _buildSectionHeader(String title, bool isDark, {bool isDanger = false}) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 2),
+      child: Text(
+        title,
+        style: GoogleFonts.plusJakartaSans(
+          fontSize: 12,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.8,
+          color: isDanger
+              ? const Color(0xFFEF4444)
+              : (isDark ? Colors.white60 : const Color(0xFF64748B)),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildActionTile({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required bool isDark,
+    Widget? trailing,
+    required VoidCallback onTap,
+  }) {
+    return ListTile(
+      onTap: onTap,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      leading: Container(
+        padding: const EdgeInsets.all(9),
+        decoration: BoxDecoration(
+          color: _primaryColor.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Icon(icon, color: _primaryColor, size: 20),
+      ),
+      title: Text(
+        title,
+        style: GoogleFonts.plusJakartaSans(
+          fontSize: 14,
+          fontWeight: FontWeight.w600,
+          color: isDark ? Colors.white : const Color(0xFF0F172A),
+        ),
+      ),
+      subtitle: Text(
+        subtitle,
+        style: GoogleFonts.openSans(
+          fontSize: 12,
+          color: isDark ? Colors.white54 : const Color(0xFF64748B),
+        ),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (trailing != null) ...[
+            trailing,
+            const SizedBox(width: 8),
+          ],
+          Icon(
+            Icons.chevron_right_rounded,
+            size: 20,
+            color: isDark ? Colors.white38 : Colors.grey.shade400,
           ),
-          leading: Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: (isDarkMode ? Colors.indigo : Colors.orange).withValues(
-                alpha: 0.1,
-              ),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(
-              isDarkMode
-                  ? CupertinoIcons.moon_fill
-                  : CupertinoIcons.sun_max_fill,
-              color: isDarkMode ? Colors.indigo : Colors.orange,
-              size: 22,
-            ),
-          ),
-          title: Text(
-            SettingsController.instance.getString('dark_mode'),
-            style: GoogleFonts.inter(
-              fontWeight: FontWeight.w600,
-              color: isDarkMode ? Colors.white : const Color(0xFF2D3436),
-            ),
-          ),
-          trailing: CupertinoSwitch(
-            value: isDarkMode,
-            onChanged: (val) => ThemeController.instance.toggleTheme(),
-          ),
-        );
-      },
+        ],
+      ),
     );
   }
 
@@ -1184,38 +760,5 @@ class _ProfilePageState extends State<ProfilePage> {
   void dispose() {
     super.dispose();
   }
-
-  // Placeholder for compatibility, logic moved inside _buildAppSettings
-
-  Widget _buildSectionTitle(String title) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(30, 0, 30, 12),
-      child: Align(
-        alignment: Alignment.centerLeft,
-        child: Text(
-          title,
-          style: GoogleFonts.inter(
-            fontSize: 12,
-            fontWeight: FontWeight.bold,
-            color: Colors.grey[600],
-            letterSpacing: 1,
-          ),
-        ),
-      ),
-    );
-  }
 }
 
-class _ProfileMenuItem {
-  final String label;
-  final IconData icon;
-  final VoidCallback onTap;
-  final Widget? trailing;
-
-  _ProfileMenuItem({
-    required this.label,
-    required this.icon,
-    required this.onTap,
-    this.trailing,
-  });
-}

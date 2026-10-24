@@ -14,7 +14,7 @@ class PinterestCard extends StatelessWidget {
     required this.child,
     this.padding,
     this.margin,
-    this.borderRadius = 28,
+    this.borderRadius = 16,
     this.color,
     this.onTap,
     this.showShadow = true,
@@ -28,24 +28,20 @@ class PinterestCard extends StatelessWidget {
       padding: padding ?? const EdgeInsets.all(20),
       margin: margin,
       decoration: BoxDecoration(
-        color: color ?? (isDark ? const Color(0xFF1C1C1E) : Colors.white),
+        color: color ?? (isDark ? const Color(0xFF1E1E1E) : Colors.white),
         borderRadius: BorderRadius.circular(borderRadius),
+        border: Border.all(
+          color: isDark ? const Color(0xFF374151) : const Color(0xFFE2E8F0),
+          width: 1.2,
+        ),
         boxShadow: showShadow
             ? [
                 BoxShadow(
-                  color: Colors.black.withValues(alpha: isDark ? 0.3 : 0.04),
-                  blurRadius: 20,
-                  offset: const Offset(0, 8),
-                ),
-                BoxShadow(
                   color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.02),
-                  blurRadius: 10,
-                  offset: const Offset(0, 4),
+                  blurRadius: 4,
+                  offset: const Offset(0, 2),
                 ),
               ]
-            : null,
-        border: isDark
-            ? Border.all(color: Colors.white.withValues(alpha: 0.05))
             : null,
       ),
       child: child,
@@ -65,3 +61,4 @@ class PinterestCard extends StatelessWidget {
     return content;
   }
 }
+

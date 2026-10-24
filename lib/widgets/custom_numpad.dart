@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 class CustomNumpad extends StatelessWidget {
@@ -203,9 +203,9 @@ class CustomNumpad extends StatelessWidget {
                   ? Icon(icon, color: tColor, size: iSize)
                   : Text(
                       value,
-                      style: GoogleFonts.poppins(
+                      style: GoogleFonts.plusJakartaSans(
                         fontSize: fSize,
-                        fontWeight: FontWeight.bold,
+                        fontWeight: FontWeight.w600,
                         color: tColor,
                       ),
                     ),
@@ -217,14 +217,14 @@ class CustomNumpad extends StatelessWidget {
   }
 
   Widget _buildConfirmButton(BuildContext context, double iSize) {
-    const primaryColor = Color(0xFFEA5700);
+    const primaryColor = Color(0xFFC0392B);
     return Expanded(
       flex: 2,
       child: Container(
         decoration: BoxDecoration(
           border: Border.all(
-            color: Colors.white.withValues(alpha: 0.2),
-            width: 1.0,
+          color: Colors.white.withValues(alpha: 0.2),
+          width: 1.0,
           ),
         ),
         child: Material(
@@ -245,3 +245,4 @@ class CustomNumpad extends StatelessWidget {
     );
   }
 }
+

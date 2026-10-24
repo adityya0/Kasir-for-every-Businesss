@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/cupertino.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import '../../../services/app_database.dart';
 import '../../../widgets/order_numpad.dart';
 import 'package:provider/provider.dart';
 import '../../../controllers/admin_controller.dart';
+import '../../../controllers/settings_controller.dart';
 import '../../../services/platform/file_manager.dart';
+import '../../../core/app_theme.dart';
+import '../../../widgets/custom_toast.dart';
+import 'split_bill_dialog.dart';
 
 class CartSidebar extends StatefulWidget {
   final List<Map<String, dynamic>> cartItems;
@@ -14,7 +17,8 @@ class CartSidebar extends StatefulWidget {
   final Function(String cartId) onRemoveItem;
   final Function(Product product, {List? options, String? notes, double? price})
   onAddItem;
-  final Function(double cashReceived, String paymentMethod) onCheckout;
+  final Function(double cashReceived, String paymentMethod, {String? status, List<Map<String, dynamic>>? splitPayments, double? discount})
+  onCheckout;
   final VoidCallback? onAbortTransaction;
   final Function(bool isPaymentMode)? onModeChanged;
   final bool isProcessing;
@@ -28,6 +32,9 @@ class CartSidebar extends StatefulWidget {
   final Function(Customer?)? onCustomerSelected;
   final String? lastModifiedCartId;
   final VoidCallback? onClose;
+  final VoidCallback onHoldCart;
+  // Called when user wants to split cart into 2 separate bills
+  final Function(List<Map<String, dynamic>> bill1, List<Map<String, dynamic>> bill2)? onSplitItems;
 
   const CartSidebar({
     super.key,
@@ -49,6 +56,8 @@ class CartSidebar extends StatefulWidget {
     this.onCustomerSelected,
     this.lastModifiedCartId,
     this.onClose,
+    required this.onHoldCart,
+    this.onSplitItems,
   });
 
   @override
@@ -57,6 +66,7 @@ class CartSidebar extends StatefulWidget {
 
 class _CartSidebarState extends State<CartSidebar> {
   final TextEditingController _cashController = TextEditingController();
+  final FocusNode _cashFocusNode = FocusNode();
   double _cashReceived = 0;
   String _selectedPaymentMethod = "Tunai";
   bool _isPaymentMode = false; // Toggle between Cart Review and Payment
@@ -66,6 +76,16 @@ class _CartSidebarState extends State<CartSidebar> {
   bool _isFirstInput =
       true; // Flag for flexible "overwrite on first digit" logic
   final ScrollController _scrollController = ScrollController();
+  bool _isOrderSummaryExpanded = false; // Toggle for expanding order summary
+
+  // Manual discount applied by cashier
+  double _manualDiscount = 0;
+  bool _manualDiscountIsPercent = false;
+  String _manualDiscountLabel = "";
+
+  // Split Payment — list of partial payments, null = not in split-payment mode
+  List<Map<String, dynamic>>? _splitPayments;
+  List<PaymentMethod> _cachedPaymentMethods = [];
 
   final _currencyFormat = NumberFormat.currency(
     locale: 'id',
@@ -74,8 +94,19 @@ class _CartSidebarState extends State<CartSidebar> {
   );
 
   @override
+  void initState() {
+    super.initState();
+    if (_isPaymentMode) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _cashFocusNode.requestFocus();
+      });
+    }
+  }
+
+  @override
   void dispose() {
     _cashController.dispose();
+    _cashFocusNode.dispose();
     _scrollController.dispose();
     super.dispose();
   }
@@ -109,7 +140,7 @@ class _CartSidebarState extends State<CartSidebar> {
 
     if (rawValue.isEmpty) {
       _cashReceived = 0;
-      _cashController.text = "";
+      _cashController.text = "0"; // Safer than empty string
     } else {
       _cashReceived = double.tryParse(rawValue) ?? 0;
       _cashController.text = NumberFormat.decimalPattern(
@@ -232,13 +263,44 @@ class _CartSidebarState extends State<CartSidebar> {
     double val = double.tryParse(_numpadBuffer) ?? 0;
 
     if (_numpadMode == OrderNumpadMode.qty) {
-      final newQty = val.toInt().clamp(0, 999);
+      final int requestedQty = val.toInt().clamp(0, 999);
+      int finalQty = requestedQty;
+
+      // Stock Check
+      final Product p = item['product'];
+      if (p.isStockManaged) {
+        // Total of THIS product already in cart, EXCLUDING the one currently selected
+        final otherItemsQty = widget.cartItems
+            .asMap()
+            .entries
+            .where(
+              (entry) =>
+                  entry.key != _selectedItemIndex &&
+                  (entry.value['product'] as Product).id == p.id,
+            )
+            .fold(0, (sum, entry) => sum + (entry.value['quantity'] as int));
+
+        final maxAllowedForThisItem = (p.stockQuantity ?? 0.0) - otherItemsQty;
+
+        if (requestedQty > maxAllowedForThisItem) {
+          finalQty = maxAllowedForThisItem.toInt().clamp(0, 999);
+          _numpadBuffer = finalQty
+              .toString(); // Update buffer to reflect reality
+
+          CustomToast.show(
+            context,
+            "Stok tidak mencukupi! Maksimal tersedia ${p.stockQuantity} item.",
+            isError: true,
+          );
+        }
+      }
+
       setState(() {
-        item['quantity'] = newQty;
+        item['quantity'] = finalQty;
       });
 
       // Remove items with qty = 0
-      if (newQty == 0) {
+      if (finalQty == 0) {
         widget.onRemoveItem(item['cart_id']);
         setState(() {
           _selectedItemIndex = -1;
@@ -266,7 +328,26 @@ class _CartSidebarState extends State<CartSidebar> {
   void _incrementQty(int index) {
     setState(() {
       final item = widget.cartItems[index];
+      final Product p = item['product'];
       final currentQty = item['quantity'] as int;
+
+      // Stock Check
+      if (p.isStockManaged) {
+        // Calculate total in cart for this specific product (in case there are different variants)
+        final totalInCart = widget.cartItems
+            .where((it) => (it['product'] as Product).id == p.id)
+            .fold(0, (sum, it) => sum + (it['quantity'] as int));
+
+        if (totalInCart >= (p.stockQuantity ?? 0)) {
+          CustomToast.show(
+            context,
+            "Stok tidak mencukupi! Hanya tersedia ${p.stockQuantity} item.",
+            isError: true,
+          );
+          return;
+        }
+      }
+
       item['quantity'] = (currentQty + 1).clamp(1, 999);
     });
   }
@@ -333,6 +414,8 @@ class _CartSidebarState extends State<CartSidebar> {
           _isPaymentMode = false;
           _cashReceived = 0;
           _cashController.clear();
+          _manualDiscount = 0;
+          _manualDiscountLabel = "";
         });
         // Ensure parent knows we are no longer in payment mode
         widget.onModeChanged?.call(false);
@@ -344,66 +427,101 @@ class _CartSidebarState extends State<CartSidebar> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    const primaryColor = Color(0xFFFF8E53);
+    const primaryColor = AppTheme.primaryColor;
 
-    double subTotal = widget.cartItems.fold(
-      0,
-      (sum, item) =>
-          sum + ((item['price'] as double) * (item['quantity'] as int)),
-    );
-    double discount = widget.discountData?['total_discount'] ?? 0.0;
-    double total = subTotal - discount;
-    if (total < 0) total = 0;
+    return ValueListenableBuilder<bool>(
+      valueListenable: SettingsController.instance.pajakEnabled,
+      builder: (context, pajakEnabled, _) {
+        return ValueListenableBuilder<double>(
+          valueListenable: SettingsController.instance.pajakRate,
+          builder: (context, pajakRate, _) {
+            return ValueListenableBuilder<String>(
+              valueListenable: SettingsController.instance.pajakName,
+              builder: (context, pajakName, _) {
+                double subTotal = widget.cartItems.fold(
+                  0,
+                  (sum, item) =>
+                      sum + ((item['price'] as double) * (item['quantity'] as int)),
+                );
+                double promoDiscount = widget.discountData?['total_discount'] ?? 0.0;
+                // Manual discount: percentage of subTotal or fixed amount
+                double manualDiscountAmount = _manualDiscountIsPercent
+                    ? (subTotal * _manualDiscount / 100)
+                    : _manualDiscount;
+                double discount = promoDiscount + manualDiscountAmount;
 
-    double change = _cashReceived - total;
+                double subtotalAfterDiscount = (subTotal - discount).clamp(0.0, double.infinity);
+                double pajakAmount = 0;
+                if (pajakEnabled) {
+                  pajakAmount = subtotalAfterDiscount * (pajakRate / 100);
+                }
+                
+                double total = subtotalAfterDiscount + pajakAmount;
+                if (total < 0) total = 0;
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final isDesktop =
-            constraints.maxWidth >= 600 ||
-            MediaQuery.of(context).size.width >= 720;
-        final isNarrow = constraints.maxWidth < 320;
+                double change = _cashReceived - total;
 
-        return Container(
-          decoration: BoxDecoration(
-            color: isDark ? const Color(0xFF1A1A1A) : const Color(0xFFF8F9FA),
-            border: Border(
-              left: BorderSide(
-                color: isDark ? Colors.white10 : Colors.grey[200]!,
-              ),
-            ),
-          ),
-          child: SafeArea(
-            top: !isDesktop,
-            bottom: !isDesktop,
-            child: Column(
-              children: [
-                _buildHeader(isDark, primaryColor, isDesktop, isNarrow),
-                Expanded(
-                  child: _isPaymentMode
-                      ? _buildPaymentView(
-                          isDark,
-                          primaryColor,
-                          subTotal,
-                          discount,
-                          total,
-                          change,
-                          isDesktop,
-                          isNarrow,
-                        )
-                      : _buildCartView(
-                          isDark,
-                          primaryColor,
-                          total,
-                          isDesktop,
-                          isNarrow,
+                return LayoutBuilder(
+                  builder: (context, constraints) {
+                    final isDesktop =
+                        constraints.maxWidth >= 600 ||
+                        MediaQuery.of(context).size.width >= 720;
+                    final isNarrow = constraints.maxWidth < 320;
+
+                    return Container(
+                      decoration: BoxDecoration(
+                        color: isDark ? const Color(0xFF1A1A1A) : const Color(0xFFF8F9FA),
+                        border: Border(
+                          left: BorderSide(
+                            color: isDark ? Colors.white10 : Colors.grey[200]!,
+                          ),
                         ),
-                ),
-              ],
-            ),
-          ),
+                      ),
+                      child: SafeArea(
+                        top: !isDesktop,
+                        bottom: !isDesktop,
+                        child: Column(
+                          children: [
+                            _buildHeader(isDark, primaryColor, isDesktop, isNarrow),
+                            Expanded(
+                              child: _isPaymentMode
+                                  ? _buildPaymentView(
+                                      isDark,
+                                      primaryColor,
+                                      subTotal,
+                                      discount,
+                                      total,
+                                      change,
+                                      isDesktop,
+                                      isNarrow,
+                                      pajakAmount: pajakAmount,
+                                      pajakName: pajakName,
+                                      promoDiscount: promoDiscount,
+                                      manualDiscountAmount: manualDiscountAmount,
+                                    )
+                                  : _buildCartView(
+                                      isDark,
+                                      primaryColor,
+                                      total,
+                                      isDesktop,
+                                      isNarrow,
+                                      pajakAmount: pajakAmount,
+                                      pajakName: pajakName,
+                                      promoDiscount: promoDiscount,
+                                      manualDiscountAmount: manualDiscountAmount,
+                                    ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                );
+              }
+            );
+          }
         );
-      },
+      }
     );
   }
 
@@ -416,7 +534,7 @@ class _CartSidebarState extends State<CartSidebar> {
     return Padding(
       padding: EdgeInsets.fromLTRB(
         isNarrow ? 12 : 24,
-        isDesktop ? 24 : 16,
+        isDesktop ? 24 : 48, // Added more padding over SafeArea to push it down from the bezel
         isNarrow ? 12 : 16,
         16,
       ),
@@ -428,19 +546,15 @@ class _CartSidebarState extends State<CartSidebar> {
               children: [
                 if (_isPaymentMode)
                   IconButton(
-                    icon: const Icon(Icons.arrow_back_ios_new_rounded),
+                    icon: Icon(
+                      Icons.arrow_back_rounded,
+                      color: isDark ? Colors.white : const Color(0xFF2D3436),
+                    ),
                     onPressed: () => setState(() {
                       _isPaymentMode = false;
                       _numpadBuffer = "";
                       _isFirstInput = true;
                     }),
-                  ),
-                if (isDesktop && widget.onClose != null)
-                  IconButton(
-                    icon: const Icon(Icons.close_fullscreen_rounded, size: 20),
-                    onPressed: widget.onClose,
-                    tooltip: "Sembunyikan",
-                    color: Colors.grey,
                   ),
                 const SizedBox(width: 8),
                 Flexible(
@@ -448,9 +562,9 @@ class _CartSidebarState extends State<CartSidebar> {
                     _isPaymentMode
                         ? "Pembayaran"
                         : (isDesktop ? "Detail Pesanan" : "Keranjang"),
-                    style: GoogleFonts.poppins(
+                    style: GoogleFonts.plusJakartaSans(
                       fontSize: isNarrow ? 16 : (isDesktop ? 22 : 20),
-                      fontWeight: FontWeight.bold,
+                      fontWeight: FontWeight.w600,
                       color: isDark ? Colors.white : const Color(0xFF2D3436),
                     ),
                     maxLines: 1,
@@ -470,32 +584,38 @@ class _CartSidebarState extends State<CartSidebar> {
                             ),
                             title: Text(
                               "Batalkan Transaksi?",
-                              style: GoogleFonts.poppins(
-                                fontWeight: FontWeight.bold,
+                              style: GoogleFonts.plusJakartaSans(
+                                fontWeight: FontWeight.w600,
                               ),
                             ),
                             content: Text(
                               "Semua item dalam keranjang akan dihapus. Lanjutkan?",
-                              style: GoogleFonts.inter(),
+                              style: GoogleFonts.openSans(),
                             ),
                             actions: [
                               TextButton(
                                 onPressed: () => Navigator.pop(ctx),
                                 child: Text(
                                   "Tidak",
-                                  style: GoogleFonts.inter(color: Colors.grey),
+                                  style: GoogleFonts.openSans(color: Colors.grey),
                                 ),
                               ),
                               TextButton(
                                 onPressed: () {
                                   Navigator.pop(ctx);
+                                  setState(() {
+                                    _manualDiscount = 0;
+                                    _manualDiscountLabel = "";
+                                  });
+                                    _isPaymentMode = false;
+                                    widget.onModeChanged?.call(false);
                                   widget.onAbortTransaction?.call();
                                 },
                                 child: Text(
                                   "Ya, Batal",
-                                  style: GoogleFonts.inter(
+                                  style: GoogleFonts.openSans(
                                     color: Colors.red,
-                                    fontWeight: FontWeight.bold,
+                                    fontWeight: FontWeight.w600,
                                   ),
                                 ),
                               ),
@@ -529,17 +649,42 @@ class _CartSidebarState extends State<CartSidebar> {
                   ),
                   label: Text(
                     "Batal",
-                    style: GoogleFonts.inter(
+                    style: GoogleFonts.openSans(
                       color: Colors.redAccent,
-                      fontWeight: FontWeight.bold,
+                      fontWeight: FontWeight.w600,
                     ),
+                  ),
+                )
+              else if (_isPaymentMode && widget.cartItems.isNotEmpty)
+                Container(
+                  decoration: BoxDecoration(
+                    color: isDark ? Colors.white10 : Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: isDark ? Colors.white10 : Colors.grey[200]!,
+                    ),
+                  ),
+                  child: IconButton(
+                    icon: Icon(
+                      Icons.view_list,
+                      color: isDark ? Colors.white : Colors.black87,
+                      size: 22,
+                    ),
+                    onPressed: () {
+                      setState(() => _isPaymentMode = false);
+                      widget.onModeChanged?.call(false);
+                      widget.onHoldCart();
+                    },
+                    tooltip: "Simpan Pesanan",
+                    padding: const EdgeInsets.all(8),
+                    constraints: const BoxConstraints(),
                   ),
                 )
               else if (widget.cartItems.isNotEmpty)
                 Container(
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 6,
+                    horizontal: 10,
+                    vertical: 5,
                   ),
                   decoration: BoxDecoration(
                     color: primaryColor.withValues(alpha: 0.1),
@@ -547,13 +692,37 @@ class _CartSidebarState extends State<CartSidebar> {
                   ),
                   child: Text(
                     "${_getCartTotalCount()} Item",
-                    style: GoogleFonts.inter(
+                    style: GoogleFonts.plusJakartaSans(
                       color: primaryColor,
-                      fontWeight: FontWeight.bold,
+                      fontWeight: FontWeight.w700,
                       fontSize: 12,
                     ),
                   ),
                 ),
+              if (widget.onClose != null) ...[
+                const SizedBox(width: 8),
+                Container(
+                  decoration: BoxDecoration(
+                    color: isDark ? Colors.white10 : const Color(0xFFF1F5F9),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: isDark ? Colors.white12 : const Color(0xFFE2E8F0),
+                      width: 1,
+                    ),
+                  ),
+                  child: IconButton(
+                    icon: Icon(
+                      Icons.close_rounded,
+                      size: 18,
+                      color: isDark ? Colors.white70 : const Color(0xFF64748B),
+                    ),
+                    onPressed: widget.onClose,
+                    tooltip: "Tutup Sidebar",
+                    padding: const EdgeInsets.all(6),
+                    constraints: const BoxConstraints(),
+                  ),
+                ),
+              ],
             ],
           ),
         ],
@@ -566,22 +735,26 @@ class _CartSidebarState extends State<CartSidebar> {
     Color primaryColor,
     double total,
     bool isDesktop,
-    bool isNarrow,
-  ) {
+    bool isNarrow, {
+    required double pajakAmount,
+    required String pajakName,
+    required double promoDiscount,
+    required double manualDiscountAmount,
+  }) {
     if (widget.cartItems.isEmpty && !isDesktop) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(
-              CupertinoIcons.cart,
+              Icons.shopping_cart_outlined,
               size: 80,
               color: isDark ? Colors.white10 : Colors.grey[200],
             ),
             const SizedBox(height: 16),
             Text(
               "Keranjang kosong",
-              style: GoogleFonts.inter(color: Colors.grey, fontSize: 16),
+              style: GoogleFonts.openSans(color: Colors.grey, fontSize: 16),
             ),
           ],
         ),
@@ -597,14 +770,14 @@ class _CartSidebarState extends State<CartSidebar> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Icon(
-                        CupertinoIcons.cart,
+                        Icons.shopping_cart_outlined,
                         size: 80,
                         color: isDark ? Colors.white10 : Colors.grey[200],
                       ),
                       const SizedBox(height: 16),
                       Text(
                         "Keranjang kosong",
-                        style: GoogleFonts.inter(
+                        style: GoogleFonts.openSans(
                           color: Colors.grey,
                           fontSize: 16,
                         ),
@@ -638,7 +811,33 @@ class _CartSidebarState extends State<CartSidebar> {
                     final itemDiscount =
                         itemDiscounts[item['cart_id']] as double? ?? 0.0;
 
-                    return InkWell(
+                    return Dismissible(
+                      key: Key(item['cart_id'].toString()),
+                      direction: DismissDirection.endToStart,
+                      background: Container(
+                        alignment: Alignment.centerRight,
+                        padding: const EdgeInsets.only(right: 24),
+                        decoration: BoxDecoration(
+                          color: Colors.redAccent,
+                          borderRadius: BorderRadius.circular(isDesktop || isNarrow ? 12 : 20),
+                        ),
+                        child: const Icon(Icons.delete_outline, color: Colors.white, size: 28),
+                      ),
+                      onDismissed: (direction) {
+                        widget.onRemoveItem(item['cart_id']);
+                        if (_selectedItemIndex == i) {
+                          setState(() {
+                            _selectedItemIndex = -1;
+                            _numpadBuffer = "";
+                            _isFirstInput = true;
+                          });
+                        } else if (_selectedItemIndex > i) {
+                          setState(() {
+                            _selectedItemIndex--;
+                          });
+                        }
+                      },
+                      child: InkWell(
                       onTap: () {
                         setState(() {
                           _selectedItemIndex = i;
@@ -666,7 +865,9 @@ class _CartSidebarState extends State<CartSidebar> {
                           ),
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.05),
+                              color: Colors.black.withValues(
+                                alpha: 0.05,
+                              ),
                               blurRadius: 10,
                               offset: const Offset(0, 4),
                             ),
@@ -680,8 +881,8 @@ class _CartSidebarState extends State<CartSidebar> {
                                 children: [
                                   Text(
                                     p.name ?? "Unknown",
-                                    style: GoogleFonts.inter(
-                                      fontWeight: FontWeight.bold,
+                                    style: GoogleFonts.openSans(
+                                      fontWeight: FontWeight.w600,
                                       fontSize: isNarrow
                                           ? 13
                                           : (isDesktop ? 14 : 16),
@@ -695,7 +896,7 @@ class _CartSidebarState extends State<CartSidebar> {
                                   const SizedBox(height: 4),
                                   Text(
                                     _currencyFormat.format(price),
-                                    style: GoogleFonts.inter(
+                                    style: GoogleFonts.openSans(
                                       fontSize: 13,
                                       color: isSelected
                                           ? primaryColor
@@ -725,9 +926,9 @@ class _CartSidebarState extends State<CartSidebar> {
                                           itemDiscount > 0
                                               ? "PROMO -${_currencyFormat.format(itemDiscount)}"
                                               : "PROMO",
-                                          style: GoogleFonts.inter(
+                                          style: GoogleFonts.openSans(
                                             fontSize: 10,
-                                            fontWeight: FontWeight.bold,
+                                            fontWeight: FontWeight.w600,
                                             color: Colors.green,
                                           ),
                                         ),
@@ -751,8 +952,8 @@ class _CartSidebarState extends State<CartSidebar> {
                                           ),
                                           child: Text(
                                             "$qty",
-                                            style: GoogleFonts.inter(
-                                              fontWeight: FontWeight.bold,
+                                            style: GoogleFonts.openSans(
+                                              fontWeight: FontWeight.w600,
                                               fontSize: isNarrow ? 14 : 16,
                                               color: isDark
                                                   ? Colors.white
@@ -780,8 +981,8 @@ class _CartSidebarState extends State<CartSidebar> {
                                   fit: BoxFit.scaleDown,
                                   child: Text(
                                     _currencyFormat.format(price * qty),
-                                    style: GoogleFonts.poppins(
-                                      fontWeight: FontWeight.bold,
+                                    style: GoogleFonts.plusJakartaSans(
+                                      fontWeight: FontWeight.w600,
                                       fontSize: isNarrow
                                           ? 13
                                           : (isDesktop ? 16 : 15),
@@ -808,11 +1009,12 @@ class _CartSidebarState extends State<CartSidebar> {
                           ],
                         ),
                       ),
-                    );
+                    ),
+                  );
                   },
                 ),
         ),
-        _buildSummaryAndNumpad(isDark, primaryColor, total, isDesktop),
+        _buildSummaryAndNumpad(isDark, primaryColor, total, isDesktop, pajakAmount: pajakAmount, pajakName: pajakName, promoDiscount: promoDiscount, manualDiscountAmount: manualDiscountAmount),
       ],
     );
   }
@@ -842,25 +1044,35 @@ class _CartSidebarState extends State<CartSidebar> {
     bool isDark,
     Color primaryColor,
     double total,
-    bool isDesktop,
-  ) {
+    bool isDesktop, {
+    required double pajakAmount,
+    required String pajakName,
+    required double promoDiscount,
+    required double manualDiscountAmount,
+  }) {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
         const Divider(height: 1),
-        _buildOdooSummary(isDark, primaryColor),
-        SizedBox(
-          height: 200,
-          child: OrderNumpad(
-            mode: _numpadMode,
-            onModeChanged: (m) => setState(() {
-              _numpadMode = m;
-              _isFirstInput = true;
-            }),
-            onTap: _handleOrderNumpadTap,
-            onBackspace: _handleOrderNumpadBackspace,
-            onToggleSign: _handleOrderNumpadToggleSign,
-          ),
+        _buildOdooSummary(isDark, primaryColor, total, pajakAmount: pajakAmount, pajakName: pajakName, promoDiscount: promoDiscount, manualDiscountAmount: manualDiscountAmount),
+        ValueListenableBuilder<bool>(
+          valueListenable: SettingsController.instance.showNumpad,
+          builder: (context, showNumpad, child) {
+            if (!showNumpad) return const SizedBox();
+            return SizedBox(
+              height: 200,
+              child: OrderNumpad(
+                mode: _numpadMode,
+                onModeChanged: (m) => setState(() {
+                  _numpadMode = m;
+                  _isFirstInput = true;
+                }),
+                onTap: _handleOrderNumpadTap,
+                onBackspace: _handleOrderNumpadBackspace,
+                onToggleSign: _handleOrderNumpadToggleSign,
+              ),
+            );
+          }
         ),
         _buildCartActionButton(primaryColor, total, isDesktop),
       ],
@@ -887,6 +1099,10 @@ class _CartSidebarState extends State<CartSidebar> {
                   ? () => setState(() {
                       _isPaymentMode = true;
                       _selectedPaymentMethod = "Tunai"; // Default for mobile
+                      widget.onModeChanged?.call(true);
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (mounted) _cashFocusNode.requestFocus();
+                      });
                     })
                   : null,
               style: ElevatedButton.styleFrom(
@@ -906,8 +1122,8 @@ class _CartSidebarState extends State<CartSidebar> {
                   children: [
                     Text(
                       "Pilih Pembayaran",
-                      style: GoogleFonts.poppins(
-                        fontWeight: FontWeight.bold,
+                      style: GoogleFonts.plusJakartaSans(
+                        fontWeight: FontWeight.w600,
                         fontSize: 16,
                       ),
                     ),
@@ -923,20 +1139,80 @@ class _CartSidebarState extends State<CartSidebar> {
     );
   }
 
-  Widget _buildOdooSummary(bool isDark, Color primaryColor) {
-    double subTotal = widget.cartItems.fold(
-      0,
-      (sum, item) =>
-          sum + ((item['price'] as double) * (item['quantity'] as int)),
-    );
-    double discount = widget.discountData?['total_discount'] ?? 0.0;
-    double total = subTotal - discount;
+  Widget _buildOdooSummary(
+    bool isDark,
+    Color primaryColor,
+    double total, {
+    required double pajakAmount,
+    required String pajakName,
+    required double promoDiscount,
+    required double manualDiscountAmount,
+  }) {
+    final double totalDiscount = promoDiscount + manualDiscountAmount;
+    final double subtotalBeforeDiscount = total + totalDiscount - pajakAmount;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
       color: isDark ? Colors.white.withValues(alpha: 0.02) : Colors.grey[50],
       child: Column(
         children: [
+          if (totalDiscount > 0) ...[
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  "Subtotal",
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: 12,
+                    color: isDark ? Colors.white60 : Colors.black54,
+                  ),
+                ),
+                Text(
+                  _currencyFormat.format(subtotalBeforeDiscount),
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: 12,
+                    color: isDark ? Colors.white60 : Colors.black54,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 3),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.discount_rounded, size: 14, color: Color(0xFF10B981)),
+                    const SizedBox(width: 4),
+                    Text(
+                      widget.discountData?['is_member_discount'] == true
+                          ? (widget.discountData?['promo_names'] != null && (widget.discountData!['promo_names'] as List).isNotEmpty
+                              ? "${(widget.discountData!['promo_names'] as List).first}"
+                              : "Diskon Member")
+                          : (widget.discountData?['promo_names'] != null && (widget.discountData!['promo_names'] as List).isNotEmpty
+                              ? "${(widget.discountData!['promo_names'] as List).first}"
+                              : "Diskon"),
+                      style: GoogleFonts.plusJakartaSans(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: const Color(0xFF10B981),
+                      ),
+                    ),
+                  ],
+                ),
+                Text(
+                  "-${_currencyFormat.format(totalDiscount)}",
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: const Color(0xFF10B981),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+          ],
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             crossAxisAlignment: CrossAxisAlignment.baseline,
@@ -945,8 +1221,8 @@ class _CartSidebarState extends State<CartSidebar> {
               Expanded(
                 child: Text(
                   "Total (${_getCartTotalCount()} Item)",
-                  style: GoogleFonts.poppins(
-                    fontWeight: FontWeight.bold,
+                  style: GoogleFonts.plusJakartaSans(
+                    fontWeight: FontWeight.w600,
                     fontSize: 14,
                     color: isDark ? Colors.white70 : Colors.black54,
                   ),
@@ -956,15 +1232,378 @@ class _CartSidebarState extends State<CartSidebar> {
               ),
               Text(
                 _currencyFormat.format(total),
-                style: GoogleFonts.poppins(
-                  fontWeight: FontWeight.bold,
+                style: GoogleFonts.plusJakartaSans(
+                  fontWeight: FontWeight.w600,
                   fontSize: 18,
                   color: primaryColor,
                 ),
               ),
             ],
           ),
+          if (pajakAmount > 0) ...[
+            const SizedBox(height: 4),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  pajakName,
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: 12,
+                    color: Colors.grey,
+                  ),
+                ),
+                Text(
+                  _currencyFormat.format(pajakAmount),
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: 12,
+                    color: Colors.grey,
+                  ),
+                ),
+              ],
+            ),
+          ],
         ],
+      ),
+    );
+  }
+
+  // --- NEW HELPER METHODS REPLACING OLD ONES ---
+  Widget _buildCombinedOrderSummaryCard(
+    bool isDark,
+    Color primaryColor,
+    double subTotal,
+    double discount,
+    double pajakAmount,
+    String pajakName,
+    double total,
+    double promoDiscount,
+    double manualDiscountAmount,
+  ) {
+    final displayCount = _isOrderSummaryExpanded ? widget.cartItems.length : 4;
+    final hasMoreItems = widget.cartItems.length > 4;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF2C2C2E) : Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: isDark ? Colors.white10 : Colors.grey[200]!),
+      ),
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.receipt_long_outlined, color: primaryColor, size: 20),
+                  const SizedBox(width: 8),
+                  Text(
+                    "Ringkasan & Rincian Pesanan",
+                    style: GoogleFonts.plusJakartaSans(
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                      color: isDark ? Colors.white : Colors.black87,
+                    ),
+                  ),
+                ],
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: primaryColor.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  "${_getCartTotalCount()} item",
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    color: primaryColor,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          // Items List
+          ...widget.cartItems.take(displayCount).map((item) {
+            final p = item['product'] as Product;
+            final qty = item['quantity'] as int;
+            final price = item['price'] as double;
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: Row(
+                children: [
+                  Container(
+                    width: 34,
+                    height: 34,
+                    decoration: BoxDecoration(
+                      color: primaryColor.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Icon(Icons.fastfood_outlined, size: 16, color: primaryColor),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          p.name ?? "Item",
+                          style: GoogleFonts.plusJakartaSans(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: isDark ? Colors.white : Colors.black87,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        Text(
+                          "${_currencyFormat.format(price)} x $qty",
+                          style: GoogleFonts.openSans(
+                            fontSize: 11,
+                            color: isDark ? Colors.white54 : Colors.grey[600],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Text(
+                    _currencyFormat.format(price * qty),
+                    style: GoogleFonts.openSans(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: isDark ? Colors.white : Colors.black87,
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }),
+          if (hasMoreItems)
+            InkWell(
+              onTap: () => setState(() => _isOrderSummaryExpanded = !_isOrderSummaryExpanded),
+              borderRadius: BorderRadius.circular(8),
+              child: Center(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 6.0, horizontal: 16),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        _isOrderSummaryExpanded
+                            ? "Lebih Sedikit"
+                            : "... dan ${widget.cartItems.length - 4} item lainnya",
+                        style: GoogleFonts.openSans(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: primaryColor,
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      Icon(
+                        _isOrderSummaryExpanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
+                        size: 16,
+                        color: primaryColor,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          const SizedBox(height: 8),
+          Divider(color: isDark ? Colors.white10 : Colors.grey[200]),
+          const SizedBox(height: 8),
+          _buildDetailRow("Subtotal", subTotal, isDark),
+          if (promoDiscount > 0)
+            _buildDetailRow(
+              widget.discountData?['is_member_discount'] == true
+                  ? (widget.discountData?['promo_names'] != null &&
+                          (widget.discountData!['promo_names'] as List).isNotEmpty
+                      ? "${(widget.discountData!['promo_names'] as List).first}"
+                      : "Diskon Member")
+                  : (widget.discountData?['promo_names'] != null &&
+                          (widget.discountData!['promo_names'] as List).isNotEmpty
+                      ? "${(widget.discountData!['promo_names'] as List).first}"
+                      : "Diskon Promo"),
+              -promoDiscount,
+              isDark,
+              customColor: const Color(0xFF10B981),
+            ),
+          if (manualDiscountAmount > 0)
+            _buildDetailRow(
+              _manualDiscountLabel.isNotEmpty
+                  ? "Diskon ($_manualDiscountLabel)"
+                  : "Diskon Manual",
+              -manualDiscountAmount,
+              isDark,
+              customColor: const Color(0xFF10B981),
+            ),
+          if (pajakAmount > 0) _buildDetailRow(pajakName, pajakAmount, isDark),
+          const SizedBox(height: 6),
+          Divider(color: isDark ? Colors.white10 : Colors.grey[200]),
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+              color: primaryColor.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: primaryColor.withValues(alpha: 0.2),
+                width: 1,
+              ),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  "Total",
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                    color: isDark ? Colors.white : Colors.black87,
+                  ),
+                ),
+                Text(
+                  _currencyFormat.format(total),
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                    color: primaryColor,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDetailRow(String label, double amount, bool isDark, {Color? customColor}) {
+    final color = customColor ?? (isDark ? Colors.white70 : Colors.black87);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            label,
+            style: GoogleFonts.plusJakartaSans(
+              fontSize: 12,
+              color: color,
+              fontWeight: customColor != null ? FontWeight.w600 : FontWeight.normal,
+            ),
+          ),
+          Text(
+            _currencyFormat.format(amount),
+            style: GoogleFonts.plusJakartaSans(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildQuickCashBtnOutlined(String label, double amount, bool isDark, Color primaryColor) {
+    final bool isSelected = (_cashReceived == amount && amount > 0) || (label == "Pas" && _cashReceived == amount);
+
+    return Padding(
+      padding: const EdgeInsets.only(right: 6),
+      child: InkWell(
+        onTap: () {
+          if (!mounted) return;
+          setState(() {
+            _cashReceived = amount;
+            _cashController.text = NumberFormat.decimalPattern("id").format(amount);
+          });
+          _cashFocusNode.requestFocus();
+        },
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+          decoration: BoxDecoration(
+            color: isSelected
+                ? primaryColor.withValues(alpha: 0.15)
+                : primaryColor.withValues(alpha: 0.05),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: isSelected ? primaryColor : primaryColor.withValues(alpha: 0.35),
+              width: isSelected ? 1.5 : 1.2,
+            ),
+          ),
+          child: Text(
+            label,
+            style: GoogleFonts.plusJakartaSans(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              color: isSelected ? primaryColor : (isDark ? Colors.white : Colors.black87),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildActionCard({
+    required IconData icon,
+    required String label,
+    required Color primaryColor,
+    required bool isDark,
+    bool isSelected = false,
+    Color? customColor,
+    required VoidCallback? onTap,
+  }) {
+    final Color activeColor = customColor ?? primaryColor;
+    final bool isDisabled = onTap == null;
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+        decoration: BoxDecoration(
+          color: isDisabled
+              ? (isDark ? Colors.white.withValues(alpha: 0.02) : Colors.grey[100])
+              : (isSelected
+                  ? activeColor.withValues(alpha: 0.14)
+                  : activeColor.withValues(alpha: 0.05)),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: isDisabled
+                ? (isDark ? Colors.white10 : Colors.grey[300]!)
+                : (isSelected ? activeColor : activeColor.withValues(alpha: 0.35)),
+            width: isSelected ? 1.5 : 1.2,
+          ),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              color: isDisabled ? Colors.grey : activeColor,
+              size: 18,
+            ),
+            const SizedBox(height: 3),
+            Text(
+              label,
+              style: GoogleFonts.plusJakartaSans(
+                color: isDisabled ? Colors.grey : activeColor,
+                fontWeight: FontWeight.w600,
+                fontSize: 10.5,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -977,389 +1616,727 @@ class _CartSidebarState extends State<CartSidebar> {
     double total,
     double change,
     bool isDesktop,
-    bool isNarrow,
-  ) {
+    bool isNarrow, {
+    required double pajakAmount,
+    required String pajakName,
+    required double promoDiscount,
+    required double manualDiscountAmount,
+  }) {
     return Column(
       children: [
+        // TOP SCROLLABLE AREA: Order Summary & Total Details
         Expanded(
           child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const SizedBox(height: 32),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                "Pelanggan (Loyalty)",
-                                style: GoogleFonts.inter(
-                                  fontSize: isNarrow ? 12 : 13,
-                                  fontWeight: FontWeight.w600,
-                                  color: isDark
-                                      ? Colors.white70
-                                      : Colors.grey[600],
-                                ),
-                              ),
-                              if (widget.selectedCustomer != null)
-                                Padding(
-                                  padding: const EdgeInsets.only(top: 4),
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 10,
-                                      vertical: 4,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: primaryColor.withValues(
-                                        alpha: 0.1,
-                                      ),
-                                      borderRadius: BorderRadius.circular(20),
-                                      border: Border.all(
-                                        color: primaryColor.withValues(
-                                          alpha: 0.3,
-                                        ),
-                                      ),
-                                    ),
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Text(
-                                          widget.selectedCustomer!.name ?? "-",
-                                          style: GoogleFonts.inter(
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.bold,
-                                            color: primaryColor,
-                                          ),
-                                        ),
-                                        const SizedBox(width: 4),
-                                        GestureDetector(
-                                          onTap: () => widget.onCustomerSelected
-                                              ?.call(null),
-                                          child: Icon(
-                                            Icons.close_rounded,
-                                            size: 14,
-                                            color: primaryColor,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                            ],
-                          ),
-                          Row(
-                            children: [
-                              // Search button
-                              IconButton(
-                                onPressed: () =>
-                                    _showCustomerSearchDialog(isDark),
-                                icon: Icon(
-                                  Icons.search_rounded,
-                                  size: 22,
-                                  color: widget.selectedCustomer != null
-                                      ? primaryColor
-                                      : Colors.grey[600],
-                                ),
-                                tooltip: "Pilih Pelanggan",
-                                padding: const EdgeInsets.all(8),
-                                constraints: const BoxConstraints(),
-                              ),
-                              const SizedBox(width: 8),
-                              // Add button
-                              IconButton(
-                                onPressed: () => _showAddCustomerDialog(isDark),
-                                icon: Icon(
-                                  Icons.person_add_alt_1_rounded,
-                                  size: 22,
-                                  color: primaryColor,
-                                ),
-                                tooltip: "Tambah Pelanggan Baru",
-                                padding: const EdgeInsets.all(8),
-                                constraints: const BoxConstraints(),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 24),
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.center,
-                        children: [
-                          Expanded(
-                            child: Text(
-                              "Metode Pembayaran",
-                              style: GoogleFonts.inter(
-                                fontSize: isNarrow ? 12 : 13,
-                                fontWeight: FontWeight.w600,
-                                color: isDark
-                                    ? Colors.white70
-                                    : Colors.grey[600],
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 2),
-                          FutureBuilder<List<PaymentMethod>>(
-                            future: context
-                                .read<AdminController>()
-                                .paymentMethodService
-                                .getPaymentMethods(
-                                  context.read<AdminController>().storeId ?? '',
-                                )
-                                .then(
-                                  (list) =>
-                                      list.where((m) => m.isActive).toList(),
-                                ),
-                            builder: (context, snapshot) {
-                              final customMethods = snapshot.data ?? [];
-                              return Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  _buildPaymentMethodIcon(
-                                    "Tunai",
-                                    Icons.payments_outlined,
-                                    total,
-                                    isNarrow: isNarrow,
-                                  ),
-                                  if (customMethods.isNotEmpty) ...[
-                                    const SizedBox(width: 8),
-                                    _buildPaymentMethodIcon(
-                                      _selectedPaymentMethod == "Tunai"
-                                          ? "Digital"
-                                          : _selectedPaymentMethod,
-                                      Icons.account_balance_wallet_outlined,
-                                      total,
-                                      onTap: () => _showPaymentMethodPicker(
-                                        customMethods,
-                                        total,
-                                        primaryColor,
-                                        isDark,
-                                      ),
-                                      isSelected:
-                                          _selectedPaymentMethod != "Tunai",
-                                      isNarrow: isNarrow,
-                                    ),
-                                  ],
-                                ],
-                              );
-                            },
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-
-                      if (_selectedPaymentMethod == "Tunai") ...[
-                        const SizedBox(height: 24),
-                        Text(
-                          "Uang Diterima",
-                          style: GoogleFonts.inter(
-                            fontSize: isNarrow ? 12 : 13,
-                            fontWeight: FontWeight.w600,
-                            color: isDark ? Colors.white70 : Colors.grey[600],
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        TextField(
-                          controller: _cashController,
-                          readOnly: true,
-                          showCursor: true,
-                          keyboardType: TextInputType.none,
-                          style: GoogleFonts.poppins(
-                            fontSize: 24,
-                            fontWeight: FontWeight.bold,
-                            color: primaryColor,
-                          ),
-                          decoration: InputDecoration(
-                            hintText: "0",
-                            prefixIcon: Padding(
-                              padding: const EdgeInsets.only(left: 18),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Text(
-                                    "Rp",
-                                    style: GoogleFonts.poppins(
-                                      fontSize: 24,
-                                      fontWeight: FontWeight.bold,
-                                      color: primaryColor,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            isDense: true,
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(18),
-                              borderSide: BorderSide(
-                                color: Colors.grey.withValues(alpha: 0.2),
-                              ),
-                            ),
-                            enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(18),
-                              borderSide: BorderSide(
-                                color: Colors.grey.withValues(alpha: 0.2),
-                              ),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(18),
-                              borderSide: BorderSide(
-                                color: primaryColor,
-                                width: 2,
-                              ),
-                            ),
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 18,
-                              vertical: 16,
-                            ),
-                            suffixIcon: IconButton(
-                              icon: const Icon(
-                                Icons.close_rounded,
-                                size: 20,
-                                color: Colors.redAccent,
-                              ),
-                              onPressed: () {
-                                widget.onAbortTransaction?.call();
-                                Navigator.pop(context);
-                              },
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 14),
-                        SingleChildScrollView(
-                          scrollDirection: Axis.horizontal,
-                          child: Row(
-                            children: [
-                              _buildQuickCashBtn("Pas", total),
-                              _buildQuickCashBtn("10rb", 10000),
-                              _buildQuickCashBtn("20rb", 20000),
-                              _buildQuickCashBtn("50rb", 50000),
-                              _buildQuickCashBtn("100rb", 100000),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
+                _buildCombinedOrderSummaryCard(
+                  isDark,
+                  primaryColor,
+                  subTotal,
+                  discount,
+                  pajakAmount,
+                  pajakName,
+                  total,
+                  promoDiscount,
+                  manualDiscountAmount,
                 ),
-                const SizedBox(height: 32),
               ],
             ),
           ),
         ),
 
-        // Fixed Summary, Numpad and Button at the bottom (Symmetrical with Cart Mode)
         const Divider(height: 1),
 
-        // Payment Summary Section (Reusing similar style as OdooSummary)
+        // Numpad remains dynamically rendered if enabled
+        ValueListenableBuilder<bool>(
+          valueListenable: SettingsController.instance.showNumpad,
+          builder: (context, showNumpad, child) {
+            if (!showNumpad) return const SizedBox();
+            return SizedBox(
+              height: 200,
+              child: Opacity(
+                opacity: _selectedPaymentMethod == "Tunai" ? 1.0 : 0.5,
+                child: IgnorePointer(
+                  ignoring: _selectedPaymentMethod != "Tunai",
+                  child: OrderNumpad(
+                    mode: _numpadMode,
+                    onModeChanged: (_) {}, 
+                    onTap: _handleNumpadTap,
+                    onBackspace: () => _handleNumpadTap("backspace"),
+                    onToggleSign: () {},
+                  ),
+                ),
+              ),
+            );
+          }
+        ),
+
+        // Bottom Controls Panel: Quick Cash -> Cash Input -> Compact 3x2 Grid -> Total & Checkout
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-          color: isDark
-              ? Colors.white.withValues(alpha: 0.02)
-              : Colors.grey[50],
+          padding: EdgeInsets.fromLTRB(16, 12, 16, isDesktop ? 16 : 12),
+          decoration: BoxDecoration(
+             color: isDark ? const Color(0xFF1A1A1A) : Colors.white,
+          ),
           child: Column(
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Expanded(
-                    child: Text(
-                      "Total Bayar",
-                      style: GoogleFonts.poppins(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 14,
-                        color: isDark ? Colors.white70 : Colors.black54,
+             mainAxisSize: MainAxisSize.min,
+             crossAxisAlignment: CrossAxisAlignment.start,
+             children: [
+                // 1. Opsi Jumlah Pembayaran (Jumlah Cepat)
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      "Jumlah Cepat",
+                      style: GoogleFonts.plusJakartaSans(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: isDark ? Colors.white54 : Colors.grey[700],
                       ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      _buildQuickCashBtnOutlined("Pas", total, isDark, primaryColor),
+                      _buildQuickCashBtnOutlined("Rp 50.000", 50000, isDark, primaryColor),
+                      _buildQuickCashBtnOutlined("Rp 100.000", 100000, isDark, primaryColor),
+                      _buildQuickCashBtnOutlined("Rp 200.000", 200000, isDark, primaryColor),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 10),
+
+                // 2. Input Uang Diterima & Kembalian Field
+                ValueListenableBuilder<bool>(
+                  valueListenable: SettingsController.instance.showNumpad,
+                  builder: (context, showNumpad, child) {
+                    return TextField(
+                      controller: _cashController,
+                      focusNode: _cashFocusNode,
+                      autofocus: true,
+                      readOnly: showNumpad,
+                      showCursor: true,
+                      keyboardType: showNumpad ? TextInputType.none : TextInputType.number,
+                      onChanged: showNumpad ? null : (val) {
+                        setState(() {
+                          String rawValue = val.replaceAll(RegExp(r"[^\d]"), "");
+                          _cashReceived = double.tryParse(rawValue) ?? 0;
+                        });
+                      },
+                      style: GoogleFonts.plusJakartaSans(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: isDark ? Colors.white : Colors.black87,
+                      ),
+                      decoration: InputDecoration(
+                        hintText: "Masukan jumlah uang",
+                        hintStyle: GoogleFonts.openSans(color: Colors.grey, fontSize: 13),
+                        prefixIcon: Padding(
+                          padding: const EdgeInsets.only(left: 12, right: 6),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text(
+                                "Rp",
+                                style: GoogleFonts.plusJakartaSans(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                  color: isDark ? Colors.white : Colors.black87,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        isDense: true,
+                        filled: true,
+                        fillColor: isDark ? Colors.white.withValues(alpha: 0.02) : Colors.white,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                          borderSide: BorderSide(
+                            color: isDark ? Colors.white10 : Colors.grey[300]!,
+                          ),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                          borderSide: BorderSide(
+                            color: isDark ? Colors.white10 : Colors.grey[300]!,
+                          ),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                          borderSide: BorderSide(
+                            color: primaryColor,
+                            width: 1.8,
+                          ),
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 12,
+                        ),
+                        suffixIcon: IconButton(
+                          icon: const Icon(Icons.close_rounded, size: 18, color: Colors.grey),
+                          onPressed: () {
+                            _cashController.clear();
+                            _cashReceived = 0;
+                            setState(() {});
+                            _cashFocusNode.requestFocus();
+                          },
+                        ),
+                      ),
+                    );
+                  }
+                ),
+
+                // Green Kembalian display
+                if (_selectedPaymentMethod == "Tunai" && _cashReceived >= total && _cashReceived > 0)
+                  Padding(
+                     padding: const EdgeInsets.only(top: 8),
+                     child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        decoration: BoxDecoration(
+                           color: isDark ? Colors.black.withValues(alpha: 0.2) : Colors.green.withValues(alpha: 0.06),
+                           border: Border.all(color: Colors.green, width: 1.2),
+                           borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Row(
+                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                           children: [
+                              Text("Kembalian", style: GoogleFonts.plusJakartaSans(color: Colors.green, fontWeight: FontWeight.w600, fontSize: 13)),
+                              Text(_currencyFormat.format(_cashReceived - total), style: GoogleFonts.plusJakartaSans(color: Colors.green, fontWeight: FontWeight.bold, fontSize: 15)),
+                           ]
+                        )
+                     )
+                  ),
+
+                const SizedBox(height: 10),
+
+                // 3. Compact 3x2 Square Grid for Payment Methods & Action Controls
+                FutureBuilder<List<PaymentMethod>>(
+                  future: context.read<AdminController>().paymentMethodService.getPaymentMethods(context.read<AdminController>().storeId ?? "").then((list) => list.where((m) => m.isActive).toList()),
+                  builder: (context, snapshot) {
+                     final customMethods = snapshot.data ?? [];
+                     if (customMethods.isNotEmpty && _cachedPaymentMethods.isEmpty) {
+                       WidgetsBinding.instance.addPostFrameCallback((_) {
+                         if (mounted) setState(() => _cachedPaymentMethods = customMethods);
+                       });
+                     }
+                     return Column(
+                       children: [
+                         // Row 1: [ Tunai ] [ QRIS / Non-Tunai ] [ Pelanggan ]
+                         ValueListenableBuilder<bool>(
+                           valueListenable: SettingsController.instance.featureLoyaltyEnabled,
+                           builder: (context, loyaltyEnabled, _) {
+                             return Row(
+                               children: [
+                                 Expanded(
+                                   child: _buildActionCard(
+                                     icon: Icons.money,
+                                     label: "Tunai",
+                                     primaryColor: primaryColor,
+                                     isDark: isDark,
+                                     isSelected: _selectedPaymentMethod == "Tunai",
+                                     onTap: () {
+                                       setState(() { _selectedPaymentMethod = "Tunai"; });
+                                       _cashFocusNode.requestFocus();
+                                     },
+                                   ),
+                                 ),
+                                 const SizedBox(width: 6),
+                                 Expanded(
+                                   child: _buildActionCard(
+                                     icon: Icons.qr_code_scanner,
+                                     label: _selectedPaymentMethod != "Tunai" && _selectedPaymentMethod.isNotEmpty ? _selectedPaymentMethod : "QRIS",
+                                     primaryColor: primaryColor,
+                                     isDark: isDark,
+                                     isSelected: _selectedPaymentMethod != "Tunai",
+                                     onTap: () => _showPaymentMethodPicker(customMethods, total, primaryColor, isDark),
+                                   ),
+                                 ),
+                                 if (loyaltyEnabled) ...[
+                                   const SizedBox(width: 6),
+                                   Expanded(
+                                     child: _buildActionCard(
+                                       icon: Icons.person_outline,
+                                       label: widget.selectedCustomer?.name ?? "Pelanggan",
+                                       primaryColor: primaryColor,
+                                       isDark: isDark,
+                                       isSelected: widget.selectedCustomer != null,
+                                       customColor: widget.selectedCustomer != null && widget.discountData?['is_member_discount'] == true
+                                           ? const Color(0xFF10B981)
+                                           : null,
+                                       onTap: () => _showCustomerSearchDialog(isDark),
+                                     ),
+                                   ),
+                                 ],
+                               ],
+                             );
+                           },
+                         ),
+                         const SizedBox(width: 6, height: 6),
+                         // Row 2: [ Diskon ] [ Pisah Bill ] [ Split Pay ]
+                         Row(
+                           children: [
+                             Expanded(
+                               child: _buildActionCard(
+                                 icon: _manualDiscount > 0 ? Icons.discount_rounded : Icons.discount_outlined,
+                                 label: _manualDiscount > 0
+                                     ? (_manualDiscountIsPercent
+                                         ? "Diskon ${_manualDiscount.toStringAsFixed(0)}%"
+                                         : "Diskon ${_currencyFormat.format(_manualDiscount)}")
+                                     : "Diskon",
+                                 primaryColor: primaryColor,
+                                 isDark: isDark,
+                                 customColor: _manualDiscount > 0 ? Colors.green : primaryColor,
+                                 isSelected: _manualDiscount > 0,
+                                 onTap: () => _showDiscountSheet(isDark, primaryColor, subTotal),
+                               ),
+                             ),
+                             const SizedBox(width: 6),
+                             Expanded(
+                               child: _buildActionCard(
+                                 icon: Icons.call_split_rounded,
+                                 label: "Pisah Bill",
+                                 primaryColor: primaryColor,
+                                 isDark: isDark,
+                                 customColor: Colors.deepPurple,
+                                 onTap: widget.cartItems.length < 2
+                                     ? null
+                                     : () => _showSplitItemDialog(isDark),
+                               ),
+                             ),
+                             const SizedBox(width: 6),
+                             Expanded(
+                               child: _buildActionCard(
+                                 icon: Icons.payment_rounded,
+                                 label: _splitPayments != null ? "${_splitPayments!.length} Metode" : "Split Pay",
+                                 primaryColor: primaryColor,
+                                 isDark: isDark,
+                                 customColor: _splitPayments != null ? Colors.green : Colors.teal,
+                                 isSelected: _splitPayments != null,
+                                 onTap: () => _showSplitPaymentSheet(isDark, total, _cachedPaymentMethods),
+                               ),
+                             ),
+                           ],
+                         ),
+                       ],
+                     );
+                  }
+                ),
+
+                // Split Payment summary badges
+                if (_splitPayments != null) ...[
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 6,
+                    children: _splitPayments!.map((p) => Chip(
+                      label: Text(
+                        "${p['method']}: ${_currencyFormat.format(p['amount'])}",
+                        style: GoogleFonts.openSans(fontSize: 11, fontWeight: FontWeight.w600),
+                      ),
+                      deleteIcon: const Icon(Icons.close, size: 14),
+                      onDeleted: () => setState(() => _splitPayments = null),
+                      backgroundColor: Colors.teal.withValues(alpha: 0.1),
+                      side: const BorderSide(color: Colors.teal),
+                    )).toList(),
+                  ),
+                ],
+                const SizedBox(height: 10),
+
+                // Proses Pembayaran Button
+                SizedBox(
+                   width: double.infinity,
+                   height: 50,
+                   child: ElevatedButton(
+                      onPressed: widget.isProcessing ? null : () {
+                          // Split Payment path
+                          if (_splitPayments != null) {
+                            final combinedLabel = _splitPayments!.map((p) => p['method']).join('+');
+                            widget.onCheckout(total, combinedLabel, splitPayments: _splitPayments, discount: discount);
+                            return;
+                          }
+                          if (_selectedPaymentMethod == "Tunai" && _cashReceived < total) {
+                             if (widget.selectedCustomer == null) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                   const SnackBar(content: Text("Pilih atau tambah pelanggan terlebih dahulu untuk transaksi hutang."), backgroundColor: Colors.redAccent,),
+                                );
+                                _showCustomerSearchDialog(isDark);
+                                return;
+                             }
+                             _showDebtConfirmation(context, total, primaryColor, isDark, discount: discount);
+                             return;
+                          }
+                          widget.onCheckout(_cashReceived, _selectedPaymentMethod, discount: discount);
+                      },
+                      style: ElevatedButton.styleFrom(
+                         backgroundColor: primaryColor, // Orange
+                         foregroundColor: Colors.white,
+                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                         elevation: 0,
+                      ),
+                      child: widget.isProcessing ? const CircularProgressIndicator(color: Colors.white) : Text(
+                         "Proses Pembayaran", 
+                         style: GoogleFonts.plusJakartaSans(fontSize: 16, fontWeight: FontWeight.w700)
+                      )
+                   )
+                ),
+             ]
+          )
+        ),
+      ],
+    );
+  }
+  void _showDebtConfirmation(BuildContext context, double total, Color primaryColor, bool isDark, {double? discount}) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: isDark ? const Color(0xFF1C1C1E) : Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Text(
+          "Hutang / Piutang",
+          style: GoogleFonts.plusJakartaSans(
+            fontWeight: FontWeight.w700,
+            color: isDark ? Colors.white : Colors.black87,
+          ),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              "Uang diterima (${_currencyFormat.format(_cashReceived)}) kurang dari total belanja (${_currencyFormat.format(total)}).",
+              style: GoogleFonts.openSans(
+                color: isDark ? Colors.white70 : Colors.black54,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              "Jadikan sebagai hutang?",
+              style: GoogleFonts.openSans(
+                fontWeight: FontWeight.w600,
+                color: isDark ? Colors.white : Colors.black87,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text(
+              "Batal",
+              style: TextStyle(color: Colors.grey[600]),
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              widget.onCheckout(_cashReceived, "Tunai", status: 'debt', discount: discount);
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: primaryColor,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+            child: const Text("Ya, Hutang"),
+          ),
+        ],
+      ),
+    );
+  }
+
+
+  // -------------------------------------------------------------------------
+  // SPLIT ITEM: open the SplitItemDialog to split cart into 2 bills
+  // -------------------------------------------------------------------------
+  void _showSplitItemDialog(bool isDark) {
+    showDialog(
+      context: context,
+      builder: (ctx) => SplitItemDialog(
+        cartItems: widget.cartItems,
+        onSplitItems: (bill1, bill2) {
+          widget.onSplitItems?.call(bill1, bill2);
+        },
+      ),
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // SPLIT PAYMENT: open the SplitPaymentSheet to pay with multiple methods
+  // -------------------------------------------------------------------------
+  void _showSplitPaymentSheet(bool isDark, double total, List<PaymentMethod> customMethods) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => SplitPaymentSheet(
+        total: total,
+        customMethods: customMethods,
+        onConfirm: (payments) {
+          setState(() => _splitPayments = payments);
+        },
+      ),
+    );
+  }
+
+  void _showDiscountSheet(bool isDark, Color primaryColor, double subTotal) {
+    final discountCtrl = TextEditingController(
+      text: _manualDiscount > 0 ? (_manualDiscountIsPercent ? _manualDiscount.toStringAsFixed(0) : _manualDiscount.toInt().toString()) : ""
+    );
+    bool isPercent = _manualDiscountIsPercent;
+    
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setModalState) {
+          final adminCtrl = context.read<AdminController>();
+          final storeId = adminCtrl.storeId;
+
+          return Container(
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.of(context).viewInsets.bottom,
+            ),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF1A1C1E) : Colors.white,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(25)),
+            ),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        "Tambah Diskon",
+                        style: GoogleFonts.plusJakartaSans(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: isDark ? Colors.white : Colors.black87,
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () => Navigator.pop(ctx),
+                        icon: const Icon(Icons.close),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  
+                  // Custom Discount Input
+                  Text(
+                    "Diskon Kustom",
+                    style: GoogleFonts.plusJakartaSans(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: isDark ? Colors.white70 : Colors.black54,
                     ),
                   ),
-                  Text(
-                    _currencyFormat.format(total),
-                    style: GoogleFonts.poppins(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 18,
-                      color: primaryColor,
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: discountCtrl,
+                          keyboardType: TextInputType.number,
+                          style: GoogleFonts.plusJakartaSans(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 18,
+                            color: isDark ? Colors.white : Colors.black87,
+                          ),
+                          decoration: InputDecoration(
+                            hintText: "0",
+                            prefixText: isPercent ? null : "Rp ",
+                            suffixText: isPercent ? "%" : null,
+                            filled: true,
+                            fillColor: isDark ? Colors.white.withValues(alpha: 0.05) : Colors.grey[50],
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide.none,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Container(
+                        decoration: BoxDecoration(
+                          color: isDark ? Colors.white.withValues(alpha: 0.05) : Colors.grey[100],
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          children: [
+                            _buildDiscountTypeBtn("Rp", !isPercent, isDark, primaryColor, () => setModalState(() => isPercent = false)),
+                            _buildDiscountTypeBtn("%", isPercent, isDark, primaryColor, () => setModalState(() => isPercent = true)),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
+                  
+                  // Promotions Section
+                  if (storeId != null) ...[
+                    Text(
+                      "Promosi Berjalan",
+                      style: GoogleFonts.plusJakartaSans(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: isDark ? Colors.white70 : Colors.black54,
+                      ),
                     ),
+                    const SizedBox(height: 12),
+                    FutureBuilder<List<Promotion>>(
+                      future: adminCtrl.promotionService.getActivePromotions(storeId),
+                      builder: (context, snapshot) {
+                        if (snapshot.connectionState == ConnectionState.waiting) {
+                          return const Center(child: CircularProgressIndicator());
+                        }
+                        final promos = snapshot.data ?? [];
+                        if (promos.isEmpty) {
+                          return Text(
+                            "Tidak ada promosi aktif saat ini.",
+                            style: GoogleFonts.openSans(color: Colors.grey, fontSize: 13),
+                          );
+                        }
+                        return ListView.separated(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          itemCount: promos.length,
+                          separatorBuilder: (c, i) => const SizedBox(height: 8),
+                          itemBuilder: (context, i) {
+                            final p = promos[i];
+                            final isSelected = _manualDiscountLabel == p.name;
+                            return InkWell(
+                              onTap: () {
+                                setState(() {
+                                  _manualDiscount = (p.value ?? 0).toDouble();
+                                  _manualDiscountIsPercent = (p.discountType == 'percentage');
+                                  _manualDiscountLabel = p.name ?? "Promo";
+                                });
+                                Navigator.pop(ctx);
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: isSelected
+                                      ? primaryColor.withValues(alpha: 0.1)
+                                      : (isDark
+                                          ? Colors.white.withValues(alpha: 0.03)
+                                          : Colors.grey[50]),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                      color: isSelected ? primaryColor : Colors.transparent),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.local_offer_outlined, color: isSelected ? primaryColor : Colors.grey, size: 20),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            p.name ?? "Promo",
+                                            style: GoogleFonts.plusJakartaSans(
+                                              fontWeight: FontWeight.w600,
+                                              fontSize: 14,
+                                              color: isDark ? Colors.white : Colors.black87,
+                                            ),
+                                          ),
+                                          Text(
+                                            p.discountType == 'percentage' ? "${(p.value ?? 0).toInt()}% OFF" : "Diskon ${_currencyFormat.format(p.value ?? 0)}",
+                                            style: GoogleFonts.openSans(fontSize: 12, color: Colors.grey),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    if (isSelected) Icon(Icons.check_circle, color: primaryColor, size: 20),
+                                  ],
+                                ),
+                              ),
+                            );
+                          },
+                        );
+                      },
+                    ),
+                  ],
+                  
+                  const SizedBox(height: 32),
+                  Row(
+                    children: [
+                      if (_manualDiscount > 0)
+                        Expanded(
+                          child: TextButton(
+                            onPressed: () {
+                              setState(() {
+                                _manualDiscount = 0;
+                                _manualDiscountLabel = "";
+                              });
+                              Navigator.pop(ctx);
+                            },
+                            child: const Text("Hapus Diskon", style: TextStyle(color: Colors.redAccent)),
+                          ),
+                        ),
+                      Expanded(
+                        flex: 2,
+                        child: ElevatedButton(
+                          onPressed: () {
+                            final val = double.tryParse(discountCtrl.text) ?? 0;
+                            setState(() {
+                              _manualDiscount = val;
+                              _manualDiscountIsPercent = isPercent;
+                              _manualDiscountLabel = ""; // Custom discount
+                            });
+                            Navigator.pop(ctx);
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: primaryColor,
+                            foregroundColor: Colors.white,
+                            minimumSize: const Size(double.infinity, 50),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
+                          child: const Text("Terapkan"),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
-            ],
-          ),
-        ),
-
-        // Numpad remains at the bottom, matching Cart Mode size exactly
-        SizedBox(
-          height: 200,
-          child: Opacity(
-            opacity: _selectedPaymentMethod == "Tunai" ? 1.0 : 0.5,
-            child: IgnorePointer(
-              ignoring: _selectedPaymentMethod != "Tunai",
-              child: OrderNumpad(
-                mode: _numpadMode,
-                onModeChanged:
-                    (_) {}, // Mode buttons are static deco in payment
-                onTap: _handleNumpadTap,
-                onBackspace: () => _handleNumpadTap("backspace"),
-                onToggleSign: () {},
-              ),
             ),
-          ),
-        ),
+          );
+        },
+      ),
+    );
+  }
 
-        // Main Action Button (Symmetrical with Cart Mode)
-        Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: SizedBox(
-            width: double.infinity,
-            height: 56,
-            child: ElevatedButton(
-              onPressed: widget.isProcessing
-                  ? null
-                  : () {
-                      if (_selectedPaymentMethod == "Tunai" &&
-                          _cashReceived < total) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text("Uang kurang"),
-                            backgroundColor: Colors.orange,
-                            duration: Duration(seconds: 2),
-                          ),
-                        );
-                        return;
-                      }
-                      widget.onCheckout(_cashReceived, _selectedPaymentMethod);
-                    },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: primaryColor,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                elevation: 0,
-              ),
-              child: widget.isProcessing
-                  ? const CircularProgressIndicator(color: Colors.white)
-                  : FittedBox(
-                      fit: BoxFit.scaleDown,
-                      child: Text(
-                        "Konfirmasi Pembayaran",
-                        style: GoogleFonts.poppins(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 18,
-                        ),
-                      ),
-                    ),
-            ),
+  Widget _buildDiscountTypeBtn(String label, bool active, bool isDark, Color primaryColor, VoidCallback onTap) {
+    return InkWell(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        decoration: BoxDecoration(
+          color: active ? primaryColor : Colors.transparent,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Text(
+          label,
+          style: GoogleFonts.plusJakartaSans(
+            fontWeight: FontWeight.bold,
+            color: active ? Colors.white : (isDark ? Colors.white38 : Colors.black38),
           ),
         ),
-      ],
+      ),
     );
   }
 
@@ -1368,7 +2345,7 @@ class _CartSidebarState extends State<CartSidebar> {
     final db = context.read<AppDatabase>();
     List<Customer> allCustomers = [];
     List<Customer> filtered = [];
-    const primaryColor = Color(0xFFEA5700);
+    const primaryColor = Color(0xFFC0392B);
 
     showModalBottomSheet(
       context: context,
@@ -1409,13 +2386,54 @@ class _CartSidebarState extends State<CartSidebar> {
                   children: [
                     Text(
                       "Pilih Pelanggan",
-                      style: GoogleFonts.poppins(
+                      style: GoogleFonts.plusJakartaSans(
                         fontSize: 22,
-                        fontWeight: FontWeight.bold,
+                        fontWeight: FontWeight.w600,
                         color: isDark ? Colors.white : Colors.black87,
                       ),
                     ),
-                    const Spacer(),
+                    Container(
+                      decoration: BoxDecoration(
+                        color: isDark
+                            ? primaryColor.withValues(alpha: 0.1)
+                            : primaryColor.withValues(alpha: 0.05),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: TextButton.icon(
+                        onPressed: () {
+                          Navigator.pop(ctx);
+                          _showAddCustomerDialog(isDark);
+                        },
+                        icon: const Icon(Icons.add_rounded, size: 18, color: primaryColor),
+                        label: Text(
+                          "Tambah",
+                          style: GoogleFonts.plusJakartaSans(
+                            color: primaryColor,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+                    if (widget.selectedCustomer != null) ...[
+                      const SizedBox(width: 6),
+                      TextButton.icon(
+                        onPressed: () {
+                          widget.onCustomerSelected?.call(null);
+                          Navigator.pop(ctx);
+                        },
+                        icon: const Icon(Icons.person_remove_outlined, size: 16, color: Colors.redAccent),
+                        label: Text(
+                          "Hapus",
+                          style: GoogleFonts.plusJakartaSans(
+                            color: Colors.redAccent,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                    const SizedBox(width: 8),
                     Container(
                       decoration: BoxDecoration(
                         color: isDark ? Colors.white10 : Colors.grey[100],
@@ -1448,13 +2466,13 @@ class _CartSidebarState extends State<CartSidebar> {
                   ),
                   child: TextField(
                     controller: searchCtrl,
-                    style: GoogleFonts.inter(
+                    style: GoogleFonts.openSans(
                       color: isDark ? Colors.white : Colors.black87,
                     ),
                     decoration: InputDecoration(
                       hintText: "Cari nama atau nomor HP...",
-                      hintStyle: GoogleFonts.inter(color: Colors.grey),
-                      prefixIcon: Icon(
+                      hintStyle: GoogleFonts.openSans(color: Colors.grey),
+                      prefixIcon: const Icon(
                         Icons.search_rounded,
                         color: primaryColor,
                       ),
@@ -1518,7 +2536,7 @@ class _CartSidebarState extends State<CartSidebar> {
                             const SizedBox(height: 20),
                             Text(
                               "Pelanggan tidak ditemukan",
-                              style: GoogleFonts.inter(
+                              style: GoogleFonts.openSans(
                                 color: Colors.grey,
                                 fontSize: 16,
                                 fontWeight: FontWeight.w500,
@@ -1527,7 +2545,7 @@ class _CartSidebarState extends State<CartSidebar> {
                             const SizedBox(height: 8),
                             Text(
                               "Coba cari dengan kata kunci lain",
-                              style: GoogleFonts.inter(
+                              style: GoogleFonts.openSans(
                                 color: Colors.grey[400],
                                 fontSize: 13,
                               ),
@@ -1549,7 +2567,7 @@ class _CartSidebarState extends State<CartSidebar> {
                           padding: const EdgeInsets.only(bottom: 12),
                           child: InkWell(
                             onTap: () {
-                              widget.onCustomerSelected?.call(cust);
+                              widget.onCustomerSelected?.call(isSelected ? null : cust);
                               Navigator.pop(ctx);
                             },
                             borderRadius: BorderRadius.circular(18),
@@ -1593,9 +2611,9 @@ class _CartSidebarState extends State<CartSidebar> {
                                               ?.substring(0, 1)
                                               .toUpperCase() ??
                                           "P",
-                                      style: GoogleFonts.poppins(
+                                      style: GoogleFonts.plusJakartaSans(
                                         color: primaryColor,
-                                        fontWeight: FontWeight.bold,
+                                        fontWeight: FontWeight.w600,
                                         fontSize: 18,
                                       ),
                                     ),
@@ -1608,8 +2626,8 @@ class _CartSidebarState extends State<CartSidebar> {
                                       children: [
                                         Text(
                                           cust.name ?? "-",
-                                          style: GoogleFonts.inter(
-                                            fontWeight: FontWeight.bold,
+                                          style: GoogleFonts.openSans(
+                                            fontWeight: FontWeight.w600,
                                             fontSize: 15,
                                             color: isDark
                                                 ? Colors.white
@@ -1628,7 +2646,7 @@ class _CartSidebarState extends State<CartSidebar> {
                                             Text(
                                               cust.phoneNumber ??
                                                   "Tanpa nomor HP",
-                                              style: GoogleFonts.inter(
+                                              style: GoogleFonts.openSans(
                                                 fontSize: 13,
                                                 color: Colors.grey[500],
                                               ),
@@ -1653,17 +2671,17 @@ class _CartSidebarState extends State<CartSidebar> {
                                       children: [
                                         Text(
                                           "${cust.points}",
-                                          style: GoogleFonts.poppins(
-                                            fontWeight: FontWeight.bold,
+                                          style: GoogleFonts.plusJakartaSans(
+                                            fontWeight: FontWeight.w600,
                                             fontSize: 14,
                                             color: primaryColor,
                                           ),
                                         ),
                                         Text(
                                           "Poin",
-                                          style: GoogleFonts.inter(
+                                          style: GoogleFonts.openSans(
                                             fontSize: 9,
-                                            fontWeight: FontWeight.bold,
+                                            fontWeight: FontWeight.w600,
                                             color: primaryColor.withValues(
                                               alpha: 0.7,
                                             ),
@@ -1702,8 +2720,8 @@ class _CartSidebarState extends State<CartSidebar> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Text(
           "Tambah Pelanggan Baru",
-          style: GoogleFonts.poppins(
-            fontWeight: FontWeight.bold,
+          style: GoogleFonts.plusJakartaSans(
+            fontWeight: FontWeight.w600,
             color: isDark ? Colors.white : Colors.black87,
           ),
         ),
@@ -1773,7 +2791,7 @@ class _CartSidebarState extends State<CartSidebar> {
               }
             },
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFEA5700),
+              backgroundColor: const Color(0xFFC0392B),
               foregroundColor: Colors.white,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(10),
@@ -1786,64 +2804,6 @@ class _CartSidebarState extends State<CartSidebar> {
     );
   }
 
-  Widget _buildPaymentMethodIcon(
-    String label,
-    IconData icon,
-    double total, {
-    PaymentMethod? method,
-    VoidCallback? onTap,
-    bool? isSelected,
-    bool isNarrow = false,
-  }) {
-    final selected = isSelected ?? (_selectedPaymentMethod == label);
-    const primaryColor = Color(0xFFEA5700);
-    return InkWell(
-      onTap:
-          onTap ??
-          () {
-            setState(() {
-              _selectedPaymentMethod = label;
-              if (label != "Tunai") {
-                _cashReceived = total;
-                _cashController.text = NumberFormat.decimalPattern(
-                  'id',
-                ).format(total);
-              }
-            });
-          },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        height: 38,
-        decoration: BoxDecoration(
-          color: selected
-              ? primaryColor.withValues(alpha: 0.1)
-              : Colors.transparent,
-          border: Border.all(
-            color: selected ? primaryColor : Colors.grey.withValues(alpha: 0.2),
-            width: 1.5,
-          ),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, color: selected ? primaryColor : Colors.grey, size: 18),
-            if (label != "Tunai") ...[
-              const SizedBox(width: 8),
-              Text(
-                label,
-                style: GoogleFonts.inter(
-                  fontSize: isNarrow ? 11 : 12,
-                  fontWeight: FontWeight.w600,
-                  color: selected ? primaryColor : Colors.grey[700],
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
 
   void _showPaymentMethodPicker(
     List<PaymentMethod> methods,
@@ -1870,9 +2830,9 @@ class _CartSidebarState extends State<CartSidebar> {
               children: [
                 Text(
                   "Pilih Metode Digital",
-                  style: GoogleFonts.poppins(
+                  style: GoogleFonts.plusJakartaSans(
                     fontSize: 18,
-                    fontWeight: FontWeight.bold,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
                 IconButton(
@@ -1925,8 +2885,8 @@ class _CartSidebarState extends State<CartSidebar> {
                             children: [
                               Text(
                                 m.name,
-                                style: GoogleFonts.poppins(
-                                  fontWeight: FontWeight.bold,
+                                style: GoogleFonts.plusJakartaSans(
+                                  fontWeight: FontWeight.w600,
                                   color: isSelected
                                       ? primaryColor
                                       : (isDark
@@ -1937,7 +2897,7 @@ class _CartSidebarState extends State<CartSidebar> {
                               if (m.username != null)
                                 Text(
                                   "A.N. ${m.username}",
-                                  style: GoogleFonts.inter(
+                                  style: GoogleFonts.openSans(
                                     fontSize: 12,
                                     color: Colors.grey[600],
                                   ),
@@ -1945,7 +2905,7 @@ class _CartSidebarState extends State<CartSidebar> {
                               if (m.details != null)
                                 Text(
                                   m.details!,
-                                  style: GoogleFonts.inter(
+                                  style: GoogleFonts.openSans(
                                     fontSize: 12,
                                     color: Colors.grey[600],
                                   ),
@@ -1974,29 +2934,6 @@ class _CartSidebarState extends State<CartSidebar> {
     );
   }
 
-  Widget _buildQuickCashBtn(String label, double amount) {
-    return Padding(
-      padding: const EdgeInsets.only(right: 4),
-      child: ActionChip(
-        label: Text(
-          label,
-          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
-        ),
-        onPressed: () {
-          setState(() {
-            _cashReceived = amount;
-            _cashController.text = NumberFormat.decimalPattern(
-              'id',
-            ).format(amount);
-          });
-        },
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        backgroundColor: Colors.grey.withValues(alpha: 0.1),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        side: BorderSide.none,
-      ),
-    );
-  }
 
   void _showQRISDialog(PaymentMethod method) {
     showDialog(
@@ -2013,7 +2950,7 @@ class _CartSidebarState extends State<CartSidebar> {
                 Expanded(
                   child: Text(
                     method.name,
-                    style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
+                    style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w600),
                   ),
                 ),
                 IconButton(
@@ -2035,18 +2972,19 @@ class _CartSidebarState extends State<CartSidebar> {
             if (method.username != null && method.username!.isNotEmpty)
               Text(
                 "A.N. ${method.username}",
-                style: GoogleFonts.inter(fontWeight: FontWeight.bold),
+                style: GoogleFonts.openSans(fontWeight: FontWeight.w600),
               ),
             if (method.details != null && method.details!.isNotEmpty)
               Text(
                 method.details!,
-                style: GoogleFonts.inter(color: Colors.grey),
+                style: GoogleFonts.openSans(color: Colors.grey),
               ),
           ],
         ),
       ),
     );
   }
+
 }
 
 class DottedLine extends StatelessWidget {
@@ -2076,3 +3014,4 @@ class DottedLine extends StatelessWidget {
     );
   }
 }
+

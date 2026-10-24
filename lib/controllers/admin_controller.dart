@@ -15,6 +15,7 @@ class AdminController extends ChangeNotifier {
   AdminController(this._db) {
     _promotionService = PromotionService(_db);
     _paymentMethodService = PaymentMethodService(_db);
+    loadInitialData();
   }
 
   String? _userId;
@@ -24,6 +25,8 @@ class AdminController extends ChangeNotifier {
   String? _profileUrl;
   String? _storeName;
   String? _storeLogo;
+  String? _storeAddress;
+  String? _storeEmail;
   String? _role;
   Map<String, dynamic>? _permissions;
   bool _isInitializing = true;
@@ -48,7 +51,11 @@ class AdminController extends ChangeNotifier {
   String? get profileUrl => _profileUrl;
   String? get storeName => _storeName;
   String? get storeLogo => _storeLogo;
+  String? get storeAddress => _storeAddress;
+  String? get storeEmail => _storeEmail;
   String? get role => _role;
+  bool get isSuperAdmin => false;
+  bool get isAdmin => true; // Semua pengguna memiliki akses penuh Admin (Aksi, Pengaturan, Kasir, Uang, Tren)
   Map<String, dynamic>? get permissions => _permissions;
   Map<String, dynamic>? get userProfile => _userProfile;
   bool get isInitializing => _isInitializing;
@@ -74,29 +81,24 @@ class AdminController extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       final effectiveUserId = userId ?? prefs.getString('current_user_id');
 
+      // Clear previous in-memory lists & stream subscriptions
+      _categories = [];
+      _products = [];
+      _salesSubscription?.cancel();
+      _lowStockSubscription?.cancel();
+
       // 1. Load active Profile
       Profile? profile;
       if (effectiveUserId != null) {
-        profile = await (_db.select(
-          _db.profiles,
-        )..where((t) => t.id.equals(effectiveUserId))).getSingleOrNull();
-
-        if (profile != null) {
-          // Save for persistence across restarts
-          await prefs.setString('current_user_id', effectiveUserId);
-        }
+        profile = await (_db.select(_db.profiles)..where((t) => t.id.equals(effectiveUserId))).getSingleOrNull();
       }
 
-      // If no specific profile requested/cached, or not found, try first one
       if (profile == null) {
         final profilesItems = await (_db.select(_db.profiles)..limit(1)).get();
         if (profilesItems.isNotEmpty) {
           profile = profilesItems.first;
         }
       }
-
-      // 2. Load Store Info from Drift
-      final stores = await (_db.select(_db.stores)..limit(1)).get();
 
       if (profile != null) {
         _userId = profile.id;
@@ -106,12 +108,26 @@ class AdminController extends ChangeNotifier {
         _role = profile.role;
         _storeId = profile.storeId;
 
-        // Parse permissions
+        await prefs.setString('current_user_id', _userId!);
+
+        if (_storeId == null) {
+          final newStoreId = 'store_${DateTime.now().millisecondsSinceEpoch}';
+          await _db.into(_db.stores).insert(
+            StoresCompanion.insert(
+              id: newStoreId,
+              name: Value('Toko ${_userName ?? "Kasir"}'),
+              adminName: Value(_userName ?? 'Owner'),
+              createdAt: Value(DateTime.now()),
+            ),
+          );
+          _storeId = newStoreId;
+          await (_db.update(_db.profiles)..where((t) => t.id.equals(_userId!)))
+              .write(ProfilesCompanion(storeId: Value(_storeId)));
+        }
+
         if (profile.permissions != null) {
           try {
-            _permissions = Map<String, dynamic>.from(
-              jsonDecode(profile.permissions!),
-            );
+            _permissions = Map<String, dynamic>.from(jsonDecode(profile.permissions!));
           } catch (e) {
             _permissions = {};
           }
@@ -119,17 +135,13 @@ class AdminController extends ChangeNotifier {
           _permissions = {};
         }
 
-        // Load specific store data if linked
         if (_storeId != null) {
-          final store =
-              await (_db.select(_db.stores)
-                    ..where((t) => t.id.equals(_storeId!))
-                    ..limit(1))
-                  .getSingleOrNull();
+          final store = await (_db.select(_db.stores)..where((t) => t.id.equals(_storeId!))..limit(1)).getSingleOrNull();
           if (store != null) {
             _storeName = store.name;
             _storeLogo = store.logoUrl;
-            // If user has no avatar, fallback to admin avatar?
+            _storeAddress = store.address;
+            _storeEmail = store.email;
             _profileUrl ??= store.adminAvatar;
           }
         }
@@ -145,11 +157,26 @@ class AdminController extends ChangeNotifier {
           'store_logo': _storeLogo,
           'permissions': _permissions,
         };
-      } else if (stores.isNotEmpty) {
+      } else {
+        var stores = await (_db.select(_db.stores)..limit(1)).get();
+        if (stores.isEmpty) {
+          final initialStoreId = 'store_${DateTime.now().millisecondsSinceEpoch}';
+          await _db.into(_db.stores).insert(
+            StoresCompanion.insert(
+              id: initialStoreId,
+              name: const Value('Warkop Alam POS'),
+              adminName: const Value('Owner'),
+              createdAt: Value(DateTime.now()),
+            ),
+          );
+          stores = await (_db.select(_db.stores)..limit(1)).get();
+        }
         final store = stores.first;
         _storeId = store.id;
         _storeName = store.name;
         _storeLogo = store.logoUrl;
+        _storeAddress = store.address;
+        _storeEmail = store.email;
         _userName = store.adminName;
         _profileUrl = store.adminAvatar;
         _role = 'admin';
@@ -164,45 +191,12 @@ class AdminController extends ChangeNotifier {
           'store_name': _storeName,
           'store_logo': _storeLogo,
         };
-      } else {
-        // Create an initial default store if none exists
-        const initialStoreId = 'default_store';
-        await _db
-            .into(_db.stores)
-            .insert(
-              StoresCompanion.insert(
-                id: initialStoreId,
-                name: const Value('Restoran Steak Asri'),
-                adminName: const Value('Admin Asri'),
-                createdAt: Value(DateTime.now()),
-              ),
-            );
-
-        _storeId = initialStoreId;
-        _storeName = 'Restoran Steak Asri';
-        _userName = 'Admin Asri';
-        _role = 'admin';
-        _userId = 'local_admin';
-
-        _userProfile = {
-          'id': _userId,
-          'full_name': _userName,
-          'role': _role,
-          'avatar_url': _profileUrl,
-          'store_id': _storeId,
-          'store_name': _storeName,
-          'store_logo': _storeLogo,
-          'permissions': _permissions ?? {},
-        };
       }
 
       if (_storeId != null) {
         _initStatsStreams();
-        _categories = await (_db.select(
-          _db.categories,
-        )..where((t) => t.storeId.equals(_storeId!))).get();
-        _products =
-            await (_db.select(_db.products)
+        _categories = await (_db.select(_db.categories)..where((t) => t.storeId.equals(_storeId!))).get();
+        _products = await (_db.select(_db.products)
                   ..where((t) => t.storeId.equals(_storeId!))
                   ..where((t) => t.isDeleted.equals(false)))
                 .get();
@@ -211,7 +205,7 @@ class AdminController extends ChangeNotifier {
       _isInitializing = false;
       notifyListeners();
     } catch (e) {
-      debugPrint("AdminController: Error loading local data: $e");
+      debugPrint("AdminController: Error loading data: $e");
       _isInitializing = false;
       notifyListeners();
     }
@@ -226,151 +220,95 @@ class AdminController extends ChangeNotifier {
     final now = DateTime.now();
     final startOfToday = DateTime(now.year, now.month, now.day);
 
-    // 1. Watch today's transactions
-    _salesSubscription =
-        (_db.select(_db.transactions)..where(
-              (t) =>
-                  t.storeId.equals(_storeId!) &
-                  t.createdAt.isBiggerOrEqualValue(startOfToday),
-            ))
-            .watch()
-            .listen((txs) {
-              double total = 0;
-              for (var tx in txs) {
-                total += tx.totalAmount ?? 0;
-              }
-              _todaySales = total;
-              _transactionCount = txs.length;
-              notifyListeners();
-            });
+    _salesSubscription = (_db.select(_db.transactions)
+          ..where((t) => t.storeId.equals(_storeId!) & t.createdAt.isBiggerOrEqualValue(startOfToday)))
+        .watch()
+        .listen((txs) {
+          double total = 0;
+          for (var tx in txs) {
+            total += tx.totalAmount ?? 0;
+          }
+          _todaySales = total;
+          _transactionCount = txs.length;
+          notifyListeners();
+        });
 
-    // 2. Watch low stock products
-    _lowStockSubscription =
-        (_db.select(_db.products)
-              ..where(
-                (t) =>
-                    t.storeId.equals(_storeId!) &
-                    t.stockQuantity.isSmallerThanValue(5) &
-                    t.isStockManaged.equals(true) &
-                    t.isDeleted.equals(false),
-              )
-              ..orderBy([
-                (t) => OrderingTerm(
-                  expression: t.stockQuantity,
-                  mode: OrderingMode.asc,
-                ),
-              ]))
-            .watch()
-            .listen((productsRaw) {
-              _lowStockCount = productsRaw.length;
-              _lowStockItems = productsRaw
-                  .map(
-                    (p) => {
-                      'id': p.id,
-                      'name': p.name,
-                      'stock_quantity': p.stockQuantity,
-                      'image_url': p.imageUrl,
-                    },
-                  )
-                  .toList();
-              notifyListeners();
-            });
+    _lowStockSubscription = (_db.select(_db.products)
+          ..where((t) => t.storeId.equals(_storeId!) & t.stockQuantity.isSmallerThanValue(5) & t.isStockManaged.equals(true) & t.isDeleted.equals(false))
+          ..orderBy([(t) => OrderingTerm(expression: t.stockQuantity, mode: OrderingMode.asc)]))
+        .watch()
+        .listen((productsRaw) {
+          _lowStockCount = productsRaw.length;
+          _lowStockItems = productsRaw.map((p) => {
+                'id': p.id,
+                'name': p.name,
+                'stock_quantity': p.stockQuantity,
+                'image_url': p.imageUrl,
+              }).toList();
+          notifyListeners();
+        });
   }
 
   Future<void> fetchDashboardStats() async {
-    // Legacy method, now handled by streams but keeping for compatibility
     _initStatsStreams();
-  }
-
-  Future<void> resetStore({bool deleteProducts = false}) async {
-    if (_storeId == null) return;
-
-    try {
-      await _db.transaction(() async {
-        debugPrint(
-          "ResetStore: Deleting transactions for store $_storeId (DeleteProducts: $deleteProducts)",
-        );
-
-        // 1. Delete ALL Transaction Items (Foreign Key constraint should cascade, but manual for safety)
-        // Ideally we should filter by transaction.store_id but for single store offline mode,
-        // we can just delete all valid items or join.
-        // For simplicity in this offline app, we'll delete items linked to this store's transactions.
-
-        // Get transactions to delete first to get their IDs
-        final txs = await (_db.select(
-          _db.transactions,
-        )..where((t) => t.storeId.equals(_storeId!))).get();
-        final txIds = txs.map((t) => t.id).toList();
-
-        if (txIds.isNotEmpty) {
-          await (_db.delete(
-            _db.transactionItems,
-          )..where((t) => t.transactionId.isIn(txIds))).go();
-        }
-
-        // Delete Transactions
-        await (_db.delete(
-          _db.transactions,
-        )..where((t) => t.storeId.equals(_storeId!))).go();
-
-        // 2. Handle Products & Categories
-        if (deleteProducts) {
-          debugPrint("ResetStore: Deleting products and categories.");
-          await (_db.delete(
-            _db.products,
-          )..where((t) => t.storeId.equals(_storeId!))).go();
-          await (_db.delete(
-            _db.categories,
-          )..where((t) => t.storeId.equals(_storeId!))).go();
-        } else {
-          // Reset stock only
-          debugPrint("ResetStore: Resetting stock to 0.");
-          // Update all products for this store
-          await (_db.update(_db.products)
-                ..where((t) => t.storeId.equals(_storeId!)))
-              .write(const ProductsCompanion(stockQuantity: Value(0)));
-        }
-      });
-
-      // Force refresh of local data
-      await loadInitialData();
-      notifyListeners();
-      debugPrint("ResetStore: Completed successfully.");
-    } catch (e) {
-      debugPrint("AdminController: Error resetting store: $e");
-      rethrow;
-    }
   }
 
   Future<void> updateProfile({String? name, String? avatarUrl}) async {
     if (_storeId == null) return;
-
     final updates = StoresCompanion(
       adminName: name != null ? Value(name) : const Value.absent(),
       adminAvatar: avatarUrl != null ? Value(avatarUrl) : const Value.absent(),
     );
-
-    if (name != null || avatarUrl != null) {
-      await (_db.update(
-        _db.stores,
-      )..where((t) => t.id.equals(_storeId!))).write(updates);
-      await loadInitialData();
-    }
+    await (_db.update(_db.stores)..where((t) => t.id.equals(_storeId!))).write(updates);
+    await loadInitialData();
   }
 
   Future<void> updateStoreBranding({String? name, String? logoUrl}) async {
     if (_storeId == null) return;
-
     final updates = StoresCompanion(
       name: name != null ? Value(name) : const Value.absent(),
       logoUrl: logoUrl != null ? Value(logoUrl) : const Value.absent(),
     );
+    await (_db.update(_db.stores)..where((t) => t.id.equals(_storeId!))).write(updates);
+    await loadInitialData();
+  }
 
-    if (name != null || logoUrl != null) {
-      await (_db.update(
-        _db.stores,
-      )..where((t) => t.id.equals(_storeId!))).write(updates);
+  Future<void> updateStoreAddress(String address) async {
+    if (_storeId == null) return;
+    await (_db.update(_db.stores)..where((t) => t.id.equals(_storeId!)))
+        .write(StoresCompanion(address: Value(address)));
+    await loadInitialData();
+  }
+
+  Future<void> updateStoreEmail(String email) async {
+    if (_storeId == null) return;
+    await (_db.update(_db.stores)..where((t) => t.id.equals(_storeId!)))
+        .write(StoresCompanion(email: Value(email)));
+    await loadInitialData();
+  }
+
+  Future<void> resetStore({bool deleteProducts = false}) async {
+    if (_storeId == null) return;
+    try {
+      await _db.transaction(() async {
+        final txs = await (_db.select(_db.transactions)..where((t) => t.storeId.equals(_storeId!))).get();
+        final txIds = txs.map((t) => t.id).toList();
+        if (txIds.isNotEmpty) {
+          await (_db.delete(_db.transactionItems)..where((t) => t.transactionId.isIn(txIds))).go();
+        }
+        await (_db.delete(_db.transactions)..where((t) => t.storeId.equals(_storeId!))).go();
+        if (deleteProducts) {
+          await (_db.delete(_db.products)..where((t) => t.storeId.equals(_storeId!))).go();
+          await (_db.delete(_db.categories)..where((t) => t.storeId.equals(_storeId!))).go();
+        } else {
+          await (_db.update(_db.products)..where((t) => t.storeId.equals(_storeId!)))
+              .write(const ProductsCompanion(stockQuantity: Value(0)));
+        }
+      });
       await loadInitialData();
+    } catch (e) {
+      debugPrint("AdminController: Error resetting store: $e");
+      rethrow;
     }
   }
 

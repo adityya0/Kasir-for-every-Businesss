@@ -59,7 +59,7 @@ class _LaporanPageState extends State<LaporanPage> {
 
       if (type == 'pdf') {
         bytes = await _exportService.generateTransactionsPdf(
-          "ASRI Store", // In a real app, fetch actual store name
+          "Warkop Alam POS",
           _transactions,
         );
         filename =
@@ -67,7 +67,7 @@ class _LaporanPageState extends State<LaporanPage> {
         mimeType = "application/pdf";
       } else {
         bytes = await _exportService.generateTransactionsExcel(
-          "ASRI Store",
+          "Warkop Alam POS",
           _transactions,
         );
         filename =
@@ -107,8 +107,8 @@ class _LaporanPageState extends State<LaporanPage> {
               padding: const EdgeInsets.symmetric(vertical: 20),
               child: Text(
                 "Pilih Format Ekspor",
-                style: GoogleFonts.poppins(
-                  fontWeight: FontWeight.bold,
+                style: GoogleFonts.plusJakartaSans(
+                  fontWeight: FontWeight.w600,
                   fontSize: 16,
                 ),
               ),
@@ -190,10 +190,10 @@ class _LaporanPageState extends State<LaporanPage> {
         iconTheme: IconThemeData(
           color: isDark ? Colors.white : const Color(0xFF2D3436),
         ),
-        titleTextStyle: GoogleFonts.poppins(
+        titleTextStyle: GoogleFonts.plusJakartaSans(
           color: isDark ? Colors.white : const Color(0xFF2D3436),
           fontSize: 18,
-          fontWeight: FontWeight.bold,
+          fontWeight: FontWeight.w600,
         ),
       ),
       body: RefreshIndicator(
@@ -217,21 +217,21 @@ class _LaporanPageState extends State<LaporanPage> {
                 children: [
                   Text(
                     "Omzet Hari Ini",
-                    style: GoogleFonts.inter(
+                    style: GoogleFonts.openSans(
                       color: Colors.white.withValues(alpha: 0.7),
                     ),
                   ),
                   Text(
                     currency.format(totalHariIni),
-                    style: GoogleFonts.poppins(
+                    style: GoogleFonts.plusJakartaSans(
                       color: Colors.white,
                       fontSize: 28,
-                      fontWeight: FontWeight.bold,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
                   Text(
                     "${todayTransactions.length} Transaksi Hari Ini",
-                    style: GoogleFonts.inter(
+                    style: GoogleFonts.openSans(
                       color: Colors.white.withValues(alpha: 0.6),
                       fontSize: 12,
                     ),
@@ -243,8 +243,8 @@ class _LaporanPageState extends State<LaporanPage> {
               padding: const EdgeInsets.all(20),
               child: Text(
                 "Riwayat Transaksi Hari Ini",
-                style: GoogleFonts.poppins(
-                  fontWeight: FontWeight.bold,
+                style: GoogleFonts.plusJakartaSans(
+                  fontWeight: FontWeight.w600,
                   color: isDark ? Colors.white : const Color(0xFF2D3436),
                 ),
               ),
@@ -254,7 +254,7 @@ class _LaporanPageState extends State<LaporanPage> {
                   ? Center(
                       child: Text(
                         "Tidak ada transaksi hari ini",
-                        style: GoogleFonts.inter(color: Colors.grey),
+                        style: GoogleFonts.openSans(color: Colors.grey),
                       ),
                     )
                   : ListView.builder(
@@ -293,8 +293,8 @@ class _LaporanPageState extends State<LaporanPage> {
                             ),
                             title: Text(
                               "Total: ${currency.format(tx.totalAmount)}",
-                              style: GoogleFonts.poppins(
-                                fontWeight: FontWeight.bold,
+                              style: GoogleFonts.plusJakartaSans(
+                                fontWeight: FontWeight.w600,
                                 color: isDark
                                     ? Colors.white
                                     : const Color(0xFF2D3436),
@@ -304,7 +304,7 @@ class _LaporanPageState extends State<LaporanPage> {
                               DateFormat(
                                 'dd MMM yyyy, HH:mm',
                               ).format(tx.createdAt!),
-                              style: GoogleFonts.inter(
+                              style: GoogleFonts.openSans(
                                 color: isDark
                                     ? Colors.white60
                                     : Colors.grey[600],
@@ -322,9 +322,9 @@ class _LaporanPageState extends State<LaporanPage> {
                               ),
                               child: Text(
                                 tx.paymentMethod.toString().toUpperCase(),
-                                style: GoogleFonts.inter(
+                                style: GoogleFonts.openSans(
                                   fontSize: 10,
-                                  fontWeight: FontWeight.bold,
+                                  fontWeight: FontWeight.w600,
                                   color: isDark
                                       ? Colors.white70
                                       : Colors.grey[700],
@@ -342,3 +342,4 @@ class _LaporanPageState extends State<LaporanPage> {
     );
   }
 }
+

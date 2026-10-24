@@ -1,18 +1,21 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/cupertino.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 
 class TransactionItem extends StatelessWidget {
   final Map<String, dynamic> transaction;
   final VoidCallback onTap;
+  final VoidCallback? onDelete;
   final int index;
+  final bool isLast;
 
   const TransactionItem({
     super.key,
     required this.transaction,
     required this.onTap,
+    this.onDelete,
     required this.index,
+    this.isLast = false,
   });
 
   @override
@@ -59,34 +62,37 @@ class TransactionItem extends StatelessWidget {
     return InkWell(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
+        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
         decoration: BoxDecoration(
-          border: Border(
-            bottom: BorderSide(
-              color: isDark
-                  ? Colors.white10
-                  : Colors.black.withValues(alpha: 0.05),
-            ),
-          ),
+          border: isLast
+              ? null
+              : Border(
+                  bottom: BorderSide(
+                    color: isDark
+                        ? const Color(0xFF374151)
+                        : const Color(0xFFF1F5F9),
+                    width: 1,
+                  ),
+                ),
         ),
         child: Row(
           children: [
-            // Index Number
+            // Index Number Badge
             Container(
-              width: 32,
-              height: 32,
+              width: 28,
+              height: 28,
               margin: const EdgeInsets.only(right: 12),
               decoration: BoxDecoration(
-                color: const Color(0xFFEA5700).withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(8),
+                color: const Color(0xFFC0392B).withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(6),
               ),
               alignment: Alignment.center,
               child: Text(
                 index.toString(),
-                style: GoogleFonts.inter(
-                  fontWeight: FontWeight.bold,
+                style: GoogleFonts.plusJakartaSans(
+                  fontWeight: FontWeight.w700,
                   fontSize: 12,
-                  color: const Color(0xFFEA5700),
+                  color: const Color(0xFFC0392B),
                 ),
               ),
             ),
@@ -99,29 +105,32 @@ class TransactionItem extends StatelessWidget {
                 children: [
                   Text(
                     displayTitle,
-                    style: GoogleFonts.poppins(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14,
-                      color: isDark ? Colors.white : const Color(0xFF2D3436),
+                    style: GoogleFonts.plusJakartaSans(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13,
+                      color: isDark ? Colors.white : const Color(0xFF0F172A),
                     ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
+                  const SizedBox(height: 2),
                   Row(
                     children: [
                       Text(
                         "#$txId",
-                        style: GoogleFonts.inter(
+                        style: GoogleFonts.openSans(
+                          fontWeight: FontWeight.w600,
                           fontSize: 11,
-                          color: Colors.grey.withValues(alpha: 0.7),
+                          color: isDark ? Colors.white54 : const Color(0xFF64748B),
                         ),
                       ),
                       const SizedBox(width: 8),
                       Text(
                         DateFormat('HH:mm').format(date),
-                        style: GoogleFonts.inter(
+                        style: GoogleFonts.openSans(
+                          fontWeight: FontWeight.w500,
                           fontSize: 11,
-                          color: Colors.grey.withValues(alpha: 0.7),
+                          color: isDark ? Colors.white54 : const Color(0xFF64748B),
                         ),
                       ),
                     ],
@@ -138,10 +147,10 @@ class TransactionItem extends StatelessWidget {
                 alignment: Alignment.centerLeft,
                 child: Text(
                   cashierName,
-                  style: GoogleFonts.inter(
+                  style: GoogleFonts.openSans(
                     fontSize: 13,
-                    fontWeight: FontWeight.w500,
-                    color: isDark ? Colors.white70 : Colors.grey[700],
+                    fontWeight: FontWeight.w600,
+                    color: isDark ? Colors.white70 : const Color(0xFF334155),
                   ),
                   maxLines: 1,
                 ),
@@ -157,24 +166,35 @@ class TransactionItem extends StatelessWidget {
                 child: Text(
                   currencyFormat.format(total),
                   textAlign: TextAlign.right,
-                  style: GoogleFonts.poppins(
-                    fontWeight: FontWeight.bold,
+                  style: GoogleFonts.plusJakartaSans(
+                    fontWeight: FontWeight.w800,
                     fontSize: 14,
-                    color: const Color(0xFFEA5700),
+                    color: const Color(0xFFC0392B),
                   ),
                 ),
               ),
             ),
 
-            const SizedBox(width: 8),
-            Icon(
-              CupertinoIcons.chevron_right,
-              size: 14,
-              color: Colors.grey.withValues(alpha: 0.5),
-            ),
+            if (onDelete != null)
+              IconButton(
+                icon: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent, size: 20),
+                tooltip: "Hapus Transaksi",
+                padding: const EdgeInsets.only(left: 6),
+                constraints: const BoxConstraints(),
+                onPressed: onDelete,
+              )
+            else ...[
+              const SizedBox(width: 8),
+              Icon(
+                Icons.chevron_right,
+                size: 16,
+                color: isDark ? Colors.white38 : const Color(0xFF94A3B8),
+              ),
+            ],
           ],
         ),
       ),
     );
   }
 }
+

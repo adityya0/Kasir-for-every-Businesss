@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'app_database.dart';
 import 'package:uuid/uuid.dart';
@@ -18,13 +19,36 @@ class OrderService {
     required String paymentMethod,
     required List<Map<String, dynamic>> items,
     String? customerId,
+    String? tableNumber,
+    String? status,
+    String? notes,
+    double? discount,
+    String? discountLabel,
+    String? customerName,
+    double? subtotal,
+    double? pajakAmount,
   }) async {
     debugPrint(
-      "OrderService.createOrder: storeId=$storeId, userId=$userId, amount=$totalAmount, customerId=$customerId",
+      "OrderService.createOrder: storeId=$storeId, userId=$userId, amount=$totalAmount, customerId=$customerId, table=$tableNumber, discount=$discount, discountLabel=$discountLabel, customerName=$customerName",
     );
 
     final txId = const Uuid().v4();
     final now = DateTime.now();
+
+    final Map<String, dynamic> notesMeta = {};
+    if (notes != null && notes.trim().isNotEmpty) notesMeta['custom_notes'] = notes.trim();
+    if (discount != null && discount > 0) {
+      notesMeta['discount'] = discount;
+      if (discountLabel != null && discountLabel.trim().isNotEmpty) {
+        notesMeta['discount_label'] = discountLabel.trim();
+      }
+    }
+    if (customerName != null && customerName.trim().isNotEmpty) {
+      notesMeta['customer_name'] = customerName.trim();
+    }
+    if (subtotal != null && subtotal > 0) notesMeta['subtotal'] = subtotal;
+    if (pajakAmount != null && pajakAmount > 0) notesMeta['tax'] = pajakAmount;
+    final String? notesJson = notesMeta.isNotEmpty ? jsonEncode(notesMeta) : notes;
 
     await db.transaction(() async {
       // 1. Save Transaction
@@ -40,7 +64,10 @@ class OrderService {
               change: Value(change),
               paymentMethod: Value(paymentMethod),
               customerId: Value(customerId),
+              tableNumber: Value(tableNumber),
               createdAt: Value(now),
+              notes: Value(notesJson),
+              status: Value(status ?? 'completed'),
             ),
           );
 
@@ -90,7 +117,18 @@ class OrderService {
         final product = await productQuery.getSingleOrNull();
 
         if (product != null && product.isStockManaged) {
-          final newStock = (product.stockQuantity ?? 0) - quantity;
+          double multiplier = 1.0;
+          final opts = item['selected_options'] as List<dynamic>?;
+          if (opts != null) {
+            for (var opt in opts) {
+              final sm = opt['stock_multiplier'];
+              if (sm != null) {
+                multiplier *= (sm as num).toDouble();
+              }
+            }
+          }
+          final double decrement = quantity.toDouble() * multiplier;
+          final newStock = (product.stockQuantity ?? 0.0) - decrement;
           await (db.update(db.products)..where((t) => t.id.equals(productId)))
               .write(ProductsCompanion(stockQuantity: Value(newStock)));
         }
@@ -128,4 +166,74 @@ class OrderService {
 
     return result;
   }
+
+  /// Delete a transaction by ID.
+  /// Reverses stock deductions and loyalty points, then removes transaction and items.
+  Future<void> deleteTransaction(String transactionId, {bool restoreStock = true}) async {
+    await db.transaction(() async {
+      // 1. Fetch transaction record
+      final tx = await (db.select(db.transactions)
+            ..where((t) => t.id.equals(transactionId)))
+          .getSingleOrNull();
+      if (tx == null) return;
+
+      // 2. Fetch all transaction items
+      final items = await (db.select(db.transactionItems)
+            ..where((t) => t.transactionId.equals(transactionId)))
+          .get();
+
+      // 3. Restore stock if stock is managed
+      if (restoreStock) {
+        for (final item in items) {
+          if (item.productId != null && item.quantity != null) {
+            final product = await (db.select(db.products)
+                  ..where((t) => t.id.equals(item.productId!)))
+                .getSingleOrNull();
+            if (product != null && product.isStockManaged) {
+              double multiplier = 1.0;
+              if (item.selectedOptionsJson != null) {
+                try {
+                  final opts = jsonDecode(item.selectedOptionsJson!) as List<dynamic>?;
+                  if (opts != null) {
+                    for (var opt in opts) {
+                      final sm = opt['stock_multiplier'];
+                      if (sm != null) {
+                        multiplier *= (sm as num).toDouble();
+                      }
+                    }
+                  }
+                } catch (_) {}
+              }
+              final double increment = item.quantity!.toDouble() * multiplier;
+              final double newStock = (product.stockQuantity ?? 0.0) + increment;
+              await (db.update(db.products)..where((t) => t.id.equals(item.productId!)))
+                  .write(ProductsCompanion(stockQuantity: Value(newStock)));
+            }
+          }
+        }
+      }
+
+      // 4. Reverse customer loyalty points if applicable
+      if (tx.customerId != null && tx.totalAmount != null) {
+        final customer = await (db.select(db.customers)
+              ..where((t) => t.id.equals(tx.customerId!)))
+            .getSingleOrNull();
+        if (customer != null) {
+          final pointsToDeduct = (tx.totalAmount! / 10000).floor();
+          if (pointsToDeduct > 0) {
+            final newPoints = (customer.points - pointsToDeduct) > 0 ? (customer.points - pointsToDeduct) : 0;
+            await (db.update(db.customers)..where((t) => t.id.equals(tx.customerId!)))
+                .write(CustomersCompanion(points: Value(newPoints)));
+          }
+        }
+      }
+
+      // 5. Delete transaction items
+      await (db.delete(db.transactionItems)..where((t) => t.transactionId.equals(transactionId))).go();
+
+      // 6. Delete transaction record
+      await (db.delete(db.transactions)..where((t) => t.id.equals(transactionId))).go();
+    });
+  }
 }
+

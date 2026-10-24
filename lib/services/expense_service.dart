@@ -34,6 +34,8 @@ class ExpenseService {
     required double amount,
     required DateTime date,
     String? notes,
+    String? recurrenceType,       // 'sekali', 'bulanan', 'tahunan', 'kustom'
+    int? recurrenceDurationMonths, // total duration in months
   }) async {
     final id = const Uuid().v4();
     await db
@@ -46,6 +48,8 @@ class ExpenseService {
             amount: Value(amount),
             date: Value(date),
             notes: Value(notes),
+            recurrenceType: Value(recurrenceType),
+            recurrenceDurationMonths: Value(recurrenceDurationMonths),
           ),
         );
     return id;
@@ -54,6 +58,24 @@ class ExpenseService {
   // Delete expense
   Future<void> deleteExpense(String id) {
     return (db.delete(db.expenses)..where((t) => t.id.equals(id))).go();
+  }
+
+  // Update expense
+  Future<void> updateExpense({
+    required String id,
+    double? amount,
+    String? category,
+    String? notes,
+    DateTime? date,
+  }) {
+    return (db.update(db.expenses)..where((t) => t.id.equals(id))).write(
+      ExpensesCompanion(
+        amount: amount != null ? Value(amount) : const Value.absent(),
+        category: category != null ? Value(category) : const Value.absent(),
+        notes: notes != null ? Value(notes) : const Value.absent(),
+        date: date != null ? Value(date) : const Value.absent(),
+      ),
+    );
   }
 
   // Get total expenses for a period

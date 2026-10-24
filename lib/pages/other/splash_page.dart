@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
+
+const colorbase = Color(0xFFC0392B);
 
 class SplashPage extends StatelessWidget {
   const SplashPage({super.key});
@@ -7,49 +8,23 @@ class SplashPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: colorbase,
       body: Container(
         width: double.infinity,
         height: double.infinity,
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Color(0xFF800000), Color(0xFF1A0000)],
-          ),
-        ),
+        color: colorbase,
         child: Center(
           child: SingleChildScrollView(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Container(
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.3),
-                        blurRadius: 30,
-                        spreadRadius: 10,
-                      ),
-                    ],
-                  ),
-                  child: Image.asset(
-                    'assets/logo/logoSteakAsri.png',
-                    width: 150,
-                    height: 150,
-                  ),
+                Image.asset(
+                  'assets/logo/logo.png',
+                  width: 220,
+                  height: 220,
+                  fit: BoxFit.contain,
                 ),
-                const SizedBox(height: 40),
-                Text(
-                  "Steak Asri",
-                  style: GoogleFonts.alfaSlabOne(
-                    fontSize: 32,
-                    color: const Color(0xFFEA5700),
-                    letterSpacing: 2,
-                  ),
-                ),
-                const SizedBox(height: 10),
+                const SizedBox(height: 30),
                 const Text(
                   "Memuat Aplikasi...",
                   style: TextStyle(
@@ -58,9 +33,9 @@ class SplashPage extends StatelessWidget {
                     letterSpacing: 1.5,
                   ),
                 ),
-                const SizedBox(height: 50),
+                const SizedBox(height: 40),
                 const CircularProgressIndicator(
-                  valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFEA5700)),
+                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                 ),
               ],
             ),
@@ -70,3 +45,4 @@ class SplashPage extends StatelessWidget {
     );
   }
 }
+

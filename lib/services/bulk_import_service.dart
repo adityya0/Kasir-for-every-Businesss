@@ -16,13 +16,22 @@ class BulkImportService {
 
   Future<Map<String, dynamic>> importProducts(String storeId) async {
     try {
-      // 1. Pick File
-      FilePickerResult? result = await FilePicker.platform.pickFiles(
-        type: FileType.custom,
-        allowedExtensions: ['csv', 'xlsx'],
-      );
+      // 1. Pick File with robust cross-platform options
+      FilePickerResult? result;
+      try {
+        result = await FilePicker.platform.pickFiles(
+          type: FileType.custom,
+          allowedExtensions: ['xlsx', 'xls', 'csv'],
+          withData: true,
+        );
+      } catch (e) {
+        debugPrint("Custom file pick failed on device, trying fallback: $e");
+        result = await FilePicker.platform.pickFiles(
+          withData: true,
+        );
+      }
 
-      if (result == null) return {'status': 'cancelled'};
+      if (result == null || result.files.isEmpty) return {'status': 'cancelled'};
 
       final platformFile = result.files.single;
       final extension =
@@ -30,33 +39,42 @@ class BulkImportService {
           platformFile.name.split('.').last.toLowerCase();
 
       List<List<dynamic>> fields = [];
-      Uint8List? fileBytes;
+      Uint8List? fileBytes = platformFile.bytes;
 
-      if (kIsWeb) {
-        fileBytes = platformFile.bytes;
-        if (fileBytes == null) {
-          return {
-            'status': 'error',
-            'message': 'Gagal membaca file (Bytes null)',
-          };
-        }
-      } else {
-        if (platformFile.path != null) {
+      if (fileBytes == null && platformFile.path != null) {
+        try {
           fileBytes = await FileManager().readBytes(platformFile.path!);
+        } catch (e) {
+          debugPrint("FileManager readBytes error: $e");
         }
       }
 
       if (fileBytes == null) {
-        return {'status': 'error', 'message': 'Gagal membaca file'};
+        return {
+          'status': 'error',
+          'message': 'Gagal membaca file di perangkat (File tidak dapat diakses)',
+        };
       }
 
       if (extension == 'csv') {
         final csvString = utf8.decode(fileBytes);
         fields = const CsvToListConverter().convert(csvString);
-      } else if (extension == 'xlsx') {
+      } else if (extension == 'xlsx' || extension == 'xls') {
         var excel = Excel.decodeBytes(fileBytes);
-        var table =
-            excel.tables[excel.getDefaultSheet()] ?? excel.tables.values.first;
+        Sheet? table;
+        final defaultSheet = excel.getDefaultSheet();
+        if (defaultSheet != null && excel.tables.containsKey(defaultSheet)) {
+          table = excel.tables[defaultSheet];
+        } else if (excel.tables.isNotEmpty) {
+          table = excel.tables.values.first;
+        }
+
+        if (table == null || table.rows.isEmpty) {
+          return {
+            'status': 'error',
+            'message': 'File Excel kosong atau tidak berisi lembar kerja',
+          };
+        }
 
         for (var row in table.rows) {
           fields.add(row.map((e) => e?.value).toList());
@@ -64,15 +82,15 @@ class BulkImportService {
       } else {
         return {
           'status': 'error',
-          'message': 'Format file tidak didukung: $extension',
+          'message': 'Format file tidak didukung: $extension (Gunakan .xlsx atau .csv)',
         };
       }
 
       if (fields.isEmpty) return {'status': 'error', 'message': 'File kosong'};
 
-      // 2. Process Headers
+      // 2. Process Headers safely
       final headers = fields[0]
-          .map((e) => e.toString().toLowerCase().trim())
+          .map((e) => (e?.toString() ?? '').toLowerCase().trim())
           .toList();
 
       int nameIdx = _findColumnIndex(headers, [
@@ -109,6 +127,17 @@ class BulkImportService {
         'deskripsi',
         'keterangan',
       ]);
+      int imageIdx = _findColumnIndex(headers, [
+        'image',
+        'image_url',
+        'imageurl',
+        'gambar',
+        'foto',
+        'foto produk',
+        'gambar produk',
+        'url gambar',
+        'link gambar',
+      ]);
 
       if (nameIdx == -1) {
         return {'status': 'error', 'message': 'Kolom "name" wajib ada'};
@@ -135,9 +164,14 @@ class BulkImportService {
           final row = fields[i];
           if (row.isEmpty) continue;
 
+          // Skip completely empty rows
+          if (row.every((c) => c == null || c.toString().trim().isEmpty)) {
+            continue;
+          }
+
           try {
-            String name = (nameIdx != -1 && nameIdx < row.length)
-                ? row[nameIdx]?.toString() ?? ''
+            String name = (nameIdx != -1 && nameIdx < row.length && row[nameIdx] != null)
+                ? row[nameIdx].toString().trim()
                 : '';
 
             if (name.isEmpty) {
@@ -146,10 +180,13 @@ class BulkImportService {
               continue;
             }
 
-            String? categoryNameRaw =
-                (categoryIdx != -1 && categoryIdx < row.length)
-                ? row[categoryIdx]?.toString().trim()
-                : null;
+            String? categoryNameRaw;
+            if (categoryIdx != -1 && categoryIdx < row.length && row[categoryIdx] != null) {
+              final raw = row[categoryIdx].toString().trim();
+              if (raw.isNotEmpty && raw.toLowerCase() != 'null') {
+                categoryNameRaw = raw;
+              }
+            }
 
             String? categoryId;
             if (categoryNameRaw != null && categoryNameRaw.isNotEmpty) {
@@ -171,6 +208,14 @@ class BulkImportService {
                       ),
                     );
                 categoryMap[categoryNameLower] = categoryId;
+              }
+            }
+
+            String? imageUrl;
+            if (imageIdx != -1 && imageIdx < row.length && row[imageIdx] != null) {
+              final rawImg = row[imageIdx].toString().trim();
+              if (rawImg.isNotEmpty && rawImg.toLowerCase() != 'null') {
+                imageUrl = rawImg;
               }
             }
 
@@ -202,10 +247,10 @@ class BulkImportService {
                       ).toDouble(),
                     ),
                     stockQuantity: Value(
-                      _parseInt(
+                      _parseDouble(
                         (stockIdx != -1 && stockIdx < row.length)
                             ? row[stockIdx]
-                            : 0,
+                            : 0.0,
                       ),
                     ),
                     description: Value(
@@ -213,6 +258,7 @@ class BulkImportService {
                           ? row[descIdx]?.toString()
                           : null,
                     ),
+                    imageUrl: Value(imageUrl),
                     isStockManaged: const Value(true),
                     isAvailable: const Value(true),
                     isDeleted: const Value(false),
@@ -292,6 +338,7 @@ class BulkImportService {
         TextCellValue('harga jual'),
         TextCellValue('stok'),
         TextCellValue('Description'),
+        TextCellValue('Gambar'),
       ];
       sheet.appendRow(headers);
 
@@ -309,8 +356,9 @@ class BulkImportService {
           TextCellValue(c?.name ?? ''),
           DoubleCellValue(buyPrice),
           DoubleCellValue(p.salePrice ?? 0.0),
-          IntCellValue(p.stockQuantity ?? 0),
+          DoubleCellValue(p.stockQuantity ?? 0.0),
           TextCellValue(p.description ?? ''),
+          TextCellValue(p.imageUrl ?? ''),
         ]);
       }
 
@@ -345,17 +393,65 @@ class BulkImportService {
     }
   }
 
+  Future<String?> generateTemplate() async {
+    try {
+      var excel = Excel.createExcel();
+      String sheetName = excel.getDefaultSheet() ?? 'Sheet1';
+      Sheet sheet = excel[sheetName];
+
+      List<CellValue> headers = [
+        TextCellValue('Name'),
+        TextCellValue('SKU'),
+        TextCellValue('kategori'),
+        TextCellValue('harga beli'),
+        TextCellValue('harga jual'),
+        TextCellValue('stok'),
+        TextCellValue('Description'),
+        TextCellValue('Gambar'),
+      ];
+      sheet.appendRow(headers);
+
+      // Add a sample row
+      sheet.appendRow([
+        TextCellValue('Susu Ultra Milk 250ml'),
+        TextCellValue('UM-250'),
+        TextCellValue('Minuman'),
+        const DoubleCellValue(5000),
+        const DoubleCellValue(7000),
+        const DoubleCellValue(24.0),
+        TextCellValue('Susu UHT coklat'),
+        TextCellValue(''),
+      ]);
+
+      const String fileName = 'template_impor_produk.xlsx';
+      var fileBytes = excel.encode() ?? excel.save();
+      if (fileBytes == null) {
+        throw "Gagal generate file excel template (Bytes null)";
+      }
+
+      return await FileManager().saveAndShareBytes(
+        fileName,
+        Uint8List.fromList(fileBytes),
+      );
+    } catch (e) {
+      debugPrint('Template Error: $e');
+      return null;
+    }
+  }
+
   int _parsePrice(dynamic val) {
     if (val == null) return 0;
     if (val is num) return val.toInt();
     return int.tryParse(val.toString().replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
   }
 
-  int _parseInt(dynamic val) {
-    if (val == null) return 0;
-    if (val is num) return val.toInt();
-    return int.tryParse(val.toString()) ?? 0;
+  double _parseDouble(dynamic val) {
+    if (val == null) return 0.0;
+    if (val is num) return val.toDouble();
+    return double.tryParse(val.toString()) ?? 0.0;
   }
+
+
 
   int _findColumnIndex(List<String> headers, List<String> possibleNames) {
     for (var name in possibleNames) {

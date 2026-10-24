@@ -44,4 +44,8 @@ class FileManager {
     );
     return "Downloaded $filename";
   }
+
+  Future<String?> saveBytes(String filename, Uint8List bytes) async {
+    return await saveAndShareBytes(filename, bytes);
+  }
 }

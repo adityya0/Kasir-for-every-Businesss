@@ -1,15 +1,12 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'pages/user/user_profile_page.dart';
-import 'package:rxdart/rxdart.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'pages/auth/login_page.dart';
 import 'pages/admin/laporan_page.dart';
 import 'pages/admin/admin_page.dart';
-import 'pages/user/kasir_main_page.dart';
 import 'pages/auth/onboarding_page.dart';
-import 'pages/auth/register_page.dart';
 import 'pages/attendance/attendance_page.dart';
-import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -26,12 +23,15 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'services/bluetooth_printer_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'services/app_database.dart';
+import 'package:flutter_native_splash/flutter_native_splash.dart';
+import 'services/backup/auto_backup_service.dart';
 
 void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
+  WidgetsBinding widgetsBinding = WidgetsFlutterBinding.ensureInitialized();
+  FlutterNativeSplash.preserve(widgetsBinding: widgetsBinding);
 
   // Desktop configuration
-  if (!kIsWeb && (Platform.isWindows || Platform.isMacOS || Platform.isLinux)) {
+  if (!kIsWeb && (defaultTargetPlatform == TargetPlatform.windows || defaultTargetPlatform == TargetPlatform.linux || defaultTargetPlatform == TargetPlatform.macOS)) {
     await windowManager.ensureInitialized();
     WindowOptions windowOptions = const WindowOptions(
       size: Size(1280, 800),
@@ -40,7 +40,7 @@ void main() async {
       backgroundColor: Colors.transparent,
       skipTaskbar: false,
       titleBarStyle: TitleBarStyle.normal,
-      title: 'Kasir Asri POS',
+      title: 'Warkop Alam POS',
     );
     windowManager.waitUntilReadyToShow(windowOptions, () async {
       await windowManager.show();
@@ -51,6 +51,15 @@ void main() async {
   // Initialize SQLite Database
   final db = AppDatabase();
   debugPrint("Drift Database created");
+
+  // Inisialisasi Pencadangan Otomatis ke Google Drive
+  try {
+    await AutoBackupService.instance.init(db);
+  } catch (e) {
+    debugPrint("AutoBackupService init error: $e");
+  }
+
+
 
   // Initialize Localization
   await initializeDateFormatting('id', null);
@@ -81,13 +90,31 @@ class _RootAppState extends State<RootApp> {
   }
 
   Future<void> _initialize() async {
-    // Artificial delay for smoother splash experience
-    final minSplashTime = Future.delayed(const Duration(seconds: 2));
+    try {
+      final minSplashTime = Future.delayed(const Duration(seconds: 2));
+      final localeInit = initializeDateFormatting('id', null);
+      
+      // Init printer in background without blocking splash removal
+      BluetoothPrinterService().init().catchError((e) {
+        debugPrint("Printer init non-fatal error: $e");
+      });
 
-    final localeInit = initializeDateFormatting('id', null); // Added
-    final printerInit = BluetoothPrinterService().init();
-
-    await Future.wait([minSplashTime, localeInit, printerInit]);
+      await Future.wait([minSplashTime, localeInit]).timeout(
+        const Duration(seconds: 3),
+        onTimeout: () {
+          debugPrint("Splash initialization timed out");
+          return [];
+        },
+      );
+    } catch (e) {
+      debugPrint("Initialization error: $e");
+    } finally {
+      try {
+        FlutterNativeSplash.remove();
+      } catch (e) {
+        debugPrint("FlutterNativeSplash remove error: $e");
+      }
+    }
   }
 
   @override
@@ -113,7 +140,7 @@ class _RootAppState extends State<RootApp> {
               ],
               child: MaterialApp(
                 debugShowCheckedModeBanner: false,
-                title: 'Kasir Asri',
+                title: 'Warkop Alam POS',
                 themeMode: currentMode,
                 locale: currentLocale,
                 localizationsDelegates: const [
@@ -142,22 +169,42 @@ class _RootAppState extends State<RootApp> {
                 },
                 theme: ThemeData(
                   colorScheme: ColorScheme.fromSeed(
-                    seedColor: const Color(0xFFFF8E53),
-                    primary: const Color(0xFFFF8E53),
+                    seedColor: const Color(0xFFEA5700),
+                    primary: const Color(0xFFEA5700),
+                    secondary: const Color(0xFFFF8E53),
                     brightness: Brightness.light,
                   ),
                   useMaterial3: true,
                   scaffoldBackgroundColor: const Color(0xFFF8F9FD),
                   cardColor: Colors.white,
-                  textTheme: GoogleFonts.poppinsTextTheme(),
+                  textTheme: GoogleFonts.openSansTextTheme().copyWith(
+                    titleLarge: GoogleFonts.plusJakartaSans(
+                      fontWeight: FontWeight.w600,
+                    ),
+                    titleMedium: GoogleFonts.plusJakartaSans(
+                      fontWeight: FontWeight.w600,
+                    ),
+                    titleSmall: GoogleFonts.plusJakartaSans(
+                      fontWeight: FontWeight.w600,
+                    ),
+                    labelLarge: GoogleFonts.plusJakartaSans(
+                      fontWeight: FontWeight.w600,
+                    ),
+                    labelMedium: GoogleFonts.plusJakartaSans(
+                      fontWeight: FontWeight.w600,
+                    ),
+                    labelSmall: GoogleFonts.plusJakartaSans(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                   appBarTheme: AppBarTheme(
                     backgroundColor: Colors.transparent,
                     elevation: 0,
                     iconTheme: const IconThemeData(color: Color(0xFF2D3436)),
-                    titleTextStyle: GoogleFonts.poppins(
+                    titleTextStyle: GoogleFonts.plusJakartaSans(
                       color: const Color(0xFF2D3436),
                       fontSize: 18,
-                      fontWeight: FontWeight.bold,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
                   pageTransitionsTheme: const PageTransitionsTheme(
@@ -169,24 +216,50 @@ class _RootAppState extends State<RootApp> {
                 ),
                 darkTheme: ThemeData(
                   colorScheme: ColorScheme.fromSeed(
-                    seedColor: const Color(0xFFFF8E53),
-                    primary: const Color(0xFFFF8E53),
+                    seedColor: const Color(0xFFEA5700),
+                    primary: const Color(0xFFEA5700),
+                    secondary: const Color(0xFFFF8E53),
                     brightness: Brightness.dark,
                   ),
                   useMaterial3: true,
                   scaffoldBackgroundColor: const Color(0xFF121212),
                   cardColor: const Color(0xFF1E1E1E),
-                  textTheme: GoogleFonts.poppinsTextTheme(
+                  textTheme: GoogleFonts.openSansTextTheme(
                     ThemeData.dark().textTheme,
+                  ).copyWith(
+                    titleLarge: GoogleFonts.plusJakartaSans(
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white,
+                    ),
+                    titleMedium: GoogleFonts.plusJakartaSans(
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white,
+                    ),
+                    titleSmall: GoogleFonts.plusJakartaSans(
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white,
+                    ),
+                    labelLarge: GoogleFonts.plusJakartaSans(
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white,
+                    ),
+                    labelMedium: GoogleFonts.plusJakartaSans(
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white,
+                    ),
+                    labelSmall: GoogleFonts.plusJakartaSans(
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white,
+                    ),
                   ),
                   appBarTheme: AppBarTheme(
                     backgroundColor: Colors.transparent,
                     elevation: 0,
                     iconTheme: const IconThemeData(color: Colors.white),
-                    titleTextStyle: GoogleFonts.poppins(
+                    titleTextStyle: GoogleFonts.plusJakartaSans(
                       color: Colors.white,
                       fontSize: 18,
-                      fontWeight: FontWeight.bold,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
                   pageTransitionsTheme: const PageTransitionsTheme(
@@ -202,36 +275,7 @@ class _RootAppState extends State<RootApp> {
                     if (snapshot.connectionState != ConnectionState.done) {
                       return const SplashPage();
                     }
-
-                    final db = Provider.of<AppDatabase>(context, listen: false);
-                    return StreamBuilder<List<Profile>>(
-                      stream: (db.select(db.profiles)..limit(1)).watch(),
-                      builder: (context, profileSnapshot) {
-                        if (profileSnapshot.connectionState ==
-                            ConnectionState.waiting) {
-                          return const Scaffold(
-                            body: Center(child: CircularProgressIndicator()),
-                          );
-                        }
-
-                        if (profileSnapshot.hasError) {
-                          return Scaffold(
-                            body: Center(
-                              child: Text(
-                                "Database Error: ${profileSnapshot.error}",
-                              ),
-                            ),
-                          );
-                        }
-
-                        if (profileSnapshot.hasData &&
-                            profileSnapshot.data!.isNotEmpty) {
-                          return const LocalAuthGate();
-                        }
-
-                        return const OnboardingPage();
-                      },
-                    );
+                    return const LocalAuthGate();
                   },
                 ),
                 onGenerateRoute: (settings) {
@@ -240,17 +284,20 @@ class _RootAppState extends State<RootApp> {
                     case '/onboarding':
                       page = const OnboardingPage();
                       break;
-                    case '/register':
-                      page = const RegisterPage();
+                    case '/register': // Redirect to login or onboarding
+                      page = const LoginPage();
                       break;
                     case '/login':
                       page = const LoginPage();
+                      break;
+                    case '/super-admin':
+                      page = const AdminPage();
                       break;
                     case '/admin':
                       page = const AdminPage();
                       break;
                     case '/kasir':
-                      page = const KasirMainPage();
+                      page = const AdminPage();
                       break;
                     case '/laporan':
                       final args = settings.arguments as Map<String, dynamic>?;
@@ -274,6 +321,7 @@ class _RootAppState extends State<RootApp> {
 
                   if (settings.name != null &&
                       [
+                        '/super-admin',
                         '/admin',
                         '/kasir',
                         '/order-history',
@@ -337,45 +385,38 @@ class LocalAuthGate extends StatelessWidget {
   Widget build(BuildContext context) {
     final db = Provider.of<AppDatabase>(context, listen: false);
 
-    return StreamBuilder<List<dynamic>>(
-      stream: Rx.combineLatest2(
-        (db.select(db.profiles)..limit(1)).watch(),
-        SharedPreferences.getInstance().asStream(),
-        (profiles, prefs) => [profiles, prefs],
-      ),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
+    return FutureBuilder<SharedPreferences>(
+      future: SharedPreferences.getInstance(),
+      builder: (context, prefsSnapshot) {
+        if (!prefsSnapshot.hasData) {
           return const Scaffold(
             body: Center(child: CircularProgressIndicator()),
           );
         }
 
-        if (snapshot.hasError) {
-          return Scaffold(
-            body: Center(child: Text("Auth Gate Error: ${snapshot.error}")),
-          );
+        final prefs = prefsSnapshot.data!;
+        final currentUserId = prefs.getString('current_user_id');
+        if (currentUserId == null) {
+          return const LoginPage();
         }
 
-        final prefs = snapshot.data?[1] as SharedPreferences?;
-        final profiles = snapshot.data?[0] as List<Profile>?;
+        return StreamBuilder<List<Profile>>(
+          stream: (db.select(db.profiles)..where((t) => t.id.equals(currentUserId))).watch(),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Scaffold(
+                body: Center(child: CircularProgressIndicator()),
+              );
+            }
 
-        if (profiles == null || profiles.isEmpty) {
-          return const OnboardingPage();
-        }
+            final profiles = snapshot.data;
+            if (profiles == null || profiles.isEmpty) {
+              return const LoginPage();
+            }
 
-        final profileData = profiles.first;
-        final String role = profileData.role;
-        final String? lastRoute = prefs?.getString('last_route');
+            final String? lastRoute = prefs.getString('last_route');
 
-        Widget target;
-        bool isAdmin = role == 'admin' || role == 'owner';
-
-        if (lastRoute != null) {
-          if (isAdmin &&
-              (lastRoute == '/admin' ||
-                  lastRoute == '/order-history' ||
-                  lastRoute == '/attendance' ||
-                  lastRoute == '/printer-settings')) {
+            Widget target = const AdminPage();
             if (lastRoute == '/order-history') {
               target = const HistoryPage(storeId: null);
             } else if (lastRoute == '/attendance') {
@@ -385,25 +426,10 @@ class LocalAuthGate extends StatelessWidget {
             } else {
               target = const AdminPage();
             }
-          } else if (!isAdmin &&
-              (lastRoute == '/kasir' ||
-                  lastRoute == '/order-history' ||
-                  lastRoute == '/attendance' ||
-                  lastRoute == '/printer-settings' ||
-                  lastRoute == '/inventory' ||
-                  lastRoute == '/categories' ||
-                  lastRoute == '/profit-loss' ||
-                  lastRoute == '/customers' ||
-                  lastRoute == '/promotions')) {
-            target = const KasirMainPage();
-          } else {
-            target = isAdmin ? const AdminPage() : const KasirMainPage();
-          }
-        } else {
-          target = isAdmin ? const AdminPage() : const KasirMainPage();
-        }
 
-        return target;
+            return target;
+          },
+        );
       },
     );
   }

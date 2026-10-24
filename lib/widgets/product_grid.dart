@@ -14,6 +14,7 @@ class ProductGrid extends StatelessWidget {
   final Function(Product) onItemTap;
   final Widget Function(BuildContext, Product)? extraInfoBuilder;
   final Widget Function(BuildContext, Product)? actionBuilder;
+  final Widget Function(BuildContext, Product)? overlayBuilder;
 
   /// When non-null, only show products whose ID is in this set
   final Set<String>? promoProductIds;
@@ -37,6 +38,7 @@ class ProductGrid extends StatelessWidget {
     required this.onItemTap,
     this.extraInfoBuilder,
     this.actionBuilder,
+    this.overlayBuilder,
     this.promoProductIds,
     this.promoCategoryIds,
     this.salesMap,
@@ -62,11 +64,29 @@ class ProductGrid extends StatelessWidget {
       query.where((t) => t.categoryId.equals(categoryFilter!));
     }
 
-    return StreamBuilder<List<Product>>(
+    return StreamBuilder<List<Unit>>(
+      stream: db.select(db.units).watch(),
+      builder: (context, unitSnapshot) {
+        final units = unitSnapshot.data ?? [];
+        final unitMap = { for (var u in units) u.id: u.code };
+
+        return StreamBuilder<List<Product>>(
       stream: query.watch(),
       builder: (context, snapshot) {
         if (snapshot.hasError) {
-          return Center(child: Text("Error: ${snapshot.error}"));
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24.0),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.refresh_rounded, size: 40, color: Colors.grey),
+                  const SizedBox(height: 8),
+                  Text("Memuat data produk...", style: TextStyle(color: Colors.grey[600], fontSize: 13)),
+                ],
+              ),
+            ),
+          );
         }
         if (!snapshot.hasData) {
           return Center(child: CircularProgressIndicator(color: primaryColor));
@@ -146,7 +166,7 @@ class ProductGrid extends StatelessWidget {
                   searchQuery.isEmpty
                       ? "Belum ada produk."
                       : "Produk tidak ditemukan.",
-                  style: GoogleFonts.inter(color: Colors.grey[500]),
+                  style: GoogleFonts.openSans(color: Colors.grey[500]),
                 ),
               ],
             ),
@@ -162,10 +182,10 @@ class ProductGrid extends StatelessWidget {
               return GridView.builder(
                 padding: const EdgeInsets.fromLTRB(20, 10, 20, 20),
                 gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
-                  maxCrossAxisExtent: isWide ? 160 : 200,
-                  childAspectRatio: isWide ? 0.62 : 0.6,
-                  crossAxisSpacing: 16,
-                  mainAxisSpacing: 16,
+                  maxCrossAxisExtent: isWide ? 140 : 170,
+                  childAspectRatio: isWide ? 0.58 : 0.60,
+                  crossAxisSpacing: 12,
+                  mainAxisSpacing: 12,
                 ),
                 itemCount: products.length,
                 itemBuilder: (context, i) {
@@ -177,6 +197,7 @@ class ProductGrid extends StatelessWidget {
                     textHeading,
                     primaryColor,
                     isWide,
+                    unitMap,
                   );
                 },
               );
@@ -184,7 +205,7 @@ class ProductGrid extends StatelessWidget {
           );
         } else {
           return ListView.builder(
-            padding: const EdgeInsets.fromLTRB(20, 10, 20, 20),
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 20),
             itemCount: products.length,
             itemBuilder: (context, i) {
               final p = products[i];
@@ -194,10 +215,13 @@ class ProductGrid extends StatelessWidget {
                 isDark,
                 textHeading,
                 primaryColor,
+                unitMap,
               );
             },
           );
         }
+      },
+    );
       },
     );
   }
@@ -209,6 +233,7 @@ class ProductGrid extends StatelessWidget {
     Color textHeading,
     Color primaryColor,
     bool isWide,
+    Map<String, String?> unitMap,
   ) {
     final currencyFormat = NumberFormat.currency(
       locale: 'id',
@@ -218,7 +243,7 @@ class ProductGrid extends StatelessWidget {
 
     // Stock Logic
     final bool isStockManaged = p.isStockManaged;
-    final int stockQty = p.stockQuantity ?? 0;
+    final double stockQty = p.stockQuantity ?? 0.0;
     final bool isOutOfStock = isStockManaged && stockQty <= 0;
 
     return Opacity(
@@ -226,7 +251,7 @@ class ProductGrid extends StatelessWidget {
       child: Container(
         decoration: BoxDecoration(
           color: isDark ? const Color(0xFF2C2C2E) : Colors.white,
-          borderRadius: BorderRadius.circular(isWide ? 12 : 20),
+          borderRadius: BorderRadius.circular(isWide ? 10 : 16),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withValues(alpha: 0.05),
@@ -237,26 +262,27 @@ class ProductGrid extends StatelessWidget {
         ),
         child: InkWell(
           onTap: isOutOfStock ? null : () => onItemTap(p),
-          borderRadius: BorderRadius.circular(isWide ? 12 : 20),
+          borderRadius: BorderRadius.circular(isWide ? 10 : 16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // Image Section
               Expanded(
-                flex: 4,
+                flex: 5,
                 child: Stack(
                   children: [
                     _buildImage(p, isDark, isWide),
                     _buildPromoBadge(context, p, p.id),
+                    if (overlayBuilder != null) overlayBuilder!(context, p),
                   ],
                 ),
               ),
 
               // Info Section
               Expanded(
-                flex: 3,
+                flex: 4,
                 child: Padding(
-                  padding: EdgeInsets.all(isWide ? 8 : 10),
+                  padding: EdgeInsets.all(isWide ? 6 : 8),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -270,48 +296,40 @@ class ProductGrid extends StatelessWidget {
                               p.name ?? 'Tanpa Nama',
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: GoogleFonts.poppins(
-                                fontSize: isWide ? 12 : 14,
+                              style: GoogleFonts.plusJakartaSans(
+                                fontSize: isWide ? 11 : 12,
                                 fontWeight: FontWeight.w600,
                                 color: textHeading,
                               ),
                             ),
-                            const SizedBox(height: 2),
+                            const SizedBox(height: 1),
                             Text(
-                              currencyFormat.format(p.salePrice ?? 0),
+                              "${currencyFormat.format(p.salePrice ?? 0)}${p.unitId != null && unitMap[p.unitId] != null ? ' / ${unitMap[p.unitId]}' : ''}",
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: GoogleFonts.inter(
-                                fontSize: isWide ? 12 : 14,
-                                fontWeight: FontWeight.bold,
+                              style: GoogleFonts.openSans(
+                                fontSize: isWide ? 11 : 12,
+                                fontWeight: FontWeight.w700,
                                 color: primaryColor,
                               ),
                             ),
+                            if (p.isStockManaged)
+                              Text(
+                                "Stok: ${NumberFormat.decimalPattern('id').format(p.stockQuantity ?? 0)} ${unitMap[p.unitId] ?? ''}",
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: GoogleFonts.openSans(
+                                  fontSize: isWide ? 9 : 10,
+                                  color: Colors.grey,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
                           ],
                         ),
                       ),
                       Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        mainAxisAlignment: MainAxisAlignment.end,
                         children: [
-                          if (isStockManaged)
-                            Expanded(
-                              child: Text(
-                                isOutOfStock ? "Habis" : "Stok: $stockQty",
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: GoogleFonts.inter(
-                                  fontSize: isWide ? 9 : 10,
-                                  color: isOutOfStock
-                                      ? Colors.red
-                                      : Colors.grey[600],
-                                  fontWeight: isOutOfStock
-                                      ? FontWeight.bold
-                                      : FontWeight.normal,
-                                ),
-                              ),
-                            )
-                          else
-                            const Spacer(),
                           _buildActionButton(
                             context,
                             p,
@@ -338,6 +356,7 @@ class ProductGrid extends StatelessWidget {
     bool isDark,
     Color textHeading,
     Color primaryColor,
+    Map<String, String?> unitMap,
   ) {
     final currencyFormat = NumberFormat.currency(
       locale: 'id',
@@ -346,7 +365,7 @@ class ProductGrid extends StatelessWidget {
     );
 
     final bool isStockManaged = p.isStockManaged;
-    final int stockQty = p.stockQuantity ?? 0;
+    final double stockQty = p.stockQuantity ?? 0.0;
     final bool isOutOfStock = isStockManaged && stockQty <= 0;
 
     return Opacity(
@@ -404,40 +423,30 @@ class ProductGrid extends StatelessWidget {
                         p.name ?? 'Tanpa Nama',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: GoogleFonts.poppins(
+                        style: GoogleFonts.plusJakartaSans(
                           fontSize: 16,
                           fontWeight: FontWeight.w600,
                           color: textHeading,
                         ),
                       ),
                       const SizedBox(height: 4),
-                      Row(
-                        children: [
-                          Text(
-                            currencyFormat.format(p.salePrice ?? 0),
-                            style: GoogleFonts.inter(
-                              fontSize: 14,
-                              fontWeight: FontWeight.bold,
-                              color: primaryColor,
-                            ),
-                          ),
-                          if (isStockManaged) ...[
-                            const SizedBox(width: 12),
-                            Text(
-                              isOutOfStock ? "Habis" : "Stok: $stockQty",
-                              style: GoogleFonts.inter(
-                                fontSize: 12,
-                                color: isOutOfStock
-                                    ? Colors.red
-                                    : Colors.grey[600],
-                                fontWeight: isOutOfStock
-                                    ? FontWeight.bold
-                                    : FontWeight.normal,
-                              ),
-                            ),
-                          ],
-                        ],
+                      Text(
+                        "${currencyFormat.format(p.salePrice ?? 0)}${p.unitId != null && unitMap[p.unitId] != null ? ' / ${unitMap[p.unitId]}' : ''}",
+                        style: GoogleFonts.openSans(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          color: primaryColor,
+                        ),
                       ),
+                      if (p.isStockManaged)
+                        Text(
+                          "Stok: ${NumberFormat.decimalPattern('id').format(p.stockQuantity ?? 0)} ${unitMap[p.unitId] ?? ''}",
+                          style: GoogleFonts.openSans(
+                            fontSize: 12,
+                            color: Colors.grey,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
                     ],
                   ),
                 ),
@@ -500,10 +509,10 @@ class ProductGrid extends StatelessWidget {
               ),
               child: Text(
                 "PROMO",
-                style: GoogleFonts.inter(
+                style: GoogleFonts.openSans(
                   color: Colors.white,
                   fontSize: 10,
-                  fontWeight: FontWeight.bold,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
             );
@@ -538,3 +547,4 @@ class ProductGrid extends StatelessWidget {
     );
   }
 }
+

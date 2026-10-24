@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 class CategoryIconCard extends StatelessWidget {
@@ -18,7 +18,7 @@ class CategoryIconCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    const primaryColor = Color(0xFFEA5700);
+    const primaryColor = Color(0xFFC0392B);
 
     // Smart mapping for common categories if icon is null
     String displayIcon = icon ?? _getSmartIcon(label);
@@ -62,9 +62,9 @@ class CategoryIconCard extends StatelessWidget {
             const SizedBox(height: 8),
             Text(
               label,
-              style: GoogleFonts.poppins(
+              style: GoogleFonts.plusJakartaSans(
                 fontSize: 13,
-                fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
                 color: isSelected
                     ? primaryColor
                     : (isDark ? Colors.white70 : Colors.black87),
@@ -94,3 +94,4 @@ class CategoryIconCard extends StatelessWidget {
     return '🍱'; // Default
   }
 }
+

@@ -1,5 +1,5 @@
-name: steak_asri_pos
-description: "Point of Sale system for Steak Asri restaurant"
+name: kasir_bersama
+description: "Point of Sale system for Warkop Alam POS"
 publish_to: 'none'
 
 version: 1.0.0+1
@@ -42,6 +42,18 @@ dependencies:
   archive: ^3.6.1
   restart_app: ^1.3.2
   window_manager: ^0.4.3
+  google_sign_in: ^7.2.0
+  googleapis: ^16.0.0
+  googleapis_auth: ^2.0.0
+  url_launcher: ^6.3.2
+  extension_google_sign_in_as_googleapis_auth: ^3.0.0
+  flutter_svg: ^2.2.4
+  supabase_flutter: ^2.12.2
+  flutter_secure_storage: ^10.0.0
+  device_info_plus: ^12.4.0
+  crypto: ^3.0.7
+  flutter_native_splash: ^2.4.4
+  audioplayers: ^6.6.0
 
 
 dev_dependencies:
@@ -55,7 +67,10 @@ dev_dependencies:
 flutter_launcher_icons:
   android: true
   ios: true
-  image_path: "assets/logo/logoSteakAsri.png"
+  image_path: "assets/logo/logo.png"
+  web:
+    generate: true
+    image_path: "assets/logo/logo.png"
   windows:
     generate: true
 
@@ -63,3 +78,15 @@ flutter:
   uses-material-design: true
   assets:
     - assets/logo/
+    - assets/svg/
+
+flutter_native_splash:
+  color: "#414b3b"
+  image: "assets/logo/logo.png"
+  
+  android_12:
+    image: "assets/logo/logo.png"
+    color: "#414b3b"
+
+  android: true
+  ios: true

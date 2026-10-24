@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import '../services/app_database.dart';
+import 'dart:convert';
+import 'settings_controller.dart';
 
 class CartController extends ChangeNotifier {
   final List<Map<String, dynamic>> _items = [];
@@ -38,7 +40,37 @@ class CartController extends ChangeNotifier {
         'price': price ?? product.salePrice ?? 0,
       });
     }
+    
+    _applyWholesalePricing();
     notifyListeners();
+  }
+
+  void _applyWholesalePricing() {
+    if (!SettingsController.instance.featureGrosirEnabled.value) return;
+
+    for (var item in _items) {
+      final product = item['product'] as Product;
+      if (product.wholesalePricesJson == null) continue;
+
+      try {
+        final List tiers = jsonDecode(product.wholesalePricesJson!);
+        if (tiers.isEmpty) continue;
+
+        int quantity = item['quantity'] as int;
+        double effectivePrice = (product.salePrice ?? 0).toDouble();
+
+        // Find the best tier
+        for (var tier in tiers) {
+          int minQty = tier['minQty'] ?? 0;
+          double tierPrice = (tier['price'] ?? 0).toDouble();
+          if (quantity >= minQty && minQty > 0) {
+            effectivePrice = tierPrice;
+          }
+        }
+        
+        item['price'] = effectivePrice;
+      } catch (_) {}
+    }
   }
 
   void removeFromCart(String cartId) {
@@ -50,6 +82,7 @@ class CartController extends ChangeNotifier {
         _items.removeAt(index);
       }
     }
+    _applyWholesalePricing();
     notifyListeners();
   }
 

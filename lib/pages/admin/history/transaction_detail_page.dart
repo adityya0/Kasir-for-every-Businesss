@@ -1,12 +1,18 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:flutter/cupertino.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../../../widgets/floating_card.dart';
 import '../../../services/receipt_service.dart';
 import '../../../controllers/admin_controller.dart';
+import '../../../controllers/settings_controller.dart';
 import '../../user/widgets/payment_success_dialog.dart';
+import '../../../widgets/kasir_dialog.dart';
+import '../../../services/bluetooth_printer_service.dart';
+import '../../../services/order_service.dart';
+import '../../../services/app_database.dart';
+import '../../../controllers/analytics_controller.dart';
 
 class TransactionDetailPage extends StatelessWidget {
   final Map<String, dynamic> transaction;
@@ -38,6 +44,38 @@ class TransactionDetailPage extends StatelessWidget {
       date = DateTime.now();
     }
     final cashierName = transaction['profiles']?['fullName'] ?? 'System';
+    final String? tableNumber = (transaction['tableNumber'] ?? transaction['table_number'])?.toString();
+
+    double? savedDiscount;
+    double? savedSubtotal;
+    double? savedTax;
+    String? savedDiscountLabel;
+    String? savedCustomerName;
+    final rawNotes = transaction['notes']?.toString();
+    if (rawNotes != null && rawNotes.trim().startsWith('{') && rawNotes.trim().endsWith('}')) {
+      try {
+        final decoded = jsonDecode(rawNotes.trim()) as Map<String, dynamic>;
+        savedDiscount = (decoded['discount'] as num?)?.toDouble();
+        savedSubtotal = (decoded['subtotal'] as num?)?.toDouble();
+        savedTax = (decoded['tax'] as num?)?.toDouble();
+        savedDiscountLabel = decoded['discount_label']?.toString();
+        savedCustomerName = decoded['customer_name']?.toString();
+      } catch (_) {}
+    }
+    final effectiveCustomerName = savedCustomerName ?? transaction['customers']?['name']?.toString();
+
+    final double calculatedSubtotal = items.fold(0.0, (sum, it) {
+      return sum +
+          ((it['unitPrice'] ?? 0 as num).toDouble() *
+              (it['quantity'] as num).toDouble());
+    });
+    final double subtotal = savedSubtotal ?? (calculatedSubtotal > 0 ? calculatedSubtotal : total);
+    
+    // Infer tax and discount if not explicitly saved
+    final double difference = total - subtotal;
+    final double discount = savedDiscount ?? (difference < 0 ? -difference : 0.0);
+    final double pajakAmount = savedTax ?? (difference > 0 ? difference : 0.0);
+    final String pajakName = SettingsController.instance.pajakName.value;
 
     final currencyFormat = NumberFormat.currency(
       locale: 'id',
@@ -50,8 +88,8 @@ class TransactionDetailPage extends StatelessWidget {
       appBar: AppBar(
         title: Text(
           "Detail Transaksi",
-          style: GoogleFonts.poppins(
-            fontWeight: FontWeight.bold,
+          style: GoogleFonts.plusJakartaSans(
+            fontWeight: FontWeight.w600,
             color: isDark ? Colors.white : const Color(0xFF2D3436),
           ),
         ),
@@ -60,11 +98,19 @@ class TransactionDetailPage extends StatelessWidget {
         centerTitle: true,
         leading: IconButton(
           icon: Icon(
-            CupertinoIcons.back,
+            Icons.arrow_back,
             color: isDark ? Colors.white : const Color(0xFF2D3436),
           ),
           onPressed: () => Navigator.pop(context),
         ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.delete_outline_rounded, color: Colors.red),
+            tooltip: "Hapus Transaksi",
+            onPressed: () => _confirmDeleteTransaction(context, currencyFormat, total),
+          ),
+          const SizedBox(width: 8),
+        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
@@ -78,28 +124,28 @@ class TransactionDetailPage extends StatelessWidget {
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFEA5700).withValues(alpha: 0.1),
+                      color: const Color(0xFFC0392B).withValues(alpha: 0.1),
                       shape: BoxShape.circle,
                     ),
                     child: const Icon(
-                      CupertinoIcons.bag_fill,
-                      color: Color(0xFFEA5700),
+                      Icons.shopping_bag,
+                      color: Color(0xFFC0392B),
                       size: 32,
                     ),
                   ),
                   const SizedBox(height: 16),
                   Text(
                     currencyFormat.format(total),
-                    style: GoogleFonts.poppins(
+                    style: GoogleFonts.plusJakartaSans(
                       fontSize: 28,
-                      fontWeight: FontWeight.bold,
-                      color: const Color(0xFFEA5700),
+                      fontWeight: FontWeight.w600,
+                      color: const Color(0xFFC0392B),
                     ),
                   ),
                   const SizedBox(height: 8),
                   Text(
                     "ID: #${transaction['id'].toString().substring(0, 8).toUpperCase()}",
-                    style: GoogleFonts.inter(
+                    style: GoogleFonts.openSans(
                       color: isDark ? Colors.white54 : Colors.grey[600],
                       fontWeight: FontWeight.w500,
                     ),
@@ -118,14 +164,14 @@ class TransactionDetailPage extends StatelessWidget {
                     context,
                     "Waktu",
                     DateFormat('d MMM yyyy, HH:mm').format(date),
-                    CupertinoIcons.time,
+                    Icons.access_time,
                   ),
                   const Divider(height: 32),
                   _buildInfoRow(
                     context,
                     "Kasir",
                     cashierName,
-                    CupertinoIcons.person,
+                    Icons.person_outline,
                   ),
                   const Divider(height: 32),
                   _buildInfoRow(
@@ -133,8 +179,26 @@ class TransactionDetailPage extends StatelessWidget {
                     "Metode Bayar",
                     transaction['paymentMethod']?.toString().toUpperCase() ??
                         "TUNAI",
-                    CupertinoIcons.creditcard,
+                    Icons.credit_card,
                   ),
+                  if (tableNumber != null && tableNumber.isNotEmpty) ...[
+                    const Divider(height: 32),
+                    _buildInfoRow(
+                      context,
+                      "Nomor Meja",
+                      tableNumber.toUpperCase(),
+                      Icons.table_restaurant_outlined,
+                    ),
+                  ],
+                  if (discount > 0) ...[
+                    const Divider(height: 32),
+                    _buildInfoRow(
+                      context,
+                      "Diskon",
+                      "-${currencyFormat.format(discount)}",
+                      Icons.discount_outlined,
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -147,7 +211,7 @@ class TransactionDetailPage extends StatelessWidget {
                 padding: const EdgeInsets.only(left: 4, bottom: 12),
                 child: Text(
                   "DAFTAR BELANJA",
-                  style: GoogleFonts.inter(
+                  style: GoogleFonts.robotoMono(
                     fontSize: 12,
                     fontWeight: FontWeight.bold,
                     color: Colors.grey,
@@ -178,7 +242,7 @@ class TransactionDetailPage extends StatelessWidget {
                           children: [
                             Text(
                               productName,
-                              style: GoogleFonts.poppins(
+                              style: GoogleFonts.robotoMono(
                                 fontWeight: FontWeight.w600,
                                 color: isDark
                                     ? Colors.white
@@ -187,8 +251,8 @@ class TransactionDetailPage extends StatelessWidget {
                             ),
                             Text(
                               "$qty x ${currencyFormat.format(price)}",
-                              style: GoogleFonts.inter(
-                                fontSize: 12,
+                              style: GoogleFonts.robotoMono(
+                                fontSize: 11,
                                 color: Colors.grey,
                               ),
                             ),
@@ -197,7 +261,7 @@ class TransactionDetailPage extends StatelessWidget {
                       ),
                       Text(
                         currencyFormat.format(qty * price),
-                        style: GoogleFonts.poppins(
+                        style: GoogleFonts.robotoMono(
                           fontWeight: FontWeight.bold,
                           color: isDark
                               ? Colors.white
@@ -218,41 +282,70 @@ class TransactionDetailPage extends StatelessWidget {
                 onPressed: () async {
                   final adminCtrl = context.read<AdminController>();
                   final receiptService = ReceiptService();
+                  final printerService = BluetoothPrinterService();
 
-                  final double subtotal = items.fold(0.0, (sum, it) {
-                    return sum +
-                        ((it['unitPrice'] ?? 0 as num).toDouble() *
-                            (it['quantity'] as num).toDouble());
-                  });
-                  final double discount = (subtotal - total).clamp(
-                    0.0,
-                    double.infinity,
-                  );
+                  // Check printer connection before proceeding
+                  final isConnected = await printerService.isConnectedStatus;
+                  if (isConnected != true) {
+                    if (context.mounted) {
+                      showDialog(
+                        context: context,
+                        builder: (ctx) => KasirDialog(
+                          title: "Printer Tidak Terhubung",
+                          message:
+                              "Printer bluetooth Anda belum terhubung. Silakan hubungkan printer melalui menu Pengaturan Printer.",
+                          icon: Icons.print_disabled_rounded,
+                          iconColor: Colors.orange,
+                          primaryActionLabel: "TUTUP",
+                          onPrimaryAction: () => Navigator.pop(ctx),
+                        ),
+                      );
+                    }
+                    return;
+                  }
 
-                  final pdfData = await receiptService.generateReceiptPdf(
-                    storeName: adminCtrl.storeName ?? "Toko Asri",
-                    storeLogoUrl: adminCtrl.storeLogo,
-                    transactionId: transaction['id'].toString(),
-                    createdAt: date,
-                    items: items.map((it) {
-                      return {
-                        'name': it['productName'] ?? 'Produk',
-                        'quantity': it['quantity'],
-                        'total_price':
-                            (it['unitPrice'] ?? 0 as num).toDouble() *
-                            (it['quantity'] as num).toDouble(),
-                      };
-                    }).toList(),
-                    subtotal: subtotal,
-                    discount: discount,
-                    totalAmount: total,
-                    cashReceived:
-                        (transaction['cashReceived'] as num?)?.toDouble() ??
-                        total,
-                    change: (transaction['change'] as num?)?.toDouble() ?? 0,
-                    paymentMethod:
-                        transaction['paymentMethod']?.toString() ?? "TUNAI",
-                  );
+                    final pdfData = await receiptService.generateReceiptPdf(
+                      storeName: adminCtrl.storeName ?? "Warkop Alam POS",
+                      storeLogoUrl: adminCtrl.storeLogo,
+                      transactionId: transaction['id'].toString().substring(0, 8).toUpperCase(),
+                      createdAt: date,
+                      items: items.map((it) {
+                        return {
+                          'name': it['productName'] ?? 'Produk',
+                          'quantity': it['quantity'],
+                          'unit_price': (it['unitPrice'] ?? 0 as num).toDouble(),
+                          'total_price':
+                              (it['unitPrice'] ?? 0 as num).toDouble() *
+                              (it['quantity'] as num).toDouble(),
+                        };
+                      }).toList(),
+                      subtotal: subtotal,
+                      discount: discount,
+                      pajakAmount: pajakAmount,
+                      pajakName: pajakName,
+                      pajakRate: SettingsController.instance.pajakRate.value,
+                      totalAmount: total,
+                      cashReceived:
+                          (transaction['cashReceived'] as num?)?.toDouble() ??
+                          total,
+                      change: (transaction['change'] as num?)?.toDouble() ?? 0,
+                      paymentMethod:
+                          transaction['paymentMethod']?.toString() ?? "TUNAI",
+                      showStoreName: SettingsController.instance.receiptShowStoreName.value,
+                      showAddress: SettingsController.instance.receiptShowAddress.value,
+                      showDate: SettingsController.instance.receiptShowDate.value,
+                      showDetails: SettingsController.instance.receiptShowDetails.value,
+                      showThankYou: SettingsController.instance.receiptShowThankYou.value,
+                      showLogo: SettingsController.instance.receiptShowLogo.value,
+                      showEmail: SettingsController.instance.receiptShowEmail.value,
+                      showTable: SettingsController.instance.receiptShowTable.value,
+                      storeAddress: adminCtrl.storeAddress,
+                      storeEmail: adminCtrl.storeEmail,
+                      thankYouMessage: SettingsController.instance.receiptThankYouMessage.value,
+                      tableNumber: tableNumber,
+                      customerName: effectiveCustomerName,
+                      discountLabel: savedDiscountLabel,
+                    );
 
                   if (context.mounted) {
                     showDialog(
@@ -266,13 +359,17 @@ class TransactionDetailPage extends StatelessWidget {
                             .toUpperCase(),
                         subtotal: subtotal,
                         discount: discount,
+                        discountLabel: savedDiscountLabel,
+                        customerName: effectiveCustomerName,
+                        pajakAmount: pajakAmount,
+                        pajakName: pajakName,
                         totalAmount: total,
                         cashReceived:
                             (transaction['cashReceived'] as num?)?.toDouble() ??
                             total,
                         change:
                             (transaction['change'] as num?)?.toDouble() ?? 0,
-                        storeName: adminCtrl.storeName ?? "Toko Asri",
+                        storeName: adminCtrl.storeName ?? "Warkop Alam POS",
                         createdAt: date,
                         items: items.map((it) {
                           return {
@@ -285,6 +382,7 @@ class TransactionDetailPage extends StatelessWidget {
                         }).toList(),
                         paymentMethod:
                             transaction['paymentMethod']?.toString() ?? "TUNAI",
+                        tableNumber: tableNumber,
                         onNewTransaction: () {
                           // Just close the dialog
                         },
@@ -292,16 +390,16 @@ class TransactionDetailPage extends StatelessWidget {
                     );
                   }
                 },
-                icon: const Icon(CupertinoIcons.printer),
+                icon: const Icon(Icons.print),
                 label: Text(
                   "CETAK STRUK",
-                  style: GoogleFonts.poppins(
-                    fontWeight: FontWeight.bold,
+                  style: GoogleFonts.plusJakartaSans(
+                    fontWeight: FontWeight.w600,
                     letterSpacing: 1.1,
                   ),
                 ),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFEA5700),
+                  backgroundColor: const Color(0xFFC0392B),
                   foregroundColor: Colors.white,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(16),
@@ -318,52 +416,93 @@ class TransactionDetailPage extends StatelessWidget {
                   final adminCtrl = context.read<AdminController>();
                   final receiptService = ReceiptService();
 
-                  final double subtotal = items.fold(0.0, (sum, it) {
-                    return sum +
-                        ((it['unitPrice'] ?? 0 as num).toDouble() *
-                            (it['quantity'] as num).toDouble());
-                  });
-                  final double discount = (subtotal - total).clamp(
-                    0.0,
-                    double.infinity,
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text("Menyiapkan struk digital..."), duration: Duration(seconds: 1)),
                   );
-
-                  await receiptService.shareReceiptPdf(
-                    storeName: adminCtrl.storeName ?? "Toko Asri",
-                    storeLogoUrl: adminCtrl.storeLogo,
-                    transactionId: transaction['id'].toString(),
-                    createdAt: date,
-                    items: items.map((it) {
-                      return {
-                        'name': it['productName'] ?? 'Produk',
-                        'quantity': it['quantity'],
-                        'total_price':
-                            (it['unitPrice'] ?? 0 as num).toDouble() *
-                            (it['quantity'] as num).toDouble(),
-                      };
-                    }).toList(),
-                    subtotal: subtotal,
-                    discount: discount,
-                    totalAmount: total,
-                    cashReceived:
-                        (transaction['cashReceived'] as num?)?.toDouble() ??
-                        total,
-                    change: (transaction['change'] as num?)?.toDouble() ?? 0,
-                    paymentMethod:
-                        transaction['paymentMethod']?.toString() ?? "TUNAI",
-                  );
+                  try {
+                    await receiptService.shareReceiptPdf(
+                      storeName: adminCtrl.storeName ?? "Warkop Alam POS",
+                      storeLogoUrl: adminCtrl.storeLogo,
+                      transactionId: transaction['id'].toString().substring(0, 8).toUpperCase(),
+                      createdAt: date,
+                      items: items.map((it) {
+                        return {
+                          'name': it['productName'] ?? 'Produk',
+                          'quantity': it['quantity'],
+                          'unit_price': (it['unitPrice'] ?? 0 as num).toDouble(),
+                          'total_price':
+                              (it['unitPrice'] ?? 0 as num).toDouble() *
+                              (it['quantity'] as num).toDouble(),
+                        };
+                      }).toList(),
+                      subtotal: subtotal,
+                      discount: discount,
+                      pajakAmount: pajakAmount,
+                      pajakName: pajakName,
+                      pajakRate: SettingsController.instance.pajakRate.value,
+                      totalAmount: total,
+                      cashReceived:
+                          (transaction['cashReceived'] as num?)?.toDouble() ??
+                          total,
+                      change: (transaction['change'] as num?)?.toDouble() ?? 0,
+                      paymentMethod:
+                          transaction['paymentMethod']?.toString() ?? "TUNAI",
+                      showStoreName: SettingsController.instance.receiptShowStoreName.value,
+                      showAddress: SettingsController.instance.receiptShowAddress.value,
+                      showDate: SettingsController.instance.receiptShowDate.value,
+                      showDetails: SettingsController.instance.receiptShowDetails.value,
+                      showThankYou: SettingsController.instance.receiptShowThankYou.value,
+                      showLogo: SettingsController.instance.receiptShowLogo.value,
+                      showEmail: SettingsController.instance.receiptShowEmail.value,
+                      storeAddress: adminCtrl.storeAddress,
+                      storeEmail: adminCtrl.storeEmail,
+                      thankYouMessage: SettingsController.instance.receiptThankYouMessage.value,
+                      tableNumber: tableNumber,
+                      customerName: effectiveCustomerName,
+                      discountLabel: savedDiscountLabel,
+                    );
+                  } catch (e) {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text("Gagal bagikan: $e"), backgroundColor: Colors.red),
+                      );
+                    }
+                  }
                 },
-                icon: const Icon(CupertinoIcons.share),
+                icon: const Icon(Icons.share),
                 label: Text(
                   "BAGIKAN STRUK DIGITAL",
-                  style: GoogleFonts.poppins(
-                    fontWeight: FontWeight.bold,
+                  style: GoogleFonts.plusJakartaSans(
+                    fontWeight: FontWeight.w600,
                     letterSpacing: 1.1,
                   ),
                 ),
                 style: OutlinedButton.styleFrom(
-                  foregroundColor: const Color(0xFFEA5700),
-                  side: const BorderSide(color: Color(0xFFEA5700), width: 2),
+                  foregroundColor: const Color(0xFFC0392B),
+                  side: const BorderSide(color: Color(0xFFC0392B), width: 2),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              height: 52,
+              child: OutlinedButton.icon(
+                onPressed: () => _confirmDeleteTransaction(context, currencyFormat, total),
+                icon: const Icon(Icons.delete_outline_rounded, color: Colors.red),
+                label: Text(
+                  "HAPUS TRANSAKSI INI",
+                  style: GoogleFonts.plusJakartaSans(
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 1.1,
+                  ),
+                ),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.red,
+                  side: const BorderSide(color: Colors.red, width: 1.5),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(16),
                   ),
@@ -386,23 +525,82 @@ class TransactionDetailPage extends StatelessWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return Row(
       children: [
-        Icon(icon, size: 20, color: const Color(0xFFEA5700)),
+        Icon(icon, size: 20, color: const Color(0xFFC0392B)),
         const SizedBox(width: 16),
         Text(
           label,
-          style: GoogleFonts.inter(
+          style: GoogleFonts.openSans(
             color: isDark ? Colors.white54 : Colors.grey[600],
           ),
         ),
         const Spacer(),
         Text(
           value,
-          style: GoogleFonts.poppins(
-            fontWeight: FontWeight.bold,
+          style: GoogleFonts.plusJakartaSans(
+            fontWeight: FontWeight.w600,
             color: isDark ? Colors.white : const Color(0xFF2D3436),
           ),
         ),
       ],
     );
   }
+
+  Future<void> _confirmDeleteTransaction(
+    BuildContext context,
+    NumberFormat currencyFormat,
+    double total,
+  ) async {
+    final txIdRaw = transaction['id']?.toString() ?? '';
+    final shortId = txIdRaw.length >= 8 ? txIdRaw.substring(0, 8).toUpperCase() : txIdRaw.toUpperCase();
+
+    final shouldDelete = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => KasirDialog(
+        title: "Hapus Transaksi?",
+        message: "Transaksi #$shortId sebesar ${currencyFormat.format(total)} akan dihapus permanen.\n\nStok produk yang terjual akan otomatis dikembalikan ke inventaris, dan kalkulasi laporan omset/keuangan akan diperbarui.",
+        icon: Icons.delete_forever_rounded,
+        iconColor: Colors.red,
+        isDestructive: true,
+        primaryActionLabel: "Hapus Transaksi",
+        onPrimaryAction: () => Navigator.pop(ctx, true),
+        secondaryActionLabel: "Batal",
+        onSecondaryAction: () => Navigator.pop(ctx, false),
+      ),
+    );
+
+    if (shouldDelete == true && context.mounted) {
+      try {
+        final db = context.read<AppDatabase>();
+        final orderService = OrderService(db);
+        await orderService.deleteTransaction(txIdRaw, restoreStock: true);
+
+        if (context.mounted) {
+          try {
+            context.read<AnalyticsController>().refreshData();
+            context.read<AdminController>().loadInitialData();
+          } catch (_) {}
+
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("✓ Transaksi berhasil dihapus dan stok telah dikembalikan"),
+              backgroundColor: Color(0xFF10B981),
+              duration: Duration(seconds: 2),
+            ),
+          );
+
+          Navigator.pop(context, true);
+        }
+      } catch (e) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text("Gagal menghapus transaksi: $e"),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    }
+  }
 }
+

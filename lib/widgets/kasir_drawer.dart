@@ -3,8 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../services/platform/file_manager.dart';
-
-import 'package:shared_preferences/shared_preferences.dart';
 import '../controllers/theme_controller.dart';
 import '../pages/other/printer_settings_page.dart';
 import 'package:provider/provider.dart';
@@ -15,6 +13,8 @@ import '../pages/admin/report/profit_loss_page.dart';
 import '../pages/admin/customer_page.dart';
 import '../pages/admin/promotion_page.dart';
 import '../controllers/settings_controller.dart';
+import 'kasir_dialog.dart';
+import '../services/activation_service.dart';
 
 class KasirDrawer extends StatefulWidget {
   final String currentRoute;
@@ -35,33 +35,43 @@ class _KasirDrawerState extends State<KasirDrawer> {
     final adminCtrl = context.read<AdminController>();
     final controller = TextEditingController(text: adminCtrl.userName);
 
-    await showCupertinoDialog(
+    await showDialog(
       context: context,
-      builder: (ctx) => CupertinoAlertDialog(
-        title: const Text("Ubah Nama"),
+      builder: (ctx) => KasirDialog(
+        title: "Ubah Nama",
+        icon: Icons.edit_rounded,
+        iconColor: const Color(0xFFC0392B),
         content: Padding(
-          padding: const EdgeInsets.only(top: 10),
-          child: CupertinoTextField(
+          padding: const EdgeInsets.only(top: 12),
+          child: TextField(
             controller: controller,
-            placeholder: "Nama Lengkap",
+            decoration: InputDecoration(
+              hintText: "Nama Lengkap",
+              filled: true,
+              fillColor: Theme.of(ctx).brightness == Brightness.dark
+                  ? const Color(0xFF2C2C2E)
+                  : const Color(0xFFF2F2F7),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: BorderSide.none,
+              ),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 14,
+              ),
+            ),
           ),
         ),
-        actions: [
-          CupertinoDialogAction(
-            child: const Text("Batal"),
-            onPressed: () => Navigator.pop(ctx),
-          ),
-          CupertinoDialogAction(
-            child: const Text("Simpan"),
-            onPressed: () async {
-              Navigator.pop(ctx);
-              final newName = controller.text.trim();
-              if (newName.isNotEmpty) {
-                await adminCtrl.updateProfile(name: newName);
-              }
-            },
-          ),
-        ],
+        primaryActionLabel: "Simpan",
+        onPrimaryAction: () async {
+          Navigator.pop(ctx);
+          final newName = controller.text.trim();
+          if (newName.isNotEmpty) {
+            await adminCtrl.updateProfile(name: newName);
+          }
+        },
+        secondaryActionLabel: "Batal",
+        onSecondaryAction: () => Navigator.pop(ctx),
       ),
     );
   }
@@ -70,7 +80,7 @@ class _KasirDrawerState extends State<KasirDrawer> {
   Widget build(BuildContext context) {
     final isDark = ThemeController.instance.isDarkMode;
     final bgColor = isDark ? const Color(0xFF1A1C1E) : Colors.white;
-    const accentColor = Color(0xFFFF4D4D); // Vibrant Red for Kasir
+    const accentColor = Color(0xFFC0392B);
 
     final adminCtrl = context.watch<AdminController>();
     final role = adminCtrl.role;
@@ -95,7 +105,7 @@ class _KasirDrawerState extends State<KasirDrawer> {
                     SettingsController.instance.getString('navigation'),
                   ),
                   _buildModernItem(
-                    icon: CupertinoIcons.person_crop_circle,
+                    icon: Icons.account_circle_outlined,
                     label: "Profil Saya",
                     isSelected: widget.currentRoute == '/profile',
                     accentColor: accentColor,
@@ -111,11 +121,11 @@ class _KasirDrawerState extends State<KasirDrawer> {
                   ),
                   if (_hasPerm(adminCtrl, 'pos_access'))
                     _buildModernItem(
-                      icon: CupertinoIcons.home,
+                      icon: Icons.home_outlined,
                       label: SettingsController.instance.getString('beranda'),
                       isSelected: widget.currentRoute == '/kasir',
                       accentColor: accentColor,
-                      itemColor: const Color(0xFFEA5700),
+                      itemColor: const Color(0xFFC0392B),
                       onTap: () {
                         Navigator.pop(context);
                         if (widget.onIndexSelected != null) {
@@ -127,7 +137,7 @@ class _KasirDrawerState extends State<KasirDrawer> {
                     ),
                   if (_hasPerm(adminCtrl, 'manage_inventory'))
                     _buildModernItem(
-                      icon: CupertinoIcons.cube_box,
+                      icon: Icons.inventory_2_outlined,
                       label: SettingsController.instance.getString(
                         'nav_inventory',
                       ),
@@ -142,7 +152,26 @@ class _KasirDrawerState extends State<KasirDrawer> {
                           Navigator.push(
                             context,
                             MaterialPageRoute(
-                              builder: (ctx) => const InventoryPage(),
+                              builder: (ctx) => InventoryPage(
+                                onNavigateToCategories: () {
+                                  Navigator.pushReplacement(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (ctx) => CategoryPage(
+                                        storeId: adminCtrl.storeId!,
+                                        onNavigateToProducts: () {
+                                          Navigator.pushReplacement(
+                                            context,
+                                            MaterialPageRoute(
+                                              builder: (ctx) => const InventoryPage(),
+                                            ),
+                                          );
+                                        },
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
                             ),
                           );
                         }
@@ -150,7 +179,7 @@ class _KasirDrawerState extends State<KasirDrawer> {
                     ),
                   if (_hasPerm(adminCtrl, 'manage_categories'))
                     _buildModernItem(
-                      icon: CupertinoIcons.tag,
+                      icon: Icons.label_outlined,
                       label: SettingsController.instance.getString(
                         'nav_category',
                       ),
@@ -165,15 +194,35 @@ class _KasirDrawerState extends State<KasirDrawer> {
                           Navigator.push(
                             context,
                             MaterialPageRoute(
-                              builder: (ctx) =>
-                                  CategoryPage(storeId: adminCtrl.storeId!),
+                              builder: (ctx) => CategoryPage(
+                                storeId: adminCtrl.storeId!,
+                                onNavigateToProducts: () {
+                                  Navigator.pushReplacement(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (ctx) => InventoryPage(
+                                        onNavigateToCategories: () {
+                                          Navigator.pushReplacement(
+                                            context,
+                                            MaterialPageRoute(
+                                              builder: (ctx) => CategoryPage(
+                                                storeId: adminCtrl.storeId!,
+                                              ),
+                                            ),
+                                          );
+                                        },
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
                             ),
                           );
                         }
                       },
                     ),
                   _buildModernItem(
-                    icon: CupertinoIcons.clock,
+                    icon: Icons.schedule_outlined,
                     label: SettingsController.instance.getString('absen_staff'),
                     isSelected: widget.currentRoute == '/attendance',
                     accentColor: accentColor,
@@ -189,7 +238,7 @@ class _KasirDrawerState extends State<KasirDrawer> {
                   ),
                   if (_hasPerm(adminCtrl, 'view_history'))
                     _buildModernItem(
-                      icon: CupertinoIcons.doc_text,
+                      icon: Icons.description_outlined,
                       label: SettingsController.instance.getString(
                         'nav_history',
                       ),
@@ -210,7 +259,7 @@ class _KasirDrawerState extends State<KasirDrawer> {
                     ),
                   if (_hasPerm(adminCtrl, 'view_reports'))
                     _buildModernItem(
-                      icon: CupertinoIcons.chart_bar_square,
+                      icon: Icons.bar_chart_outlined,
                       label: SettingsController.instance.getString(
                         'nav_profit_loss',
                       ),
@@ -232,30 +281,37 @@ class _KasirDrawerState extends State<KasirDrawer> {
                         }
                       },
                     ),
-                  if (_hasPerm(adminCtrl, 'manage_customers'))
-                    _buildModernItem(
-                      icon: CupertinoIcons.person_2,
-                      label: "Loyalty Pelanggan",
-                      isSelected: widget.currentRoute == '/customers',
-                      accentColor: accentColor,
-                      itemColor: const Color(0xFFF1C40F),
-                      onTap: () {
-                        Navigator.pop(context);
-                        if (widget.onIndexSelected != null) {
-                          widget.onIndexSelected!(12);
-                        } else {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (ctx) => const CustomerPage(),
-                            ),
-                          );
-                        }
-                      },
-                    ),
+                  ValueListenableBuilder<bool>(
+                    valueListenable: SettingsController.instance.featureLoyaltyEnabled,
+                    builder: (context, loyaltyEnabled, _) {
+                      if (!loyaltyEnabled || !_hasPerm(adminCtrl, 'manage_customers')) {
+                        return const SizedBox.shrink();
+                      }
+                      return _buildModernItem(
+                        icon: Icons.people_outline_rounded,
+                        label: "Loyalty Pelanggan",
+                        isSelected: widget.currentRoute == '/customers',
+                        accentColor: accentColor,
+                        itemColor: const Color(0xFFF1C40F),
+                        onTap: () {
+                          Navigator.pop(context);
+                          if (widget.onIndexSelected != null) {
+                            widget.onIndexSelected!(12);
+                          } else {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (ctx) => const CustomerPage(),
+                              ),
+                            );
+                          }
+                        },
+                      );
+                    },
+                  ),
                   if (_hasPerm(adminCtrl, 'manage_promotions'))
                     _buildModernItem(
-                      icon: CupertinoIcons.percent,
+                      icon: Icons.discount_outlined,
                       label: "Promosi & Diskon",
                       isSelected: widget.currentRoute == '/promotions',
                       accentColor: accentColor,
@@ -276,7 +332,7 @@ class _KasirDrawerState extends State<KasirDrawer> {
                     ),
                   if (_hasPerm(adminCtrl, 'manage_printer'))
                     _buildModernItem(
-                      icon: CupertinoIcons.printer,
+                      icon: Icons.print_outlined,
                       label: SettingsController.instance.getString(
                         'nav_printer',
                       ),
@@ -302,7 +358,7 @@ class _KasirDrawerState extends State<KasirDrawer> {
                       SettingsController.instance.getString('administration'),
                     ),
                     _buildModernItem(
-                      icon: CupertinoIcons.shield_lefthalf_fill,
+                      icon: Icons.security_rounded,
                       label: SettingsController.instance.getString(
                         'admin_panel',
                       ),
@@ -335,7 +391,7 @@ class _KasirDrawerState extends State<KasirDrawer> {
   }
 
   Widget _buildModernHeader(bool isDark, AdminController adminCtrl) {
-    final avatarUrl = adminCtrl.profileUrl;
+    final avatarUrl = adminCtrl.storeLogo ?? adminCtrl.profileUrl;
     final fullName = adminCtrl.userName ?? "Kasir";
 
     // A slightly different style for Kasir active user
@@ -352,6 +408,37 @@ class _KasirDrawerState extends State<KasirDrawer> {
       ),
       child: Column(
         children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.05),
+                  blurRadius: 10,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: (adminCtrl.storeLogo != null && adminCtrl.storeLogo!.isNotEmpty)
+                ? Image(
+                    image: FileManager().getImageProvider(adminCtrl.storeLogo!),
+                    height: 44,
+                    fit: BoxFit.contain,
+                    errorBuilder: (_, __, ___) => Image.asset(
+                      'assets/logo/logo.png',
+                      height: 44,
+                      fit: BoxFit.contain,
+                    ),
+                  )
+                : Image.asset(
+                    'assets/logo/logo.png',
+                    height: 44,
+                    fit: BoxFit.contain,
+                  ),
+          ),
+          const SizedBox(height: 20),
           GestureDetector(
             onTap: () {
               Navigator.pop(context);
@@ -367,7 +454,7 @@ class _KasirDrawerState extends State<KasirDrawer> {
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     border: Border.all(
-                      color: const Color(0xFFFF4D4D),
+                      color: const Color(0xFFC0392B),
                       width: 2,
                     ),
                     boxShadow: [
@@ -387,7 +474,7 @@ class _KasirDrawerState extends State<KasirDrawer> {
                   ),
                   child: avatarUrl == null
                       ? Icon(
-                          CupertinoIcons.person_solid,
+                          Icons.person_rounded,
                           size: 40,
                           color: isDark ? Colors.white38 : Colors.grey[400],
                         )
@@ -400,11 +487,11 @@ class _KasirDrawerState extends State<KasirDrawer> {
                   child: Container(
                     padding: const EdgeInsets.all(6),
                     decoration: const BoxDecoration(
-                      color: Color(0xFFFF4D4D),
+                      color: Color(0xFFC0392B),
                       shape: BoxShape.circle,
                     ),
                     child: const Icon(
-                      CupertinoIcons.camera_fill,
+                      Icons.camera_alt_rounded,
                       size: 14,
                       color: Colors.white,
                     ),
@@ -419,9 +506,9 @@ class _KasirDrawerState extends State<KasirDrawer> {
             children: [
               Text(
                 fullName,
-                style: GoogleFonts.poppins(
+                style: GoogleFonts.plusJakartaSans(
                   fontSize: 18,
-                  fontWeight: FontWeight.bold,
+                  fontWeight: FontWeight.w600,
                   color: isDark ? Colors.white : Colors.black87,
                 ),
               ),
@@ -429,7 +516,7 @@ class _KasirDrawerState extends State<KasirDrawer> {
               GestureDetector(
                 onTap: _updateName,
                 child: Icon(
-                  CupertinoIcons.pencil,
+                  Icons.edit_outlined,
                   size: 16,
                   color: Colors.grey[500],
                 ),
@@ -440,15 +527,15 @@ class _KasirDrawerState extends State<KasirDrawer> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
             decoration: BoxDecoration(
-              color: const Color(0xFFFF4D4D).withValues(alpha: 0.1),
+              color: const Color(0xFFC0392B).withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(20),
             ),
             child: Text(
               "POS TERMINAL",
-              style: GoogleFonts.inter(
+              style: GoogleFonts.openSans(
                 fontSize: 10,
-                fontWeight: FontWeight.bold,
-                color: const Color(0xFFFF4D4D),
+                fontWeight: FontWeight.w600,
+                color: const Color(0xFFC0392B),
                 letterSpacing: 1,
               ),
             ),
@@ -463,9 +550,9 @@ class _KasirDrawerState extends State<KasirDrawer> {
       padding: const EdgeInsets.fromLTRB(12, 16, 12, 8),
       child: Text(
         title,
-        style: GoogleFonts.inter(
+        style: GoogleFonts.openSans(
           fontSize: 11,
-          fontWeight: FontWeight.bold,
+          fontWeight: FontWeight.w600,
           color: Colors.grey[400],
           letterSpacing: 1.2,
         ),
@@ -513,7 +600,7 @@ class _KasirDrawerState extends State<KasirDrawer> {
                 Expanded(
                   child: Text(
                     label,
-                    style: GoogleFonts.inter(
+                    style: GoogleFonts.openSans(
                       fontSize: 14,
                       fontWeight: isSelected
                           ? FontWeight.w600
@@ -551,14 +638,14 @@ class _KasirDrawerState extends State<KasirDrawer> {
       child: Row(
         children: [
           Icon(
-            isDark ? CupertinoIcons.moon_fill : CupertinoIcons.sun_max_fill,
+            isDark ? Icons.dark_mode_rounded : Icons.light_mode_rounded,
             color: isDark ? Colors.white70 : Colors.grey[700],
             size: 20,
           ),
           const SizedBox(width: 16),
           Text(
             isDark ? "Dark Mode" : "Light Mode",
-            style: GoogleFonts.inter(
+            style: GoogleFonts.openSans(
               fontSize: 14,
               fontWeight: FontWeight.w500,
               color: isDark ? Colors.white70 : Colors.grey[800],
@@ -583,30 +670,24 @@ class _KasirDrawerState extends State<KasirDrawer> {
       padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
       child: InkWell(
         onTap: () async {
-          final shouldLogout = await showCupertinoDialog<bool>(
+          final shouldLogout = await showDialog<bool>(
             context: context,
-            builder: (context) => CupertinoAlertDialog(
-              title: const Text("Konfirmasi Keluar"),
-              content: const Text(
-                "Apakah Anda yakin ingin keluar dari aplikasi?",
-              ),
-              actions: [
-                CupertinoDialogAction(
-                  child: const Text("Batal"),
-                  onPressed: () => Navigator.pop(context, false),
-                ),
-                CupertinoDialogAction(
-                  isDestructiveAction: true,
-                  child: const Text("Keluar"),
-                  onPressed: () => Navigator.pop(context, true),
-                ),
-              ],
+            builder: (context) => KasirDialog(
+              title: "Konfirmasi Logout",
+              message: "Apakah Anda yakin ingin keluar dari akun ini?",
+              icon: Icons.logout_rounded,
+              iconColor: Colors.redAccent,
+              isDestructive: true,
+              primaryActionLabel: "Keluar Sesi",
+              onPrimaryAction: () => Navigator.pop(context, true),
+              secondaryActionLabel: "Batal",
+              onSecondaryAction: () => Navigator.pop(context, false),
             ),
           );
 
           if (shouldLogout == true) {
-            final prefs = await SharedPreferences.getInstance();
-            await prefs.remove('last_route');
+            final activationService = ActivationService();
+            await activationService.logout();
             if (!mounted) return;
             Navigator.pushReplacementNamed(context, '/login');
           }
@@ -622,11 +703,11 @@ class _KasirDrawerState extends State<KasirDrawer> {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(CupertinoIcons.power, color: Colors.red, size: 20),
+              const Icon(Icons.power_settings_new_rounded, color: Colors.red, size: 20),
               const SizedBox(width: 12),
               Text(
                 SettingsController.instance.getString('logout_app'),
-                style: GoogleFonts.poppins(
+                style: GoogleFonts.plusJakartaSans(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
                   color: Colors.red,
@@ -639,3 +720,4 @@ class _KasirDrawerState extends State<KasirDrawer> {
     );
   }
 }
+

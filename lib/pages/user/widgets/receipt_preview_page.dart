@@ -3,6 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:printing/printing.dart';
 import '../../../services/bluetooth_printer_service.dart';
+import 'package:provider/provider.dart';
+import '../../../controllers/settings_controller.dart';
+import '../../../controllers/admin_controller.dart';
 
 class ReceiptPreviewPage extends StatelessWidget {
   final Uint8List pdfData;
@@ -17,6 +20,11 @@ class ReceiptPreviewPage extends StatelessWidget {
   final double? cashReceived;
   final double? change;
   final String? paymentMethod;
+  final String? tableNumber;
+  final double? subtotal;
+  final double? discount;
+  final double? pajakAmount;
+  final String? pajakName;
 
   const ReceiptPreviewPage({
     super.key,
@@ -30,6 +38,11 @@ class ReceiptPreviewPage extends StatelessWidget {
     this.cashReceived,
     this.change,
     this.paymentMethod,
+    this.tableNumber,
+    this.subtotal,
+    this.discount,
+    this.pajakAmount,
+    this.pajakName,
   });
 
   @override
@@ -41,7 +54,7 @@ class ReceiptPreviewPage extends StatelessWidget {
       appBar: AppBar(
         title: Text(
           "Struk Belanja",
-          style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
+          style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w600),
         ),
         centerTitle: true,
         backgroundColor: Colors.transparent,
@@ -52,9 +65,11 @@ class ReceiptPreviewPage extends StatelessWidget {
             icon: const Icon(Icons.print_rounded),
             onPressed: () async {
               final printerService = BluetoothPrinterService();
+              final settings = SettingsController.instance;
+              final adminCtrl = context.read<AdminController>();
               if (printerService.isConnected) {
                 await printerService.printReceipt(
-                  storeName: storeName ?? "Toko Kasir Asri",
+                  storeName: storeName ?? adminCtrl.storeName ?? "Warkop Alam POS",
                   transactionId: transactionId ?? "TXN",
                   createdAt: createdAt ?? DateTime.now(),
                   items: items ?? [],
@@ -62,6 +77,21 @@ class ReceiptPreviewPage extends StatelessWidget {
                   cashReceived: cashReceived ?? 0,
                   change: change ?? 0,
                   paymentMethod: paymentMethod ?? "Tunai",
+                  tableNumber: tableNumber,
+                  subtotal: subtotal,
+                  discount: discount,
+                  pajakAmount: pajakAmount,
+                  pajakName: pajakName,
+                  showStoreName: settings.receiptShowStoreName.value,
+                  showAddress: settings.receiptShowAddress.value,
+                  showDate: settings.receiptShowDate.value,
+                  showDetails: settings.receiptShowDetails.value,
+                  showThankYou: settings.receiptShowThankYou.value,
+                  showEmail: settings.receiptShowEmail.value,
+                  showTable: settings.receiptShowTable.value,
+                  storeAddress: adminCtrl.storeAddress,
+                  storeEmail: adminCtrl.storeEmail,
+                  thankYouMessage: settings.receiptThankYouMessage.value,
                 );
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
@@ -84,31 +114,33 @@ class ReceiptPreviewPage extends StatelessWidget {
       body: Column(
         children: [
           Expanded(
-            child: Container(
-              margin: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(24),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.1),
-                    blurRadius: 20,
-                    offset: const Offset(0, 10),
-                  ),
-                ],
-              ),
-              clipBehavior: Clip.antiAlias,
-              child: PdfPreview(
-                build: (format) => pdfData,
-                allowPrinting: true,
-                allowSharing: true,
-                canChangePageFormat: false,
-                canChangeOrientation: false,
-                canDebug: false,
-                maxPageWidth: 400,
-                loadingWidget: const Center(child: CircularProgressIndicator()),
-                pdfFileName: fileName,
-                actions:
-                    const [], // Clear default top actions since we added them to AppBar
+            child: Center(
+              child: Container(
+                constraints: const BoxConstraints(maxWidth: 310),
+                margin: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.1),
+                      blurRadius: 20,
+                      offset: const Offset(0, 10),
+                    ),
+                  ],
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: PdfPreview(
+                  build: (format) => pdfData,
+                  allowPrinting: true,
+                  allowSharing: true,
+                  canChangePageFormat: false,
+                  canChangeOrientation: false,
+                  canDebug: false,
+                  maxPageWidth: 310,
+                  loadingWidget: const Center(child: CircularProgressIndicator()),
+                  pdfFileName: fileName,
+                  actions: const [],
+                ),
               ),
             ),
           ),
@@ -125,14 +157,14 @@ class ReceiptPreviewPage extends StatelessWidget {
                 ),
                 label: Text(
                   "Selesai",
-                  style: GoogleFonts.poppins(
-                    fontWeight: FontWeight.bold,
+                  style: GoogleFonts.plusJakartaSans(
+                    fontWeight: FontWeight.w600,
                     fontSize: 16,
                     color: Colors.white,
                   ),
                 ),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFFF4D4D), // Brand Red
+                  backgroundColor: const Color(0xFFC0392B),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(16),
                   ),
@@ -145,3 +177,4 @@ class ReceiptPreviewPage extends StatelessWidget {
     );
   }
 }
+

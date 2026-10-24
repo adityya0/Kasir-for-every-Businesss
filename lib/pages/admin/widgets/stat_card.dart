@@ -47,7 +47,7 @@ class StatCard extends StatelessWidget {
               children: [
                 Text(
                   title,
-                  style: GoogleFonts.inter(
+                  style: GoogleFonts.openSans(
                     fontSize: 11,
                     color: isDark ? Colors.white60 : Colors.black54,
                     fontWeight: FontWeight.w500,
@@ -55,9 +55,9 @@ class StatCard extends StatelessWidget {
                 ),
                 Text(
                   value,
-                  style: GoogleFonts.poppins(
+                  style: GoogleFonts.plusJakartaSans(
                     fontSize: 15,
-                    fontWeight: FontWeight.bold,
+                    fontWeight: FontWeight.w600,
                     color: isDark ? Colors.white : const Color(0xFF2D3436),
                   ),
                 ),
@@ -112,9 +112,9 @@ class StatCard extends StatelessWidget {
                 alignment: Alignment.centerLeft,
                 child: Text(
                   value,
-                  style: GoogleFonts.poppins(
+                  style: GoogleFonts.plusJakartaSans(
                     fontSize: 20,
-                    fontWeight: FontWeight.bold,
+                    fontWeight: FontWeight.w600,
                     color: isDark ? Colors.white : const Color(0xFF2D3436),
                   ),
                 ),
@@ -122,7 +122,7 @@ class StatCard extends StatelessWidget {
               const SizedBox(height: 4),
               Text(
                 title,
-                style: GoogleFonts.inter(
+                style: GoogleFonts.openSans(
                   fontSize: 12,
                   color: Colors.grey[500],
                   fontWeight: FontWeight.w500,
@@ -136,3 +136,4 @@ class StatCard extends StatelessWidget {
     );
   }
 }
+

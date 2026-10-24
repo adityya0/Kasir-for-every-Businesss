@@ -11,21 +11,29 @@ class ReportService {
   Future<List<Map<String, dynamic>>> getAllTransactions(
     String storeId, {
     DateTime? dateLimit,
+    DateTime? startDate,
+    DateTime? endDate,
     String? cashierId,
   }) async {
     debugPrint(
-      "ReportService.getAllTransactions: id=$storeId, cashier=$cashierId, dateLimit=$dateLimit",
+      "ReportService.getAllTransactions: id=$storeId, cashier=$cashierId, dateLimit=$dateLimit, start=$startDate, end=$endDate",
     );
 
     final txQuery = db.select(db.transactions)
       ..where((t) => t.storeId.equals(storeId));
 
-    if (cashierId != null) {
+    if (cashierId != null && cashierId.isNotEmpty) {
       txQuery.where((t) => t.cashierId.equals(cashierId));
     }
 
-    if (dateLimit != null) {
+    if (startDate != null) {
+      txQuery.where((t) => t.createdAt.isBiggerOrEqualValue(startDate));
+    } else if (dateLimit != null) {
       txQuery.where((t) => t.createdAt.isBiggerOrEqualValue(dateLimit));
+    }
+
+    if (endDate != null) {
+      txQuery.where((t) => t.createdAt.isSmallerOrEqualValue(endDate));
     }
 
     txQuery.orderBy([(t) => OrderingTerm.desc(t.createdAt)]);
@@ -214,5 +222,44 @@ class ReportService {
       res['clock_out'] = clockOut;
       return res;
     }).toList();
+  }
+
+  /// Reset / delete all transactions and their items for a store
+  Future<int> resetStoreTransactions(String storeId, {bool restoreStock = false}) async {
+    int deletedCount = 0;
+    await db.transaction(() async {
+      final txs = await (db.select(db.transactions)..where((t) => t.storeId.equals(storeId))).get();
+      deletedCount = txs.length;
+      if (txs.isEmpty) return;
+
+      final txIds = txs.map((t) => t.id).toList();
+
+      // If requested, restore product stock quantities
+      if (restoreStock) {
+        for (var tx in txs) {
+          final items = await (db.select(db.transactionItems)..where((t) => t.transactionId.equals(tx.id))).get();
+          for (var item in items) {
+            if (item.productId != null && item.quantity != null && item.quantity! > 0) {
+              await (db.update(db.products)..where((p) => p.id.equals(item.productId!) & p.isStockManaged.equals(true)))
+                  .write(ProductsCompanion.custom(
+                stockQuantity: db.products.stockQuantity + Variable(item.quantity!.toDouble()),
+              ));
+            }
+          }
+        }
+      }
+
+      // Delete transaction items in chunks
+      const chunkSize = 200;
+      for (var i = 0; i < txIds.length; i += chunkSize) {
+        final chunk = txIds.sublist(i, i + chunkSize > txIds.length ? txIds.length : i + chunkSize);
+        await (db.delete(db.transactionItems)..where((t) => t.transactionId.isIn(chunk))).go();
+      }
+
+      // Delete all transactions for this store
+      await (db.delete(db.transactions)..where((t) => t.storeId.equals(storeId))).go();
+    });
+
+    return deletedCount;
   }
 }

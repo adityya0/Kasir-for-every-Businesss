@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:flutter_svg/flutter_svg.dart';
+
+const colorbase = Color(0xFFC0392B);
 
 class OnboardingPage extends StatefulWidget {
   const OnboardingPage({super.key});
@@ -53,13 +56,7 @@ class _OnboardingPageState extends State<OnboardingPage>
           Container(
             width: double.infinity,
             height: double.infinity,
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [Color(0xFF800000), Color(0xFF1A0000)],
-              ),
-            ),
+            color: colorbase,
           ),
 
           SafeArea(
@@ -86,53 +83,41 @@ class _OnboardingPageState extends State<OnboardingPage>
                               color: Colors.white.withValues(alpha: 0.03),
                               boxShadow: [
                                 BoxShadow(
-                                  color: const Color(
-                                    0xFFEA5700,
-                                  ).withValues(alpha: 0.1),
+                                  color: colorbase.withValues(alpha: 0.1),
                                   blurRadius: 40,
                                   spreadRadius: 10,
                                 ),
                               ],
                             ),
-                            child: Image.asset(
-                              'assets/logo/logoSteakAsri.png',
-                              width: 180,
-                              fit: BoxFit.contain,
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(20),
+                              child: SvgPicture.asset(
+                                'assets/svg/report.svg',
+                                width: 180,
+                                fit: BoxFit.contain,
+                              ),
                             ),
                           ),
                         ),
-
                         const SizedBox(height: 50),
-
                         // Title & Subtitle
                         Text(
-                          "Steak Asri",
+                          "Warkop Alam POS \n Manajemen Apps",
                           textAlign: TextAlign.center,
-                          style: GoogleFonts.outfit(
-                            fontSize: 42,
-                            fontWeight: FontWeight.w900,
+                          style: GoogleFonts.plusJakartaSans(
+                            fontSize: 32,
+                            fontWeight: FontWeight.w600,
                             color: Colors.white,
-                            letterSpacing: 1,
-                          ),
-                        ),
-                        Text(
-                          "Manajemen Apps",
-                          textAlign: TextAlign.center,
-                          style: GoogleFonts.outfit(
-                            fontSize: 36,
-                            fontWeight: FontWeight.bold,
-                            color: const Color(0xFFEA5700),
-                            letterSpacing: 2.0,
                           ),
                         ),
 
                         const SizedBox(height: 20),
 
                         Text(
-                          "Solusi manajemen kasir modern untuk\nbisnis kuliner Anda.",
+                          "Solusi manajemen kasir \n modern untuk bisnis Anda.",
                           textAlign: TextAlign.center,
-                          style: GoogleFonts.inter(
-                            color: Colors.white60,
+                          style: GoogleFonts.openSans(
+                            color: Colors.white,
                             fontSize: 15,
                             height: 1.5,
                             fontWeight: FontWeight.w600,
@@ -140,7 +125,7 @@ class _OnboardingPageState extends State<OnboardingPage>
                         ),
 
                         // Custom Animated Button
-                        const SizedBox(height: 40),
+                        const SizedBox(height: 80),
                         const AnimatedMulaiButton(),
                         const Spacer(flex: 2),
                       ],
@@ -181,58 +166,30 @@ class _AnimatedMulaiButtonState extends State<AnimatedMulaiButton>
         duration: const Duration(milliseconds: 100),
         curve: Curves.easeInOut,
         child: Container(
-          width: 400,
-          height: 80,
+          width: 60,
+          height: 60,
           decoration: BoxDecoration(
-            color: const Color(0xFFEA5700),
-            borderRadius: BorderRadius.circular(20),
+            color: colorbase,
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.white, width: 2),
             boxShadow: [
               BoxShadow(
-                color: const Color(0xFFEA5700).withValues(alpha: 0.3),
-                blurRadius: 20,
-                offset: const Offset(0, 10),
+                color: Colors.black.withValues(alpha: 0.2),
+                blurRadius: 15,
+                offset: const Offset(0, 8),
               ),
             ],
           ),
-          child: Stack(
-            children: [
-              // Subtle Inner Shine
-              Positioned(
-                top: 0,
-                left: 0,
-                right: 0,
-                child: Container(
-                  height: 40,
-                  decoration: BoxDecoration(
-                    borderRadius: const BorderRadius.vertical(
-                      top: Radius.circular(20),
-                    ),
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        Colors.white.withValues(alpha: 0.15),
-                        Colors.white.withValues(alpha: 0),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-              Center(
-                child: Text(
-                  "Mulai Sekarang",
-                  style: GoogleFonts.outfit(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                    letterSpacing: 0.5,
-                  ),
-                ),
-              ),
-            ],
+          child: const Center(
+            child: Icon(
+              Icons.arrow_forward_ios_rounded,
+              color: Colors.white,
+              size: 24,
+            ),
           ),
         ),
       ),
     );
   }
 }
+

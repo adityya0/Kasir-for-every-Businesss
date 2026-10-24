@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../../controllers/admin_controller.dart';
@@ -17,7 +17,7 @@ class PaymentSettingsPage extends StatefulWidget {
 }
 
 class _PaymentSettingsPageState extends State<PaymentSettingsPage> {
-  final Color _primaryColor = const Color(0xFFEA5700);
+  final Color _primaryColor = const Color(0xFFC0392B);
 
   @override
   Widget build(BuildContext context) {
@@ -29,7 +29,7 @@ class _PaymentSettingsPageState extends State<PaymentSettingsPage> {
       appBar: AppBar(
         title: Text(
           "Metode Pembayaran",
-          style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
+          style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w600),
         ),
       ),
       body: StreamBuilder<List<PaymentMethod>>(
@@ -68,8 +68,8 @@ class _PaymentSettingsPageState extends State<PaymentSettingsPage> {
         icon: const Icon(Icons.add, color: Colors.white),
         label: Text(
           "Tambah Metode",
-          style: GoogleFonts.poppins(
-            fontWeight: FontWeight.bold,
+          style: GoogleFonts.plusJakartaSans(
+            fontWeight: FontWeight.w600,
             color: Colors.white,
           ),
         ),
@@ -86,7 +86,7 @@ class _PaymentSettingsPageState extends State<PaymentSettingsPage> {
           const SizedBox(height: 16),
           Text(
             "Belum ada metode pembayaran",
-            style: GoogleFonts.poppins(
+            style: GoogleFonts.plusJakartaSans(
               fontSize: 16,
               color: Colors.grey,
               fontWeight: FontWeight.w500,
@@ -95,7 +95,7 @@ class _PaymentSettingsPageState extends State<PaymentSettingsPage> {
           const SizedBox(height: 8),
           Text(
             "Klik tombol di bawah untuk menambah",
-            style: GoogleFonts.inter(fontSize: 13, color: Colors.grey),
+            style: GoogleFonts.openSans(fontSize: 13, color: Colors.grey),
           ),
         ],
       ),
@@ -131,7 +131,7 @@ class _PaymentSettingsPageState extends State<PaymentSettingsPage> {
         ),
         title: Text(
           method.name,
-          style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
+          style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w600),
         ),
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -139,12 +139,12 @@ class _PaymentSettingsPageState extends State<PaymentSettingsPage> {
             if (method.username != null && method.username!.isNotEmpty)
               Text(
                 "User: ${method.username}",
-                style: GoogleFonts.inter(fontSize: 12),
+                style: GoogleFonts.openSans(fontSize: 12),
               ),
             if (method.details != null && method.details!.isNotEmpty)
               Text(
                 "No: ${method.details}",
-                style: GoogleFonts.inter(fontSize: 12),
+                style: GoogleFonts.openSans(fontSize: 12),
               ),
           ],
         ),
@@ -159,7 +159,7 @@ class _PaymentSettingsPageState extends State<PaymentSettingsPage> {
                     .read<AdminController>()
                     .paymentMethodService;
                 await service.togglePaymentMethodActive(method.id, val);
-                setState(() {});
+                if (mounted) setState(() {});
               },
             ),
             IconButton(
@@ -238,9 +238,9 @@ class _PaymentSettingsPageState extends State<PaymentSettingsPage> {
                       const SizedBox(width: 16),
                       Text(
                         method == null ? "Tambah Metode" : "Edit Metode",
-                        style: GoogleFonts.poppins(
+                        style: GoogleFonts.plusJakartaSans(
                           fontSize: 22,
-                          fontWeight: FontWeight.bold,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
                     ],
@@ -250,7 +250,7 @@ class _PaymentSettingsPageState extends State<PaymentSettingsPage> {
                   // Tipe Selector
                   Text(
                     "Tipe Pembayaran",
-                    style: GoogleFonts.inter(
+                    style: GoogleFonts.openSans(
                       fontSize: 14,
                       fontWeight: FontWeight.w600,
                       color: Colors.grey[600],
@@ -310,7 +310,7 @@ class _PaymentSettingsPageState extends State<PaymentSettingsPage> {
                     const SizedBox(height: 24),
                     Text(
                       "Foto QRIS",
-                      style: GoogleFonts.inter(
+                      style: GoogleFonts.openSans(
                         fontSize: 14,
                         fontWeight: FontWeight.w600,
                         color: Colors.grey[600],
@@ -407,7 +407,7 @@ class _PaymentSettingsPageState extends State<PaymentSettingsPage> {
                                   const SizedBox(height: 12),
                                   Text(
                                     "Tap untuk Upload QRIS",
-                                    style: GoogleFonts.inter(
+                                    style: GoogleFonts.openSans(
                                       color: Colors.grey[600],
                                       fontWeight: FontWeight.w500,
                                     ),
@@ -446,7 +446,7 @@ class _PaymentSettingsPageState extends State<PaymentSettingsPage> {
                           );
                           await service.updatePaymentMethod(updated);
                         }
-                        if (mounted) {
+                        if (ctx.mounted) {
                           Navigator.pop(ctx);
                           setState(() {});
                         }
@@ -461,9 +461,9 @@ class _PaymentSettingsPageState extends State<PaymentSettingsPage> {
                       ),
                       child: Text(
                         method == null ? "Simpan Metode" : "Update Metode",
-                        style: GoogleFonts.inter(
+                        style: GoogleFonts.openSans(
                           fontSize: 16,
-                          fontWeight: FontWeight.bold,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
                     ),
@@ -515,8 +515,8 @@ class _PaymentSettingsPageState extends State<PaymentSettingsPage> {
               const SizedBox(height: 8),
               Text(
                 label,
-                style: GoogleFonts.inter(
-                  fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                style: GoogleFonts.openSans(
+                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
                   color: isSelected ? _primaryColor : Colors.grey[600],
                 ),
               ),
@@ -539,7 +539,7 @@ class _PaymentSettingsPageState extends State<PaymentSettingsPage> {
       children: [
         Text(
           label,
-          style: GoogleFonts.inter(
+          style: GoogleFonts.openSans(
             fontSize: 14,
             fontWeight: FontWeight.w600,
             color: Colors.grey[600],
@@ -548,10 +548,10 @@ class _PaymentSettingsPageState extends State<PaymentSettingsPage> {
         const SizedBox(height: 8),
         TextField(
           controller: controller,
-          style: GoogleFonts.inter(fontWeight: FontWeight.w500),
+          style: GoogleFonts.openSans(fontWeight: FontWeight.w500),
           decoration: InputDecoration(
             hintText: hint,
-            hintStyle: GoogleFonts.inter(color: Colors.grey[400], fontSize: 14),
+            hintStyle: GoogleFonts.openSans(color: Colors.grey[400], fontSize: 14),
             prefixIcon: Icon(icon, color: Colors.grey[400], size: 20),
             filled: true,
             fillColor: isDark
@@ -564,7 +564,7 @@ class _PaymentSettingsPageState extends State<PaymentSettingsPage> {
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(16),
               borderSide: const BorderSide(
-                color: Color(0xFFEA5700),
+                color: Color(0xFFC0392B),
                 width: 1.5,
               ),
             ),
@@ -597,10 +597,11 @@ class _PaymentSettingsPageState extends State<PaymentSettingsPage> {
       ),
     );
 
-    if (confirm == true) {
+    if (confirm == true && context.mounted) {
       final service = context.read<AdminController>().paymentMethodService;
       await service.deletePaymentMethod(method.id);
-      setState(() {});
+      if (mounted) setState(() {});
     }
   }
 }
+

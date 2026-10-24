@@ -1,6 +1,6 @@
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import '../../../controllers/settings_controller.dart';
 import '../../../services/platform/file_manager.dart';
 
 class AdminNavigationRail extends StatelessWidget {
@@ -34,217 +34,151 @@ class AdminNavigationRail extends StatelessWidget {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final bgColor = isDark ? const Color(0xFF1A1C1E) : Colors.white;
+    const accentColor = Color(0xFFC0392B); // Brand sage green
+    final settings = SettingsController.instance;
 
-    return Container(
-      width: 90,
-      height: double.infinity,
-      decoration: BoxDecoration(
-        color: bgColor,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 10,
-            offset: const Offset(2, 0),
-          ),
-        ],
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: Column(
-          children: [
-            const SizedBox(height: 12),
-            // Store Logo / Profile Tap
-            GestureDetector(
-              onTap: onProfileTap ?? () => onDestinationSelected(8),
-              child: Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Colors.white,
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFFEA5700).withValues(alpha: 0.2),
-                      blurRadius: 10,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
-                  border: Border.all(
-                    color: const Color(0xFFEA5700).withValues(alpha: 0.1),
-                    width: 2,
-                  ),
-                  image: storeLogo != null
-                      ? DecorationImage(
-                          image: FileManager().getImageProvider(storeLogo!),
-                          fit: BoxFit.cover,
-                        )
-                      : null,
-                ),
-                child: storeLogo == null
-                    ? const Icon(
-                        CupertinoIcons.building_2_fill,
-                        color: Color(0xFFEA5700),
-                        size: 24,
-                      )
-                    : null,
+    return ValueListenableBuilder<bool>(
+      valueListenable: settings.isSidebarExpanded,
+      builder: (context, isExpanded, child) {
+        return AnimatedContainer(
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeInOut,
+          width: isExpanded ? 210 : 72,
+          height: double.infinity,
+          margin: EdgeInsets.zero,
+          clipBehavior: Clip.antiAlias,
+          decoration: BoxDecoration(
+            color: bgColor,
+            borderRadius: BorderRadius.zero,
+            border: Border(
+              right: BorderSide(
+                color: isDark ? const Color(0xFF2C2C2E) : const Color(0xFFE5E7EB),
+                width: 1,
               ),
             ),
-            const SizedBox(height: 48),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.03),
+                blurRadius: 10,
+                offset: const Offset(2, 0),
+              ),
+            ],
+          ),
+          child: Material(
+            color: Colors.transparent,
+            child: Column(
+              children: [
+                const SizedBox(height: 16),
+                // Header: Logo and Toggle
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: isExpanded
+                      ? SizedBox(
+                          width: 210 - 32, // Width minus padding
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              _buildLogo(context, accentColor, storeLogo),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: _buildNameRole(
+                                  context, 
+                                  isDark, 
+                                  accentColor, 
+                                  storeName, 
+                                  role
+                                ),
+                              ),
+                              _buildToggleButton(settings, isExpanded, accentColor),
+                            ],
+                          ),
+                        )
+                      : Column(
+                        children: [
+                          _buildLogo(context, accentColor, storeLogo),
+                          const SizedBox(height: 12),
+                          _buildToggleButton(settings, isExpanded, accentColor),
+                        ],
+                      ),
+                ),
+                const SizedBox(height: 24),
 
-            // Navigation Items
-            Expanded(
-              child: SingleChildScrollView(
-                child: Column(
-                  children: [
-                    _buildRailItem(
-                      context: context,
-                      index: 0,
-                      icon: CupertinoIcons.square_grid_2x2_fill,
-                      label: "Dashboard",
-                      isActive: selectedIndex == 0,
-                      itemColor: const Color(0xFF3498DB),
-                    ),
-                    if (_hasPerm('manage_inventory'))
-                      _buildRailItem(
-                        context: context,
-                        index: 1,
-                        icon: CupertinoIcons.cube_box_fill,
-                        label: "Barang",
-                        isActive: selectedIndex == 1,
-                        itemColor: const Color(0xFF2ECC71),
-                      ),
-                    if (_hasPerm('manage_categories'))
-                      _buildRailItem(
-                        context: context,
-                        index: 2,
-                        icon: CupertinoIcons.grid,
-                        label: "Kategori",
-                        isActive: selectedIndex == 2,
-                        itemColor: const Color(0xFF9B59B6),
-                      ),
-                    if (_hasPerm('pos_access'))
+                // Navigation Items
+                Expanded(
+                  child: ListView(
+                    padding: EdgeInsets.zero,
+                    children: [
                       _buildRailItem(
                         context: context,
                         index: 3,
-                        icon: CupertinoIcons.cart_fill,
+                        icon: selectedIndex == 3 ? Icons.calculate : Icons.calculate_outlined,
                         label: "Kasir",
                         isActive: selectedIndex == 3,
-                        itemColor: const Color(0xFFEA5700),
+                        activeColor: accentColor,
+                        isExpanded: isExpanded,
                       ),
-                    if (_hasPerm('view_history'))
-                      _buildRailItem(
-                        context: context,
-                        index: 4,
-                        icon: CupertinoIcons.doc_text_fill,
-                        label: "Riwayat",
-                        isActive: selectedIndex == 4,
-                        itemColor: const Color(0xFF1ABC9C),
-                      ),
-                    if (role?.toLowerCase() == 'owner' ||
-                        role?.toLowerCase() == 'admin')
-                      _buildRailItem(
-                        context: context,
-                        index: 5,
-                        icon: CupertinoIcons.person_2_fill,
-                        label: "Karyawan",
-                        isActive: selectedIndex == 5,
-                        itemColor: const Color(0xFFE91E63),
-                      ),
-                    if (role?.toLowerCase() == 'owner' ||
-                        role?.toLowerCase() == 'admin' ||
-                        _hasPerm('view_reports'))
-                      _buildRailItem(
-                        context: context,
-                        index: 6,
-                        icon: CupertinoIcons.graph_square_fill,
-                        label: "Analitik",
-                        isActive: selectedIndex == 6,
-                        itemColor: const Color(0xFF00BCD4),
-                      ),
-                    if (role?.toLowerCase() == 'owner' ||
-                        role?.toLowerCase() == 'admin' ||
-                        _hasPerm('view_reports'))
                       _buildRailItem(
                         context: context,
                         index: 11,
-                        icon: CupertinoIcons.graph_circle_fill,
-                        label: "Laba Rugi",
+                        icon: selectedIndex == 11 ? Icons.account_balance_wallet : Icons.account_balance_wallet_outlined,
+                        label: "Uang",
                         isActive: selectedIndex == 11,
-                        itemColor: const Color(0xFF6C5CE7),
+                        activeColor: accentColor,
+                        isExpanded: isExpanded,
                       ),
-                    _buildRailItem(
-                      context: context,
-                      index: 12,
-                      icon: CupertinoIcons.person_crop_circle_fill,
-                      label: "Pelanggan",
-                      isActive: selectedIndex == 12,
-                      itemColor: const Color(0xFFF1C40F),
-                    ),
-                    if (role?.toLowerCase() == 'owner' ||
-                        role?.toLowerCase() == 'admin' ||
-                        _hasPerm('view_reports'))
                       _buildRailItem(
                         context: context,
-                        index: 10,
-                        icon: CupertinoIcons.cloud_download_fill,
-                        label: "Data & Stok",
-                        isActive: selectedIndex == 10,
-                        itemColor: const Color(0xFFE17055),
+                        index: 6,
+                        icon: Icons.trending_up,
+                        label: "Tren",
+                        isActive: selectedIndex == 6,
+                        activeColor: accentColor,
+                        isExpanded: isExpanded,
                       ),
-                    if (_hasPerm('manage_printer'))
-                      _buildRailItem(
-                        context: context,
-                        index: 7,
-                        icon: CupertinoIcons.printer_fill,
-                        label: "Printer",
-                        isActive: selectedIndex == 7,
-                        itemColor: const Color(0xFF636E72),
-                      ),
-                    if (_hasPerm('manage_promotions'))
                       _buildRailItem(
                         context: context,
                         index: 9,
-                        icon: CupertinoIcons.percent,
-                        label: "Promosi",
+                        icon: selectedIndex == 9 ? Icons.bolt : Icons.bolt_outlined,
+                        label: "Aksi",
                         isActive: selectedIndex == 9,
-                        itemColor: const Color(0xFFD63031),
+                        activeColor: accentColor,
+                        isExpanded: isExpanded,
                       ),
-                  ],
-                ),
-              ),
-            ),
 
-            // Logout Button
-            Padding(
-              padding: const EdgeInsets.only(bottom: 32),
-              child: IconButton(
-                onPressed: onLogout,
-                icon: Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: Colors.red.withValues(alpha: 0.1),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(
-                    CupertinoIcons.power,
-                    color: Colors.red,
-                    size: 20,
+                      _buildRailItem(
+                        context: context,
+                        index: 15,
+                        icon: selectedIndex == 15 ? Icons.settings : Icons.settings_outlined,
+                        label: "Pengaturan",
+                        isActive: selectedIndex == 15,
+                        activeColor: accentColor,
+                        isExpanded: isExpanded,
+                      ),
+                    ],
                   ),
                 ),
-                tooltip: "Keluar",
-              ),
+
+                // Logout Button
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: _buildRailItem(
+                    context: context,
+                    index: -1, // Special index for logout
+                    icon: Icons.logout_rounded,
+                    label: "Keluar",
+                    isActive: false,
+                    activeColor: Colors.red,
+                    isExpanded: isExpanded,
+                    onTap: onLogout,
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ],
             ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
-  }
-
-  bool _hasPerm(String key) {
-    if (role?.toLowerCase() == 'owner' || role?.toLowerCase() == 'admin') {
-      return true;
-    }
-    return permissions?[key] ?? false;
   }
 
   Widget _buildRailItem({
@@ -253,69 +187,174 @@ class AdminNavigationRail extends StatelessWidget {
     required IconData icon,
     required String label,
     required bool isActive,
-    required Color itemColor,
+    required Color activeColor,
+    required bool isExpanded,
+    VoidCallback? onTap,
   }) {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
-      child: InkWell(
-        onTap: () => onDestinationSelected(index),
-        borderRadius: BorderRadius.circular(20),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(vertical: 12),
-          decoration: BoxDecoration(
-            color: isActive
-                ? itemColor.withValues(alpha: 0.08)
-                : Colors.transparent,
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  color: isActive
-                      ? itemColor
-                      : (isDark ? Colors.white12 : Colors.grey[100]),
-                  shape: BoxShape.circle,
-                  boxShadow: isActive
-                      ? [
-                          BoxShadow(
-                            color: itemColor.withValues(alpha: 0.3),
-                            blurRadius: 10,
-                            offset: const Offset(0, 4),
-                          ),
-                        ]
-                      : [],
-                ),
-                child: Icon(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Tooltip(
+        message: !isExpanded ? label : "",
+        child: InkWell(
+          onTap: onTap ?? () => onDestinationSelected(index),
+          borderRadius: BorderRadius.zero,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            padding: EdgeInsets.symmetric(
+              horizontal: isExpanded ? 20 : 0,
+              vertical: 12,
+            ),
+            decoration: BoxDecoration(
+              color:
+                  isActive
+                      ? activeColor.withValues(alpha: 0.12)
+                      : Colors.transparent,
+              borderRadius: BorderRadius.zero,
+              border: isActive
+                  ? Border(
+                      left: BorderSide(
+                        color: activeColor,
+                        width: 4,
+                      ),
+                    )
+                  : null,
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment:
+                  isExpanded ? MainAxisAlignment.start : MainAxisAlignment.center,
+              children: [
+                Icon(
                   icon,
-                  color: isActive ? Colors.white : Colors.grey[500],
-                  size: 24,
+                  color:
+                      isActive
+                          ? activeColor
+                          : (isDark ? Colors.white54 : Colors.black38),
+                  size: 20,
                 ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                label,
-                style: GoogleFonts.poppins(
-                  fontSize: 10.5,
-                  fontWeight: isActive ? FontWeight.bold : FontWeight.w500,
-                  color: isActive ? itemColor : Colors.grey[600],
-                ),
-                textAlign: TextAlign.center,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ],
+                if (isExpanded) ...[
+                  const SizedBox(width: 12),
+                  Flexible(
+                    child: Text(
+                      label,
+                      style: GoogleFonts.plusJakartaSans(
+                        fontSize: 13,
+                        fontWeight: isActive ? FontWeight.bold : FontWeight.w500,
+                        color:
+                            isActive
+                                ? activeColor
+                                : (isDark ? Colors.white70 : Colors.black87),
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ],
+            ),
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildLogo(BuildContext context, Color accentColor, String? storeLogo) {
+    Widget imageWidget;
+    if (storeLogo != null && storeLogo.isNotEmpty) {
+      if (storeLogo.startsWith('http://') || storeLogo.startsWith('https://')) {
+        imageWidget = Image.network(
+          storeLogo,
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => Image.asset('assets/logo/logo.png', fit: BoxFit.cover),
+        );
+      } else if (storeLogo.startsWith('assets/')) {
+        imageWidget = Image.asset(
+          storeLogo,
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => Image.asset('assets/logo/logo.png', fit: BoxFit.cover),
+        );
+      } else {
+        imageWidget = Image(
+          image: FileManager().getImageProvider(storeLogo),
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => Image.asset('assets/logo/logo.png', fit: BoxFit.cover),
+        );
+      }
+    } else {
+      imageWidget = Image.asset(
+        'assets/logo/logo.png',
+        fit: BoxFit.cover,
+      );
+    }
+
+    return GestureDetector(
+      onTap: onProfileTap ?? () => onDestinationSelected(8),
+      child: Container(
+        width: 36,
+        height: 36,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: Colors.white,
+          boxShadow: [
+            BoxShadow(
+              color: accentColor.withValues(alpha: 0.15),
+              blurRadius: 8,
+              offset: const Offset(0, 3),
+            ),
+          ],
+          border: Border.all(
+            color: accentColor.withValues(alpha: 0.1),
+            width: 1.5,
+          ),
+        ),
+        child: ClipOval(child: imageWidget),
+      ),
+    );
+  }
+
+  Widget _buildNameRole(BuildContext context, bool isDark, Color accentColor,
+      String? storeName, String? role) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          storeName ?? 'Tokoku',
+          style: GoogleFonts.plusJakartaSans(
+            fontWeight: FontWeight.bold,
+            fontSize: 14,
+            color: isDark ? Colors.white : Colors.black87,
+          ),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        Text(
+          role ?? '-',
+          style: GoogleFonts.plusJakartaSans(
+            fontSize: 11,
+            color: isDark ? Colors.white54 : Colors.black54,
+            fontWeight: FontWeight.w500,
+          ),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildToggleButton(
+      SettingsController settings, bool isExpanded, Color accentColor) {
+    return IconButton(
+      constraints: const BoxConstraints(),
+      padding: EdgeInsets.zero,
+      icon: Icon(
+        isExpanded ? Icons.menu_open : Icons.menu,
+        color: accentColor.withValues(alpha: 0.6),
+        size: 20,
+      ),
+      onPressed: () => settings.toggleSidebar(),
     );
   }
 }

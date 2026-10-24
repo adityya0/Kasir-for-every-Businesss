@@ -6,6 +6,7 @@ export 'package:blue_thermal_printer/blue_thermal_printer.dart'
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter/foundation.dart' show kIsWeb, debugPrint;
+import '../../controllers/settings_controller.dart';
 
 class BluetoothPrinterService {
   static final BluetoothPrinterService _instance =
@@ -26,9 +27,16 @@ class BluetoothPrinterService {
   Future<void> init() async {
     if (kIsWeb || Platform.isWindows) return;
     try {
-      _isConnected = (await _printer.isConnected) ?? false;
+      _isConnected = (await _printer.isConnected.timeout(
+            const Duration(seconds: 2),
+            onTimeout: () => false,
+          )) ??
+          false;
       if (!_isConnected) {
-        await _tryAutoConnect();
+        await _tryAutoConnect().timeout(
+          const Duration(seconds: 2),
+          onTimeout: () {},
+        );
       }
     } catch (e) {
       debugPrint("Printer init error: $e");
@@ -124,9 +132,43 @@ class BluetoothPrinterService {
     required double cashReceived,
     required double change,
     required String paymentMethod,
+    double? subtotal,
+    double? discount,
+    double? pajakAmount,
+    String? pajakName,
+    String? tableNumber,
+    String? customerName,
+    String? discountLabel,
+    bool isDebt = false,
+    bool? showStoreName,
+    bool? showAddress,
+    bool? showDate,
+    bool? showDetails,
+    bool? showThankYou,
+    bool? showEmail,
+    bool? showTable,
+    String? storeAddress,
+    String? storeEmail,
+    String? thankYouMessage,
   }) async {
     if (Platform.isWindows) return;
     if (!(await _printer.isConnected ?? false)) return;
+
+    final settings = SettingsController.instance;
+
+    final effectiveShowStoreName =
+        showStoreName ?? settings.receiptShowStoreName.value;
+    final effectiveShowAddress =
+        showAddress ?? settings.receiptShowAddress.value;
+    final effectiveShowDate = showDate ?? settings.receiptShowDate.value;
+    final effectiveShowDetails =
+        showDetails ?? settings.receiptShowDetails.value;
+    final effectiveShowThankYou =
+        showThankYou ?? settings.receiptShowThankYou.value;
+    final effectiveShowEmail = showEmail ?? settings.receiptShowEmail.value;
+    final effectiveShowTable = showTable ?? settings.receiptShowTable.value;
+    final effectiveThankYouMessage =
+        thankYouMessage ?? settings.receiptThankYouMessage.value;
 
     final currencyFormat = NumberFormat.currency(
       locale: 'id',
@@ -134,43 +176,144 @@ class BluetoothPrinterService {
       decimalDigits: 0,
     );
 
+    final displayId = (transactionId.length > 8)
+        ? transactionId.substring(0, 8).toUpperCase()
+        : transactionId.toUpperCase();
+
     _printer.printNewLine();
-    _printer.printCustom(storeName.toUpperCase(), 3, 1);
-    _printer.printNewLine();
-    _printer.printCustom("ID: #$transactionId", 1, 1);
-    _printer.printCustom(
-      DateFormat('dd MMM yyyy, HH:mm').format(createdAt),
-      1,
-      1,
-    );
-    _printer.printCustom("Pembayaran: $paymentMethod", 1, 1);
-    _printer.printNewLine();
+
+    // 1. HEADER (STORE INFO)
+    if (effectiveShowStoreName) {
+      _printer.printCustom(storeName.toUpperCase(), 2, 1);
+    }
+    if (effectiveShowAddress &&
+        storeAddress != null &&
+        storeAddress.trim().isNotEmpty) {
+      _printer.printCustom(storeAddress.trim(), 1, 1);
+    }
+    if (effectiveShowEmail &&
+        storeEmail != null &&
+        storeEmail.trim().isNotEmpty) {
+      _printer.printCustom(storeEmail.trim(), 1, 1);
+    }
+
     _printer.printCustom("--------------------------------", 1, 1);
 
-    for (var item in items) {
-      final name = item['name'] ?? 'Produk';
-      final qty = item['quantity'] ?? 1;
-      final total = item['total_price'] ?? 0;
-
-      _printer.printLeftRight(name, "", 1);
+    // 2. TRANSACTION INFO
+    _printer.printLeftRight("ID Trans", "#$displayId", 1);
+    if (effectiveShowDate) {
       _printer.printLeftRight(
-        "$qty x ${currencyFormat.format(total / qty)}",
-        currencyFormat.format(total),
+        "Tanggal",
+        DateFormat('dd/MM/yyyy').format(createdAt),
         1,
       );
-      if (item['notes'] != null && item['notes'].toString().isNotEmpty) {
-        _printer.printCustom("(${item['notes']})", 0, 0);
+      _printer.printLeftRight(
+        "Waktu",
+        DateFormat('HH:mm').format(createdAt),
+        1,
+      );
+    }
+
+    _printer.printCustom("--------------------------------", 1, 1);
+
+    if (effectiveShowTable && tableNumber != null && tableNumber.isNotEmpty) {
+      _printer.printLeftRight("Meja", tableNumber, 1);
+      _printer.printCustom("--------------------------------", 1, 1);
+    }
+
+    if (customerName != null && customerName.trim().isNotEmpty) {
+      _printer.printLeftRight("Pelanggan", customerName.trim(), 1);
+      _printer.printCustom("--------------------------------", 1, 1);
+    }
+
+    // 3. ITEMS LIST
+    if (effectiveShowDetails) {
+      _printer.printLeftRight("ITEM", "TOTAL", 1);
+      for (var item in items) {
+        final name = (item['name'] ?? item['productName'] ?? 'Produk')
+            .toString()
+            .toUpperCase();
+        final qty = item['quantity'] ?? 1;
+        final totalPrice = (item['total_price'] ?? 0 as num).toDouble();
+        final unitPrice = item['unit_price'] != null
+            ? (item['unit_price'] as num).toDouble()
+            : (qty > 0 ? totalPrice / qty : totalPrice);
+
+        _printer.printCustom(name, 1, 0);
+        _printer.printLeftRight(
+          "$qty x ${currencyFormat.format(unitPrice)}",
+          currencyFormat.format(totalPrice),
+          1,
+        );
+        if (item['notes'] != null && item['notes'].toString().isNotEmpty) {
+          _printer.printCustom("(${item['notes']})", 0, 0);
+        }
       }
+      _printer.printCustom("--------------------------------", 1, 1);
+    }
+
+    // 4. FINANCIAL SUMMARY
+    final calcSubtotal = subtotal ?? (totalAmount + (discount ?? 0));
+    _printer.printLeftRight("SUBTOTAL", currencyFormat.format(calcSubtotal), 1);
+    if (discount != null && discount > 0) {
+      final label = (discountLabel != null && discountLabel.trim().isNotEmpty)
+          ? discountLabel.trim().toUpperCase()
+          : "DISKON";
+      _printer.printLeftRight(
+        label,
+        "-${currencyFormat.format(discount)}",
+        1,
+      );
+    }
+    if (pajakAmount != null && pajakAmount > 0) {
+      final pName = (pajakName != null && pajakName.isNotEmpty)
+          ? pajakName.toUpperCase()
+          : "PAJAK";
+      _printer.printLeftRight(pName, currencyFormat.format(pajakAmount), 1);
     }
 
     _printer.printCustom("--------------------------------", 1, 1);
     _printer.printLeftRight("TOTAL", currencyFormat.format(totalAmount), 2);
-    _printer.printLeftRight("Bayar", currencyFormat.format(cashReceived), 1);
-    _printer.printLeftRight("Kembalian", currencyFormat.format(change), 1);
+    _printer.printCustom("--------------------------------", 1, 1);
 
-    _printer.printNewLine();
-    _printer.printCustom("Terima kasih sudah berbelanja", 1, 1);
-    _printer.printCustom("--- POS KASIR ASRI ---", 0, 1);
+    // 5. PAYMENT DETAILS
+    _printer.printLeftRight(
+      "METODE PEMBAYARAN",
+      paymentMethod.toUpperCase(),
+      1,
+    );
+    _printer.printLeftRight("DIBAYAR", currencyFormat.format(cashReceived), 1);
+    if (isDebt) {
+      _printer.printLeftRight(
+        "HUTANG",
+        currencyFormat.format(totalAmount - cashReceived),
+        1,
+      );
+    } else if (change > 0) {
+      _printer.printLeftRight("KEMBALI", currencyFormat.format(change), 1);
+    }
+
+    _printer.printCustom("--------------------------------", 1, 1);
+
+    // 6. FOOTER
+    if (effectiveShowThankYou) {
+      _printer.printCustom("TERIMA KASIH", 2, 1);
+      final msg = effectiveThankYouMessage.isNotEmpty
+          ? effectiveThankYouMessage
+          : "ATAS KUNJUNGAN ANDA";
+      _printer.printCustom(msg.toUpperCase(), 1, 1);
+      _printer.printNewLine();
+    }
+
+    if (effectiveShowTable && tableNumber != null && tableNumber.isNotEmpty) {
+      _printer.printCustom("================================", 1, 1);
+      _printer.printCustom("NOMOR MEJA", 1, 1);
+      _printer.printCustom(tableNumber.toUpperCase(), 3, 1);
+      _printer.printCustom("================================", 1, 1);
+      _printer.printNewLine();
+    }
+
+    _printer.printCustom("DIHASILKAN OLEH SISTEM KASIR BERSAMA", 0, 1);
     _printer.printNewLine();
     _printer.printNewLine();
     _printer.printNewLine();

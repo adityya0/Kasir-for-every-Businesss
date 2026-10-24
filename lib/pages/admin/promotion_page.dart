@@ -1,4 +1,3 @@
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
@@ -6,11 +5,11 @@ import '../../controllers/admin_controller.dart';
 import '../../services/app_database.dart';
 import 'widgets/promotion_form_sheet.dart';
 import 'package:intl/intl.dart';
-import '../../widgets/asri_dialog.dart';
+import '../../widgets/kasir_dialog.dart';
 
 class PromotionPage extends StatefulWidget {
-  final VoidCallback? onMenuPressed;
-  const PromotionPage({super.key, this.onMenuPressed});
+  final VoidCallback? onBack;
+  const PromotionPage({super.key, this.onBack});
 
   @override
   State<PromotionPage> createState() => _PromotionPageState();
@@ -24,6 +23,8 @@ class _PromotionPageState extends State<PromotionPage> {
   );
 
   List<Promotion> _promos = [];
+  // Maps promoId -> list of its items
+  Map<String, List<PromotionItem>> _promoItems = {};
   bool _isLoading = true;
 
   @override
@@ -56,9 +57,18 @@ class _PromotionPageState extends State<PromotionPage> {
     final cleaned = await controller.promotionService.getAllPromotions(
       controller.storeId!,
     );
+
+    // Load items for each promo
+    final Map<String, List<PromotionItem>> itemsMap = {};
+    for (final p in cleaned) {
+      final items = await controller.promotionService.getPromotionItems(p.id);
+      itemsMap[p.id] = items;
+    }
+
     if (mounted) {
       setState(() {
         _promos = cleaned;
+        _promoItems = itemsMap;
         _isLoading = false;
       });
     }
@@ -78,43 +88,22 @@ class _PromotionPageState extends State<PromotionPage> {
       appBar: AppBar(
         title: Text(
           'Kelola Promosi',
-          style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
+          style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w600),
         ),
-        leading: Builder(
-          builder: (ctx) {
-            final isWide = MediaQuery.of(ctx).size.width >= 720;
-            if (isWide) return const SizedBox.shrink();
-
-            if (Navigator.canPop(context)) {
-              return IconButton(
+        leading: widget.onBack != null
+            ? IconButton(
                 icon: Icon(
-                  CupertinoIcons.back,
+                  Icons.arrow_back,
                   color: isDark ? Colors.white : const Color(0xFF2D3436),
                 ),
-                onPressed: () => Navigator.pop(context),
-              );
-            }
-
-            return IconButton(
-              icon: Icon(
-                CupertinoIcons.bars,
-                color: isDark ? Colors.white : const Color(0xFF2D3436),
-              ),
-              onPressed: () {
-                if (widget.onMenuPressed != null) {
-                  widget.onMenuPressed!();
-                } else {
-                  Scaffold.of(context).openDrawer();
-                }
-              },
-            );
-          },
-        ),
+                onPressed: widget.onBack,
+              )
+            : const SizedBox.shrink(),
         actions: [
           IconButton(
             onPressed: () => _showInfoHelp(),
             icon: Icon(
-              CupertinoIcons.info_circle,
+              Icons.info_outline,
               color: isDark ? Colors.white70 : Colors.grey[600],
             ),
             tooltip: "Tentang Promosi",
@@ -153,20 +142,20 @@ class _PromotionPageState extends State<PromotionPage> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(CupertinoIcons.percent, size: 80, color: Colors.grey[300]),
+          Icon(Icons.percent, size: 80, color: Colors.grey[300]),
           const SizedBox(height: 16),
           Text(
             'Belum ada promosi',
-            style: GoogleFonts.poppins(
+            style: GoogleFonts.plusJakartaSans(
               fontSize: 18,
-              fontWeight: FontWeight.bold,
+              fontWeight: FontWeight.w600,
               color: Colors.grey[600],
             ),
           ),
           const SizedBox(height: 8),
           Text(
             'Klik tombol + untuk membuat promosi baru',
-            style: GoogleFonts.inter(color: Colors.grey[500]),
+            style: GoogleFonts.openSans(color: Colors.grey[500]),
           ),
           const SizedBox(height: 24),
           ElevatedButton.icon(
@@ -193,6 +182,9 @@ class _PromotionPageState extends State<PromotionPage> {
     AdminController controller,
     bool isDark,
   ) {
+    final items = _promoItems[promo.id] ?? [];
+    final hasCustomer = items.any((i) => i.role == 'CUSTOMER');
+    final hasCategory = items.any((i) => i.categoryId != null);
     final typeLabel = _getTypeLabel(promo.type);
     final color = _getTypeColor(promo.type);
 
@@ -201,120 +193,170 @@ class _PromotionPageState extends State<PromotionPage> {
       decoration: BoxDecoration(
         color: isDark ? const Color(0xFF2C2C2E) : Colors.white,
         borderRadius: BorderRadius.circular(16),
+        border: promo.isActive
+            ? Border.all(color: color.withValues(alpha: 0.5), width: 1.5)
+            : Border.all(color: isDark ? Colors.white10 : Colors.grey[200]!),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
+            color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.03),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
         ],
       ),
-      child: ClipRRect(
+      child: InkWell(
+        onTap: () => _showPromotionForm(context), // Option to edit
         borderRadius: BorderRadius.circular(16),
-        child: IntrinsicHeight(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
           child: Row(
             children: [
-              Container(width: 6, color: promo.isActive ? color : Colors.grey),
+              // Icon Cluster
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(_getTypeIcon(promo.type), color: color, size: 22),
+              ),
+              const SizedBox(width: 16),
+              // Content
               Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      promo.name ?? 'Tanpa Nama',
+                      style: GoogleFonts.plusJakartaSans(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: isDark ? Colors.white : Colors.black87,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      promo.description ?? typeLabel,
+                      style: GoogleFonts.openSans(
+                        fontSize: 12,
+                        color: isDark ? Colors.white54 : Colors.grey[600],
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 6,
+                      children: [
+                        _buildTargetBadge(items, hasCustomer, hasCategory),
+                        if (promo.endDate != null)
+                          _buildExpiryBadge(promo.endDate!),
+                        if (promo.value != null)
                           Container(
                             padding: const EdgeInsets.symmetric(
                               horizontal: 8,
                               vertical: 4,
                             ),
                             decoration: BoxDecoration(
-                              color: color.withValues(alpha: 0.1),
-                              borderRadius: BorderRadius.circular(8),
+                              color: color.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(6),
                             ),
                             child: Text(
-                              typeLabel,
-                              style: GoogleFonts.inter(
+                              promo.discountType == 'percentage'
+                                  ? '${promo.value!.toStringAsFixed(0)}% OFF'
+                                  : _currencyFormat.format(promo.value!),
+                              style: GoogleFonts.openSans(
                                 fontSize: 10,
                                 fontWeight: FontWeight.bold,
                                 color: color,
                               ),
                             ),
                           ),
-                          Switch.adaptive(
-                            value: promo.isActive,
-                            onChanged: (val) async {
-                              await controller.promotionService
-                                  .updatePromotionStatus(promo.id, val);
-                              if (mounted) _loadAndCleanPromos();
-                            },
-                            activeTrackColor: color,
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        promo.name ?? 'Tanpa Nama',
-                        style: GoogleFonts.poppins(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      if (promo.description != null) ...[
-                        const SizedBox(height: 4),
-                        Text(
-                          promo.description!,
-                          style: GoogleFonts.inter(
-                            fontSize: 12,
-                            color: Colors.grey[600],
-                          ),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
                       ],
-                      const SizedBox(height: 10),
-                      // Expiry badge
-                      if (promo.endDate != null)
-                        _buildExpiryBadge(promo.endDate!),
-                      const SizedBox(height: 8),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          if (promo.value != null)
-                            Text(
-                              promo.discountType == 'percentage'
-                                  ? '${promo.value!.toStringAsFixed(0)}% OFF'
-                                  : _currencyFormat.format(promo.value!),
-                              style: GoogleFonts.inter(
-                                fontWeight: FontWeight.bold,
-                                color: color,
-                              ),
-                            ),
-                          Row(
-                            children: [
-                              IconButton(
-                                icon: const Icon(
-                                  CupertinoIcons.trash,
-                                  size: 20,
-                                  color: Colors.grey,
-                                ),
-                                onPressed: () =>
-                                    _confirmDelete(context, promo, controller),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
+              ),
+              const SizedBox(width: 12),
+              // Toggle & More
+              Column(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  _buildDotToggle(
+                    isActive: promo.isActive,
+                    color: color,
+                    onTap: () async {
+                      await controller.promotionService.updatePromotionStatus(
+                        promo.id,
+                        !promo.isActive,
+                      );
+                      if (mounted) _loadAndCleanPromos();
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  IconButton(
+                    icon: const Icon(
+                      Icons.delete_outline,
+                      size: 18,
+                      color: Colors.grey,
+                    ),
+                    onPressed: () => _confirmDelete(context, promo, controller),
+                    visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                  ),
+                ],
               ),
             ],
           ),
         ),
       ),
     );
+  }
+
+  Widget _buildDotToggle({
+    required bool isActive,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 250),
+        width: 24,
+        height: 24,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: Border.all(
+            color: isActive ? color : Colors.grey.withValues(alpha: 0.5),
+            width: 2,
+          ),
+        ),
+        child: Center(
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 250),
+            width: isActive ? 12 : 0,
+            height: isActive ? 12 : 0,
+            decoration: BoxDecoration(shape: BoxShape.circle, color: color),
+          ),
+        ),
+      ),
+    );
+  }
+
+  IconData _getTypeIcon(String type) {
+    switch (type) {
+      case 'discount':
+        return Icons.percent;
+      case 'buy_x_get_y':
+        return Icons.card_giftcard;
+      case 'bundle':
+        return Icons.grid_view;
+      default:
+        return Icons.campaign_rounded;
+    }
   }
 
   Widget _buildExpiryBadge(DateTime endDate) {
@@ -349,9 +391,59 @@ class _PromotionPageState extends State<PromotionPage> {
           const SizedBox(width: 4),
           Text(
             label,
-            style: GoogleFonts.inter(
+            style: GoogleFonts.openSans(
               fontSize: 11,
               color: badgeColor,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Build a pill showing what the promo targets
+  Widget _buildTargetBadge(
+    List<PromotionItem> items,
+    bool hasCustomer,
+    bool hasCategory,
+  ) {
+    IconData icon;
+    String label;
+    Color color;
+
+    if (hasCustomer) {
+      final count = items.where((i) => i.role == 'CUSTOMER').length;
+      icon = Icons.people;
+      label = '$count Pelanggan';
+      color = Colors.teal;
+    } else if (hasCategory) {
+      icon = Icons.category_rounded;
+      label = 'Kategori Tertentu';
+      color = Colors.indigo;
+    } else {
+      icon = Icons.all_inclusive_rounded;
+      label = 'Semua Produk';
+      color = Colors.green;
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: color.withValues(alpha: 0.25)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 11, color: color),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: GoogleFonts.openSans(
+              fontSize: 10,
+              color: color,
               fontWeight: FontWeight.w600,
             ),
           ),
@@ -404,11 +496,11 @@ class _PromotionPageState extends State<PromotionPage> {
   ) async {
     final confirm = await showDialog<bool>(
       context: context,
-      builder: (context) => AsriDialog(
+      builder: (context) => KasirDialog(
         title: 'Hapus Promosi',
         message:
             'Apakah Anda yakin ingin menghapus "${promo.name}"? Promosi yang dihapus tidak dapat dipulihkan.',
-        icon: CupertinoIcons.trash_fill,
+        icon: Icons.delete,
         iconColor: Colors.redAccent,
         primaryActionLabel: "Hapus",
         isDestructive: true,
@@ -426,9 +518,9 @@ class _PromotionPageState extends State<PromotionPage> {
   void _showInfoHelp() {
     showDialog(
       context: context,
-      builder: (ctx) => AsriDialog(
+      builder: (ctx) => KasirDialog(
         title: "Panduan Promosi",
-        icon: CupertinoIcons.info_circle_fill,
+        icon: Icons.info,
         iconColor: Colors.orange,
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -448,6 +540,11 @@ class _PromotionPageState extends State<PromotionPage> {
               "Paket (Bundle)",
               "Harga khusus untuk pembelian set barang tertentu (Coming Soon).",
             ),
+            const SizedBox(height: 12),
+            _buildInfoItem(
+              "Promosi Pelanggan",
+              "Pilih pelanggan spesifik yang berhak mendapatkan diskon ini. Cocok untuk program loyalitas atau penawaran eksklusif.",
+            ),
           ],
         ),
         primaryActionLabel: "Saya Mengerti",
@@ -462,13 +559,14 @@ class _PromotionPageState extends State<PromotionPage> {
       children: [
         Text(
           title,
-          style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 14),
+          style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w600, fontSize: 14),
         ),
         Text(
           desc,
-          style: GoogleFonts.inter(fontSize: 12, color: Colors.grey[600]),
+          style: GoogleFonts.openSans(fontSize: 12, color: Colors.grey[600]),
         ),
       ],
     );
   }
 }
+

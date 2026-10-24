@@ -18,13 +18,67 @@ class SettingsController {
   static const String _localeKey = 'app_locale';
 
   // Text Scale Setting (Limit to 1.3 for safety)
-  final ValueNotifier<double> textScale = ValueNotifier(1.0);
+  final ValueNotifier<double> textScale = ValueNotifier(0.85);
   static const String _textScaleKey = 'text_scale';
   static const double maxTextScale = 1.3;
 
   // Layout preference
   final ValueNotifier<bool> isGridView = ValueNotifier(true);
   static const String _isGridViewKey = 'is_grid_view';
+
+  // Tax Settings
+  final ValueNotifier<bool> pajakEnabled = ValueNotifier(false);
+  final ValueNotifier<String> pajakName = ValueNotifier("PPN");
+  final ValueNotifier<double> pajakRate = ValueNotifier(10.0);
+  static const String _pajakEnabledKey = 'pajak_enabled';
+  static const String _pajakNameKey = 'pajak_name';
+  static const String _pajakRateKey = 'pajak_rate';
+
+  // Sidebar expansion state
+  final ValueNotifier<bool> isSidebarExpanded = ValueNotifier(false);
+  static const String _isSidebarExpandedKey = 'is_sidebar_expanded';
+
+  // Toggle for Popular/Recent filters on KasirPage
+  final ValueNotifier<bool> showFilterTabs = ValueNotifier(true);
+  static const String _showFilterTabsKey = 'show_filter_tabs';
+
+  // Keyboard/Numpad display option
+  final ValueNotifier<bool> showNumpad = ValueNotifier(false);
+  static const String _showNumpadKey = 'show_numpad';
+
+  // Feature Flags
+  final ValueNotifier<bool> featureGrosirEnabled = ValueNotifier(false);
+  final ValueNotifier<bool> featureMejaEnabled = ValueNotifier(false);
+  final ValueNotifier<bool> featureStokEnabled = ValueNotifier(true);
+  final ValueNotifier<bool> featureLoyaltyEnabled = ValueNotifier(true);
+  final ValueNotifier<bool> featureHutangEnabled = ValueNotifier(false);
+
+  static const String _featureGrosirKey = 'feature_grosir_enabled';
+  static const String _featureMejaKey = 'feature_meja_enabled';
+  static const String _featureStokKey = 'feature_stok_enabled';
+  static const String _featureLoyaltyKey = 'feature_loyalty_enabled';
+  static const String _featureHutangKey = 'feature_hutang_enabled';
+
+  // Receipt Settings
+  final ValueNotifier<bool> receiptShowLogo = ValueNotifier(true);
+  final ValueNotifier<bool> receiptShowStoreName = ValueNotifier(true);
+  final ValueNotifier<bool> receiptShowAddress = ValueNotifier(true);
+  final ValueNotifier<bool> receiptShowEmail = ValueNotifier(true);
+  final ValueNotifier<bool> receiptShowDate = ValueNotifier(true);
+  final ValueNotifier<bool> receiptShowDetails = ValueNotifier(true);
+  final ValueNotifier<bool> receiptShowThankYou = ValueNotifier(true);
+  final ValueNotifier<bool> receiptShowTable = ValueNotifier(true);
+  final ValueNotifier<String> receiptThankYouMessage = ValueNotifier("Terima kasih atas kunjungan Anda!");
+  
+  static const String _receiptShowLogoKey = 'receipt_show_logo';
+  static const String _receiptShowStoreNameKey = 'receipt_show_store_name';
+  static const String _receiptShowAddressKey = 'receipt_show_address';
+  static const String _receiptShowEmailKey = 'receipt_show_email';
+  static const String _receiptShowDateKey = 'receipt_show_date';
+  static const String _receiptShowDetailsKey = 'receipt_show_details';
+  static const String _receiptShowThankYouKey = 'receipt_show_thank_you';
+  static const String _receiptShowTableKey = 'receipt_show_table';
+  static const String _receiptThankYouMessageKey = 'receipt_thank_you_message';
 
   // Simple Localization Map
   static final Map<String, Map<String, String>> _localizedValues = {
@@ -206,12 +260,44 @@ class SettingsController {
     locale.value = Locale(langCode);
 
     // Load Text Scale
-    double scale = prefs.getDouble(_textScaleKey) ?? 1.0;
+    double scale = prefs.getDouble(_textScaleKey) ?? 0.85;
     if (scale > maxTextScale) scale = maxTextScale;
     textScale.value = scale;
 
     // Load Grid View Preference
     isGridView.value = prefs.getBool(_isGridViewKey) ?? true;
+
+    // Load Tax Settings
+    pajakEnabled.value = prefs.getBool(_pajakEnabledKey) ?? false;
+    pajakName.value = prefs.getString(_pajakNameKey) ?? "PPN";
+    pajakRate.value = prefs.getDouble(_pajakRateKey) ?? 10.0;
+
+    // Load Sidebar state
+    isSidebarExpanded.value = prefs.getBool(_isSidebarExpandedKey) ?? false;
+
+    // Load Filter tabs visibility
+    showFilterTabs.value = prefs.getBool(_showFilterTabsKey) ?? true;
+
+    // Load Numpad visibility
+    showNumpad.value = prefs.getBool(_showNumpadKey) ?? false;
+
+    // Load Feature Flags
+    featureGrosirEnabled.value = prefs.getBool(_featureGrosirKey) ?? false;
+    featureMejaEnabled.value = prefs.getBool(_featureMejaKey) ?? false;
+    featureStokEnabled.value = prefs.getBool(_featureStokKey) ?? true;
+    featureLoyaltyEnabled.value = prefs.getBool(_featureLoyaltyKey) ?? true;
+    featureHutangEnabled.value = prefs.getBool(_featureHutangKey) ?? false;
+
+    // Load Receipt Settings
+    receiptShowLogo.value = prefs.getBool(_receiptShowLogoKey) ?? true;
+    receiptShowStoreName.value = prefs.getBool(_receiptShowStoreNameKey) ?? true;
+    receiptShowAddress.value = prefs.getBool(_receiptShowAddressKey) ?? true;
+    receiptShowEmail.value = prefs.getBool(_receiptShowEmailKey) ?? true;
+    receiptShowDate.value = prefs.getBool(_receiptShowDateKey) ?? true;
+    receiptShowDetails.value = prefs.getBool(_receiptShowDetailsKey) ?? true;
+    receiptShowThankYou.value = prefs.getBool(_receiptShowThankYouKey) ?? true;
+    receiptShowTable.value = prefs.getBool(_receiptShowTableKey) ?? true;
+    receiptThankYouMessage.value = prefs.getString(_receiptThankYouMessageKey) ?? "Terima kasih atas kunjungan Anda!";
   }
 
   Future<void> setLocale(String languageCode) async {
@@ -231,6 +317,127 @@ class SettingsController {
     isGridView.value = value;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_isGridViewKey, value);
+  }
+
+  Future<void> setPajakEnabled(bool value) async {
+    pajakEnabled.value = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_pajakEnabledKey, value);
+  }
+
+  Future<void> setPajakName(String value) async {
+    pajakName.value = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_pajakNameKey, value);
+  }
+
+  Future<void> setPajakRate(double value) async {
+    pajakRate.value = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble(_pajakRateKey, value);
+  }
+
+  Future<void> toggleSidebar() async {
+    isSidebarExpanded.value = !isSidebarExpanded.value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_isSidebarExpandedKey, isSidebarExpanded.value);
+  }
+
+  Future<void> setShowFilterTabs(bool value) async {
+    showFilterTabs.value = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_showFilterTabsKey, value);
+  }
+
+  Future<void> setShowNumpad(bool value) async {
+    showNumpad.value = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_showNumpadKey, value);
+  }
+
+  Future<void> setReceiptShowLogo(bool value) async {
+    receiptShowLogo.value = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_receiptShowLogoKey, value);
+  }
+
+  Future<void> setReceiptShowStoreName(bool value) async {
+    receiptShowStoreName.value = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_receiptShowStoreNameKey, value);
+  }
+
+  Future<void> setReceiptShowAddress(bool value) async {
+    receiptShowAddress.value = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_receiptShowAddressKey, value);
+  }
+
+  Future<void> setReceiptShowEmail(bool value) async {
+    receiptShowEmail.value = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_receiptShowEmailKey, value);
+  }
+
+  Future<void> setReceiptShowDate(bool value) async {
+    receiptShowDate.value = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_receiptShowDateKey, value);
+  }
+
+  Future<void> setReceiptShowDetails(bool value) async {
+    receiptShowDetails.value = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_receiptShowDetailsKey, value);
+  }
+
+  Future<void> setReceiptShowThankYou(bool value) async {
+    receiptShowThankYou.value = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_receiptShowThankYouKey, value);
+  }
+
+  Future<void> setReceiptShowTable(bool value) async {
+    receiptShowTable.value = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_receiptShowTableKey, value);
+  }
+
+  Future<void> setReceiptThankYouMessage(String value) async {
+    receiptThankYouMessage.value = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_receiptThankYouMessageKey, value);
+  }
+
+  // Feature Flag Setters
+  Future<void> setFeatureGrosirEnabled(bool value) async {
+    featureGrosirEnabled.value = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_featureGrosirKey, value);
+  }
+
+  Future<void> setFeatureMejaEnabled(bool value) async {
+    featureMejaEnabled.value = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_featureMejaKey, value);
+  }
+
+  Future<void> setFeatureStokEnabled(bool value) async {
+    featureStokEnabled.value = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_featureStokKey, value);
+  }
+
+  Future<void> setFeatureLoyaltyEnabled(bool value) async {
+    featureLoyaltyEnabled.value = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_featureLoyaltyKey, value);
+  }
+
+  Future<void> setFeatureHutangEnabled(bool value) async {
+    featureHutangEnabled.value = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_featureHutangKey, value);
   }
 
   bool get isIndonesian => locale.value.languageCode == 'id';

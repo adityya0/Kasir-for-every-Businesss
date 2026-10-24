@@ -42,6 +42,10 @@ class CustomerService {
     await (db.delete(db.customers)..where((t) => t.id.equals(id))).go();
   }
 
+  Future<void> deleteMultipleCustomers(List<String> ids) async {
+    await (db.delete(db.customers)..where((t) => t.id.isIn(ids))).go();
+  }
+
   Future<void> addPoints(String customerId, int pointsToAdd) async {
     final customer = await (db.select(
       db.customers,

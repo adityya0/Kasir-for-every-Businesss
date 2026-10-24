@@ -1,33 +1,35 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
-import 'package:drift/drift.dart' hide Column;
-import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
+import 'package:flutter/services.dart';
 import '../user/kasir_page.dart';
 import 'package:flutter/cupertino.dart';
 import 'category_page.dart';
 import 'inventory_page.dart';
 import 'profile_page.dart';
-import 'employee_page.dart';
+import 'employee/employee_management_page.dart';
+import '../attendance/attendance_page.dart';
 import 'history/history_page.dart';
 import '../other/printer_settings_page.dart';
 import 'promotion_page.dart';
+import 'action_menu_page.dart';
 import 'data_management_page.dart';
 import 'report/profit_loss_page.dart';
 import 'customer_page.dart';
+import 'trends_page.dart';
+import 'transaction_settings_page.dart';
+import 'widgets/admin_navigation_rail.dart';
+
+import 'package:google_fonts/google_fonts.dart';
 
 import 'package:provider/provider.dart';
-import '../../services/app_database.dart';
 import '../../controllers/admin_controller.dart';
+import '../../controllers/theme_controller.dart';
 import '../../controllers/analytics_controller.dart';
-import '../../controllers/settings_controller.dart';
-import 'analytics_page.dart';
-import 'widgets/admin_drawer.dart';
-import 'widgets/admin_navigation_rail.dart';
-import 'widgets/stat_card.dart';
-import 'widgets/recent_transactions_list.dart';
-import 'widgets/pinterest_card.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'backup_restore_page.dart';
+import '../other/terms_conditions_page.dart';
+import '../../widgets/kasir_dialog.dart';
+import '../../services/activation_service.dart';
 
 class AdminPage extends StatefulWidget {
   const AdminPage({super.key});
@@ -37,14 +39,92 @@ class AdminPage extends StatefulWidget {
 }
 
 class _AdminPageState extends State<AdminPage> {
-  int _selectedIndex = 0;
+  int _selectedIndex = 3; // Default to Kasir
+  final List<int> _indexHistory = [];
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
-  final Color _primaryColor = const Color(0xFFEA5700);
   final currencyFormat = NumberFormat.currency(
     locale: 'id_ID',
     symbol: 'Rp ',
     decimalDigits: 0,
   );
+
+  void _onSelectIndex(int index) {
+    if (_selectedIndex == index) return;
+    _indexHistory.add(_selectedIndex);
+    setState(() => _selectedIndex = index);
+  }
+
+  bool _handleBackNavigation() {
+    if (Navigator.canPop(context)) {
+      Navigator.pop(context);
+      return true;
+    }
+    if (_indexHistory.isNotEmpty) {
+      final previous = _indexHistory.removeLast();
+      setState(() => _selectedIndex = previous);
+      return true;
+    }
+    if (_selectedIndex != 3) {
+      setState(() => _selectedIndex = 9);
+      return true;
+    }
+    return false;
+  }
+
+  int _getBottomNavIndex() {
+    switch (_selectedIndex) {
+      case 3:
+      case 0:
+        return 0; // Kasir
+      case 11:
+      case 14:
+      case 5:
+      case 16:
+        return 1; // Uang (termasuk Pegawai / Absensi dari pintasan uang)
+      case 4:
+      case 6:
+        return 2; // Tren
+      case 9:
+      case 17:
+      case 2:
+      case 10:
+        return 3; // Aksi
+      case 15:
+      case 7:
+      case 8:
+      case 18:
+      case 19:
+      case 20:
+        return 4; // Pengaturan
+      default:
+        return 0; // Default to Kasir
+    }
+  }
+
+  void _onBottomNavItemTapped(int index) {
+    int appIndex;
+    switch (index) {
+      case 0:
+        appIndex = 3; // Kasir
+        break;
+      case 1:
+        appIndex = 11; // Uang
+        break;
+      case 2:
+        appIndex = 6; // Tren
+        break;
+      case 3:
+        appIndex = 9; // Aksi
+        break;
+      case 4:
+        appIndex = 15; // Pengaturan
+        break;
+      default:
+        appIndex = 3;
+    }
+    HapticFeedback.lightImpact();
+    _onSelectIndex(appIndex);
+  }
 
   @override
   void initState() {
@@ -65,1018 +145,645 @@ class _AdminPageState extends State<AdminPage> {
   @override
   Widget build(BuildContext context) {
     final controller = Provider.of<AdminController>(context);
-    final isWideScreen = MediaQuery.of(context).size.width >= 720;
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final primaryColor = theme.colorScheme.primary;
 
     if (controller.isInitializing) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
-    if (isWideScreen) {
-      return Scaffold(
-        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-        body: Row(
-          children: [
-            AdminNavigationRail(
-              selectedIndex: _selectedIndex,
-              onDestinationSelected: (index) {
-                setState(() => _selectedIndex = index);
-              },
-              storeLogo: controller.storeLogo,
-              userName: controller.userName,
-              storeName: controller.storeName,
-              role: controller.role,
-              permissions: controller.permissions,
-              onLogout: _handleLogout,
-              onProfileTap: () => setState(() => _selectedIndex = 8),
-              onCustomerTap: () => setState(() => _selectedIndex = 12),
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        final handled = _handleBackNavigation();
+        if (handled) return;
+
+        final shouldExit = await _showExitConfirmation();
+        if (!context.mounted) return;
+        if (shouldExit == true) {
+          await SystemNavigator.pop();
+        }
+      },
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final isWide = constraints.maxWidth >= 900;
+          final content = _getSelectedPage(controller);
+
+          return Scaffold(
+            key: _scaffoldKey,
+            backgroundColor: theme.scaffoldBackgroundColor,
+            body: isWide
+                ? Row(
+                    children: [
+                      AdminNavigationRail(
+                        selectedIndex: _selectedIndex,
+                        onDestinationSelected: (index) => setState(() => _selectedIndex = index),
+                        storeLogo: controller.storeLogo,
+                        onLogout: () async {
+                          final prefs = await SharedPreferences.getInstance();
+                          await prefs.remove('last_route');
+                          if (!context.mounted) return;
+                          Navigator.pushReplacementNamed(context, '/login');
+                        },
+                        userName: controller.userName,
+                        storeName: controller.storeName,
+                        role: controller.role,
+                        permissions: controller.permissions,
+                      ),
+                      Expanded(
+                        child: AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 300),
+                          child: content,
+                        ),
+                      ),
+                    ],
+                  )
+                : AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 300),
+                    child: content,
+                  ),
+            bottomNavigationBar: isWide ? null : _buildBottomNavBar(theme, isDark, primaryColor),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildBottomNavBar(ThemeData theme, bool isDark, Color primaryColor) {
+    const orange = Color(0xFFF25A22);
+    return Container(
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 10,
+            offset: const Offset(0, -2),
+          ),
+        ],
+      ),
+      child: Theme(
+        data: theme.copyWith(
+          navigationBarTheme: NavigationBarThemeData(
+            backgroundColor: Colors.transparent,
+            indicatorColor: orange.withValues(alpha: 0.12),
+            labelTextStyle: WidgetStateProperty.resolveWith((states) {
+              if (states.contains(WidgetState.selected)) {
+                return const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: orange,
+                );
+              }
+              return TextStyle(
+                fontSize: 11,
+                color: isDark ? Colors.white60 : Colors.black54,
+              );
+            }),
+            iconTheme: WidgetStateProperty.resolveWith((states) {
+              if (states.contains(WidgetState.selected)) {
+                return const IconThemeData(color: orange, size: 24);
+              }
+              return IconThemeData(
+                color: isDark ? Colors.white60 : Colors.black54,
+                size: 24,
+              );
+            }),
+          ),
+        ),
+        child: NavigationBar(
+          height: 65,
+          selectedIndex: _getBottomNavIndex(),
+          onDestinationSelected: _onBottomNavItemTapped,
+          destinations: const [
+            NavigationDestination(
+              icon: Icon(Icons.calculate_outlined),
+              selectedIcon: Icon(Icons.calculate),
+              label: 'Kasir',
             ),
-            const VerticalDivider(thickness: 1, width: 1),
-            Expanded(child: _getSelectedPage(controller)),
+            NavigationDestination(
+              icon: Icon(Icons.account_balance_wallet_outlined),
+              selectedIcon: Icon(Icons.account_balance_wallet),
+              label: 'Uang',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.trending_up_rounded),
+              selectedIcon: Icon(Icons.trending_up_rounded),
+              label: 'Tren',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.bolt_outlined),
+              selectedIcon: Icon(Icons.bolt),
+              label: 'Aksi',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.settings_outlined),
+              selectedIcon: Icon(Icons.settings),
+              label: 'Pengaturan',
+            ),
           ],
         ),
-      );
-    } else {
-      return Scaffold(
-        key: _scaffoldKey,
-        primary: true,
-        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-        appBar: null,
-        drawer: AdminDrawer(
-          userName: controller.userName ?? 'User',
-          profileUrl: controller.profileUrl,
-          storeName: controller.storeName,
-          storeLogo: controller.storeLogo,
-          role: controller.role ?? 'cashier',
-          permissions: controller.permissions ?? {},
-          primaryColor: _primaryColor,
-          selectedIndex: _selectedIndex,
-          onDashboardTap: () => setState(() => _selectedIndex = 0),
-          onProfileTap: () => setState(() => _selectedIndex = 8),
-          onInventoryTap: () => setState(() => _selectedIndex = 1),
-          onCategoryTap: () => setState(() => _selectedIndex = 2),
-          onKasirTap: () => setState(() => _selectedIndex = 3),
-          onEmployeeTap: () => setState(() => _selectedIndex = 5),
-          onHistoryTap: () => setState(() => _selectedIndex = 4),
-          onAnalyticsTap: () => setState(() => _selectedIndex = 6),
-          onPrinterTap: () => setState(() => _selectedIndex = 7),
-          onPromotionTap: () => setState(() => _selectedIndex = 9),
-          onExportImportTap: () => setState(() => _selectedIndex = 10),
-          onProfitLossTap: () => setState(() => _selectedIndex = 11),
-          onCustomerTap: () => setState(() => _selectedIndex = 12),
-          onLogoutTap: _handleLogout,
-        ),
-        body: Builder(builder: (context) => _getSelectedPage(controller)),
-      );
-    }
+      ),
+    );
   }
 
   Widget _getSelectedPage(AdminController controller) {
     final sId = controller.storeId;
-    if (sId == null && _selectedIndex != 0 && _selectedIndex != 7) {
+    if (sId == null && _selectedIndex != 7) {
       return const Center(child: CircularProgressIndicator());
     }
 
-    void onMenuPressed() => _scaffoldKey.currentState?.openDrawer();
+    void onMenuPressed() {}
 
     switch (_selectedIndex) {
       case 0:
-        return _buildDashboardContent(controller);
+        // Dashboard removed – redirect to Kasir
+        return KasirPage(
+          showSidebar: false,
+          onMenuPressed: onMenuPressed,
+          onNavigateToIndex: (index) => _onSelectIndex(index),
+        );
       case 1:
-        return InventoryPage(onMenuPressed: onMenuPressed);
+        return InventoryPage(
+          onMenuPressed: onMenuPressed,
+          onBack: _handleBackNavigation,
+          onNavigateToCategories: () => _onSelectIndex(2),
+        );
       case 2:
-        return CategoryPage(storeId: sId!, onMenuPressed: onMenuPressed);
+        return CategoryPage(
+          storeId: sId!,
+          onBack: _handleBackNavigation,
+          onNavigateToProducts: () => _onSelectIndex(1),
+        );
       case 3:
-        return KasirPage(showSidebar: false, onMenuPressed: onMenuPressed);
+        return KasirPage(
+          showSidebar: false,
+          onMenuPressed: onMenuPressed,
+          onNavigateToIndex: (index) => _onSelectIndex(index),
+        );
       case 4:
         return HistoryPage(
           storeId: sId!,
           onMenuPressed: onMenuPressed,
+          onBack: _handleBackNavigation,
           showSidebar: false,
         );
       case 5:
-        return EmployeePage(storeId: sId!, onMenuPressed: onMenuPressed);
-      case 6:
-        return AnalyticsPage(
+        return EmployeeManagementPage(
+          storeId: sId!,
+          onBack: _handleBackNavigation,
+        );
+      case 16:
+        return AttendancePage(
+          showSidebar: false,
           onMenuPressed: onMenuPressed,
-          onNavigateToIndex: (index) => setState(() => _selectedIndex = index),
+          onBack: _handleBackNavigation,
+        );
+      case 6:
+        return TrendsPage(
+          storeId: sId!,
+          onNavigateToIndex: (index) => _onSelectIndex(index),
         );
       case 7:
         return PrinterSettingsPage(
           showSidebar: false,
           onMenuPressed: onMenuPressed,
+          onBack: _handleBackNavigation,
+          onNavigateToStruk: () => _onSelectIndex(19),
         );
       case 8:
         return ProfilePage(storeId: sId!, onMenuPressed: onMenuPressed);
       case 9:
-        return PromotionPage(onMenuPressed: onMenuPressed);
+        return ActionMenuPage(
+          onMenuPressed: onMenuPressed,
+          onIndexSelected: (index) {
+            _onSelectIndex(index);
+          },
+        );
+      case 17: // PromotionPage
+        return PromotionPage(onBack: _handleBackNavigation);
       case 10:
-        return DataManagementPage(onMenuPressed: onMenuPressed);
+        return DataManagementPage(
+          onMenuPressed: onMenuPressed,
+          onBack: _handleBackNavigation,
+        );
       case 11:
-        return ProfitLossPage(storeId: sId!, onMenuPressed: onMenuPressed);
+        return ProfitLossPage(
+          storeId: sId!,
+          onMenuPressed: onMenuPressed,
+          onNavigateToIndex: (index) => _onSelectIndex(index),
+        );
       case 12:
-        return CustomerPage(onMenuPressed: onMenuPressed);
+        return CustomerPage(
+          onMenuPressed: onMenuPressed,
+          onBack: _handleBackNavigation,
+          onNavigateToIndex: (index) => _onSelectIndex(index),
+        );
+      case 15:
+        return _QuickMenuPage(
+          onMenuPressed: onMenuPressed,
+          onLogout: _handleLogout,
+          onIndexSelected: (index) {
+            _onSelectIndex(index);
+          },
+        );
+      case 18:
+        return BackupRestorePage(
+          onBack: _handleBackNavigation,
+        );
+      case 19:
+        return TransactionSettingsPage(
+          onBack: _handleBackNavigation,
+        );
+      case 20:
+        return TermsConditionsPage(
+          onBack: _handleBackNavigation,
+        );
+
       default:
-        return _buildDashboardContent(controller);
+        return TrendsPage(
+          storeId: sId!,
+          onNavigateToIndex: (index) => setState(() => _selectedIndex = index),
+        );
     }
   }
 
-  Widget _buildDashboardContent(AdminController controller) {
-    final isWide = MediaQuery.of(context).size.width >= 720;
-
-    Widget content = Container(
-      color: Theme.of(context).brightness == Brightness.dark
-          ? const Color(0xFF1C1C1E)
-          : const Color(0xFFF8F9FA),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [Color(0xFFEA5700), Color(0xFFFF6B35)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: const Color(0xFFEA5700).withValues(alpha: 0.3),
-                  blurRadius: 15,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Expanded(
-                  child: Row(
-                    children: [
-                      if (!isWide)
-                        Builder(
-                          builder: (context) => IconButton(
-                            padding: EdgeInsets.zero,
-                            alignment: Alignment.centerLeft,
-                            icon: const Icon(
-                              Icons.menu,
-                              color: Colors.white,
-                              size: 28,
-                            ),
-                            onPressed: () =>
-                                _scaffoldKey.currentState?.openDrawer(),
-                          ),
-                        ),
-                      if (!isWide) const SizedBox(width: 12),
-                      Flexible(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            FittedBox(
-                              fit: BoxFit.scaleDown,
-                              child: Text(
-                                SettingsController.instance.getString(
-                                  'dashboard',
-                                ),
-                                style: GoogleFonts.poppins(
-                                  fontSize: 24,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.white,
-                                ),
-                              ),
-                            ),
-                            Text(
-                              '${SettingsController.instance.getString('welcome_back')}, ${controller.storeName ?? "Admin"}',
-                              style: GoogleFonts.inter(
-                                fontSize: 13,
-                                color: Colors.white.withValues(alpha: 0.9),
-                              ),
-                              overflow: TextOverflow.ellipsis,
-                              maxLines: 1,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Container(
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.2),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: isWide
-                      ? TextButton.icon(
-                          onPressed: () => setState(() => _selectedIndex = 6),
-                          icon: const Icon(
-                            Icons.analytics_outlined,
-                            size: 18,
-                            color: Colors.white,
-                          ),
-                          label: Text(
-                            SettingsController.instance.getString(
-                              'nav_analytics',
-                            ),
-                            style: GoogleFonts.inter(
-                              fontWeight: FontWeight.w600,
-                              fontSize: 13,
-                              color: Colors.white,
-                            ),
-                          ),
-                        )
-                      : IconButton(
-                          onPressed: () => setState(() => _selectedIndex = 6),
-                          icon: const Icon(
-                            Icons.analytics_outlined,
-                            size: 20,
-                            color: Colors.white,
-                          ),
-                        ),
-                ),
-              ],
-            ),
-          ),
-          _buildQuickMenu(),
-          Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _buildSectionTitle(
-                  SettingsController.instance.getString('today_summary'),
-                ),
-                const SizedBox(height: 16),
-                Wrap(
-                  spacing: 12,
-                  runSpacing: 12,
-                  children: [
-                    StatCard(
-                      title: SettingsController.instance.getString('income'),
-                      value: currencyFormat.format(controller.todaySales),
-                      icon: Icons.attach_money_rounded,
-                      color: const Color(0xFFEA5700),
-                      horizontal: true,
-                      onTap: () => setState(() => _selectedIndex = 6),
-                    ),
-                    StatCard(
-                      title: SettingsController.instance.getString(
-                        'transactions',
-                      ),
-                      value: '${controller.transactionCount}',
-                      icon: Icons.receipt_long_rounded,
-                      color: const Color(0xFF2196F3),
-                      horizontal: true,
-                      onTap: () => setState(() => _selectedIndex = 4),
-                    ),
-                    FutureBuilder<int>(
-                      future: _getTotalProducts(controller),
-                      builder: (context, snapshot) {
-                        return StatCard(
-                          title: SettingsController.instance.getString(
-                            'nav_inventory',
-                          ),
-                          value: '${snapshot.data ?? 0}',
-                          icon: Icons.inventory_2_rounded,
-                          color: const Color(0xFF4CAF50),
-                          horizontal: true,
-                          onTap: () => setState(() => _selectedIndex = 1),
-                        );
-                      },
-                    ),
-                    FutureBuilder<int>(
-                      future: _getTotalEmployees(controller),
-                      builder: (context, snapshot) {
-                        return StatCard(
-                          title: SettingsController.instance.getString(
-                            'employee_list',
-                          ),
-                          value: '${snapshot.data ?? 0}',
-                          icon: Icons.people_rounded,
-                          color: const Color(0xFF9C27B0),
-                          horizontal: true,
-                          onTap: () => setState(() => _selectedIndex = 5),
-                        );
-                      },
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 32),
-                _buildLowStockInsights(controller),
-                const SizedBox(height: 32),
-                _buildSectionTitle(
-                  SettingsController.instance.getString('lifetime_revenue'),
-                ),
-                const SizedBox(height: 16),
-                FutureBuilder<List<Map<String, dynamic>>>(
-                  future: _getLifetimeRevenue(controller),
-                  builder: (context, snapshot) {
-                    return _buildLifetimeRevenueChart(
-                      snapshot.data ?? [],
-                      currencyFormat,
-                    );
-                  },
-                ),
-                const SizedBox(height: 32),
-                _buildSectionTitle(
-                  SettingsController.instance.getString('growth_indicators'),
-                ),
-                const SizedBox(height: 16),
-                Consumer<AnalyticsController>(
-                  builder: (context, analytics, _) {
-                    if (analytics.isLoading) {
-                      return const Center(child: CupertinoActivityIndicator());
-                    }
-                    return _buildGrowthIndicators(
-                      analytics.weeklyGrowth,
-                      analytics.monthlyGrowth,
-                      Theme.of(context).brightness == Brightness.dark,
-                    );
-                  },
-                ),
-                const SizedBox(height: 32),
-                _buildSectionTitle(
-                  SettingsController.instance.getString('recent_transactions'),
-                ),
-                const SizedBox(height: 16),
-                FutureBuilder<List<Map<String, dynamic>>>(
-                  future: _getRecentTransactions(controller),
-                  builder: (context, snapshot) {
-                    return RecentTransactionsList(
-                      transactions: snapshot.data ?? [],
-                      currencyFormat: currencyFormat,
-                      onViewAll: () => setState(() => _selectedIndex = 4),
-                    );
-                  },
-                ),
-              ],
-            ),
-          ),
-        ],
+  Future<bool> _showExitConfirmation() async {
+    final res = await showDialog<bool>(
+      context: context,
+      builder: (context) => KasirDialog(
+        title: "Keluar Aplikasi",
+        message: "Apakah Anda yakin ingin menutup dan keluar dari aplikasi Warkop Alam POS?",
+        icon: Icons.power_settings_new_rounded,
+        iconColor: Colors.redAccent,
+        isDestructive: true,
+        primaryActionLabel: "Keluar",
+        onPrimaryAction: () => Navigator.pop(context, true),
+        secondaryActionLabel: "Batal",
+        onSecondaryAction: () => Navigator.pop(context, false),
       ),
     );
-
-    return RefreshIndicator(
-      onRefresh: controller.loadInitialData,
-      color: _primaryColor,
-      child: SingleChildScrollView(
-        padding: EdgeInsets.all(isWide ? 20 : 0),
-        physics: const BouncingScrollPhysics(
-          parent: AlwaysScrollableScrollPhysics(),
-        ),
-        child: content,
-      ),
-    );
-  }
-
-  Widget _buildSectionTitle(String title) {
-    return Text(
-      title,
-      style: GoogleFonts.poppins(
-        fontSize: 12,
-        fontWeight: FontWeight.bold,
-        color: Colors.grey[500],
-        letterSpacing: 1.2,
-      ),
-    );
-  }
-
-  Future<int> _getTotalProducts(AdminController controller) async {
-    try {
-      final db = controller.database;
-      if (db == null) return 0;
-      final result = await db
-          .customSelect(
-            'SELECT COUNT(*) as count FROM products WHERE store_id = ? AND is_deleted = 0',
-            variables: [Variable.withString(controller.storeId!)],
-          )
-          .getSingle();
-      return result.data['count'] as int? ?? 0;
-    } catch (e) {
-      return 0;
-    }
-  }
-
-  Future<int> _getTotalEmployees(AdminController controller) async {
-    try {
-      final db = controller.database;
-      if (db == null) return 0;
-      final result = await db
-          .customSelect(
-            'SELECT COUNT(*) as count FROM profiles WHERE store_id = ? AND role = ?',
-            variables: [
-              Variable.withString(controller.storeId!),
-              Variable.withString('cashier'),
-            ],
-          )
-          .getSingle();
-      return result.data['count'] as int? ?? 0;
-    } catch (e) {
-      return 0;
-    }
-  }
-
-  Future<List<Map<String, dynamic>>> _getRecentTransactions(
-    AdminController controller,
-  ) async {
-    try {
-      final db = controller.database;
-      if (db == null) return [];
-      final results = await db
-          .customSelect(
-            '''
-        SELECT 
-          t.id, t.total_amount, t.created_at, t.cashier_id, p.full_name as cashier_name
-        FROM transactions t
-        LEFT JOIN profiles p ON t.cashier_id = p.id
-        WHERE t.store_id = ?
-        ORDER BY t.created_at DESC LIMIT 10
-        ''',
-            variables: [Variable.withString(controller.storeId!)],
-            readsFrom: {db.transactions, db.profiles},
-          )
-          .get();
-
-      return results.map((row) {
-        DateTime? date;
-        final createdAtValue = row.data['created_at'];
-        if (createdAtValue is int) {
-          date = DateTime.fromMillisecondsSinceEpoch(createdAtValue).toLocal();
-        } else if (createdAtValue is DateTime) {
-          date = createdAtValue.toLocal();
-        }
-
-        final txId = row.data['id'] as String? ?? '';
-        final invoiceNumber = txId.isNotEmpty
-            ? 'INV-${txId.substring(0, 8).toUpperCase()}'
-            : '-';
-
-        return {
-          'invoice_number': invoiceNumber,
-          'total': (row.data['total_amount'] as num?)?.toDouble() ?? 0.0,
-          'date': date,
-          'cashier': row.data['cashier_name'] as String? ?? 'System',
-          'status': 'completed',
-        };
-      }).toList();
-    } catch (e) {
-      return [];
-    }
+    return res ?? false;
   }
 
   Future<void> _handleLogout() async {
-    final shouldLogout = await showCupertinoDialog<bool>(
+    final shouldLogout = await showDialog<bool>(
       context: context,
-      builder: (context) => CupertinoAlertDialog(
-        title: const Text('Konfirmasi Logout'),
-        content: const Text('Apakah Anda yakin ingin keluar?'),
-        actions: [
-          CupertinoDialogAction(
-            child: const Text('Batal'),
-            onPressed: () => Navigator.pop(context, false),
-          ),
-          CupertinoDialogAction(
-            isDestructiveAction: true,
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Logout'),
-          ),
-        ],
+      builder: (context) => KasirDialog(
+        title: "Konfirmasi Logout",
+        message: "Apakah Anda yakin ingin keluar dari akun ini?",
+        icon: Icons.logout_rounded,
+        iconColor: Colors.orangeAccent,
+        isDestructive: true,
+        primaryActionLabel: "Keluar Sesi",
+        onPrimaryAction: () => Navigator.pop(context, true),
+        secondaryActionLabel: "Batal",
+        onSecondaryAction: () => Navigator.pop(context, false),
       ),
     );
 
     if (shouldLogout == true && mounted) {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.remove('user_id');
-      await prefs.remove('store_id');
-      await prefs.remove('user_role');
+      final activationService = ActivationService();
+      await activationService.logout();
       if (mounted) Navigator.of(context).pushReplacementNamed('/login');
     }
   }
+}
 
-  Future<List<Map<String, dynamic>>> _getLifetimeRevenue(
-    AdminController controller,
-  ) async {
-    try {
-      final db = controller.database;
-      if (db == null) return [];
-      final results = await db
-          .customSelect(
-            '''
-        SELECT 
-          strftime('%Y-%m', datetime(created_at, 'unixepoch')) as month,
-          SUM(total_amount) as revenue
-        FROM transactions
-        WHERE store_id = ? GROUP BY month ORDER BY month ASC
-        ''',
-            variables: [Variable.withString(controller.storeId!)],
-          )
-          .get();
+class _QuickMenuPage extends StatelessWidget {
+  final VoidCallback onMenuPressed;
+  final VoidCallback onLogout;
+  final Function(int) onIndexSelected;
 
-      return results.map((row) {
-        final monthStr = row.data['month'] as String?;
-        final revenue = (row.data['revenue'] as num?)?.toDouble() ?? 0.0;
-        String label = monthStr ?? '';
-        if (monthStr != null) {
-          try {
-            final parts = monthStr.split('-');
-            if (parts.length == 2) {
-              final month = int.parse(parts[1]);
-              final monthNames = [
-                'Jan',
-                'Feb',
-                'Mar',
-                'Apr',
-                'May',
-                'Jun',
-                'Jul',
-                'Aug',
-                'Sep',
-                'Oct',
-                'Nov',
-                'Dec',
-              ];
-              label = '${monthNames[month - 1]} ${parts[0].substring(2)}';
-            }
-          } catch (e) {
-            // If parsing fails, we fall back to the original monthStr label
-          }
-        }
-        return {'label': label, 'amount': revenue};
-      }).toList();
-    } catch (e) {
-      return [];
-    }
-  }
+  const _QuickMenuPage({
+    required this.onMenuPressed,
+    required this.onLogout,
+    required this.onIndexSelected,
+  });
 
-  Widget _buildLifetimeRevenueChart(
-    List<Map<String, dynamic>> chartData,
-    NumberFormat currency,
-  ) {
+  @override
+  Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    return PinterestCard(
-      padding: const EdgeInsets.fromLTRB(10, 24, 24, 20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (chartData.isEmpty)
-            const Center(
-              child: Padding(
-                padding: EdgeInsets.all(40.0),
-                child: Text('Belum ada data transaksi'),
-              ),
-            )
-          else
-            SizedBox(
-              height: 240,
-              child: LineChart(
-                LineChartData(
-                  gridData: FlGridData(
-                    show: true,
-                    drawVerticalLine: false,
-                    getDrawingHorizontalLine: (val) => FlLine(
-                      color: isDark
-                          ? Colors.white.withValues(alpha: 0.05)
-                          : Colors.black.withValues(alpha: 0.05),
-                      strokeWidth: 1,
-                    ),
-                  ),
-                  titlesData: FlTitlesData(
-                    show: true,
-                    rightTitles: const AxisTitles(
-                      sideTitles: SideTitles(showTitles: false),
-                    ),
-                    topTitles: const AxisTitles(
-                      sideTitles: SideTitles(showTitles: false),
-                    ),
-                    leftTitles: AxisTitles(
-                      sideTitles: SideTitles(
-                        showTitles: true,
-                        reservedSize: 60,
-                        getTitlesWidget: (value, meta) => SideTitleWidget(
-                          meta: meta,
-                          space: 12,
-                          child: Text(
-                            NumberFormat.compactSimpleCurrency(
-                              locale: 'id',
-                            ).format(value),
-                            style: GoogleFonts.inter(
-                              fontSize: 10,
-                              color: Colors.grey[500],
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                    bottomTitles: AxisTitles(
-                      sideTitles: SideTitles(
-                        showTitles: true,
-                        reservedSize: 30,
-                        getTitlesWidget: (value, meta) {
-                          final idx = value.toInt();
-                          if (idx >= 0 && idx < chartData.length) {
-                            return SideTitleWidget(
-                              meta: meta,
-                              space: 8,
-                              child: Text(
-                                chartData[idx]['label'],
-                                style: GoogleFonts.inter(
-                                  fontSize: 10,
-                                  color: Colors.grey[500],
-                                ),
-                              ),
-                            );
-                          }
-                          return const SizedBox.shrink();
-                        },
-                      ),
-                    ),
-                  ),
-                  borderData: FlBorderData(show: false),
-                  lineBarsData: [
-                    LineChartBarData(
-                      spots: List.generate(chartData.length, (i) {
-                        return FlSpot(i.toDouble(), chartData[i]['amount']);
-                      }),
-                      isCurved: true,
-                      curveSmoothness: 0.35,
-                      color: const Color(0xFFEA5700),
-                      barWidth: 4,
-                      dotData: const FlDotData(show: false),
-                      belowBarData: BarAreaData(
-                        show: true,
-                        gradient: LinearGradient(
-                          colors: [
-                            const Color(0xFFEA5700).withValues(alpha: 0.2),
-                            const Color(0xFFEA5700).withValues(alpha: 0.0),
-                          ],
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                        ),
-                      ),
-                    ),
-                  ],
-                  lineTouchData: LineTouchData(
-                    touchTooltipData: LineTouchTooltipData(
-                      getTooltipColor: (_) =>
-                          isDark ? const Color(0xFF2C2C2E) : Colors.white,
-                      tooltipRoundedRadius: 12,
-                      getTooltipItems: (touchedSpots) {
-                        return touchedSpots
-                            .map(
-                              (spot) => LineTooltipItem(
-                                currency.format(spot.y),
-                                GoogleFonts.poppins(
-                                  color: isDark ? Colors.white : Colors.black87,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 12,
-                                ),
-                              ),
-                            )
-                            .toList();
-                      },
-                    ),
-                  ),
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
 
-  Widget _buildGrowthIndicators(double weekly, double monthly, bool isDark) {
-    return Column(
-      children: [
-        _buildGrowthMiniCard(
-          SettingsController.instance.getString('weekly_trend'),
-          weekly,
-          isDark,
-        ),
-        const SizedBox(height: 12),
-        _buildGrowthMiniCard(
-          SettingsController.instance.getString('monthly_trend'),
-          monthly,
-          isDark,
-        ),
-      ],
-    );
-  }
-
-  Widget _buildGrowthMiniCard(String label, double growth, bool isDark) {
-    final isPos = growth >= 0;
-    final color = isPos ? const Color(0xFF10B981) : const Color(0xFFEF4444);
-
-    return PinterestCard(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-      child: Row(
-        children: [
-          Icon(
-            isPos
-                ? CupertinoIcons.arrow_up_circle_fill
-                : CupertinoIcons.arrow_down_circle_fill,
-            color: color,
-            size: 24,
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Text(
-              label,
-              style: GoogleFonts.inter(
-                fontWeight: FontWeight.w600,
-                fontSize: 14,
-              ),
-            ),
-          ),
-          Text(
-            "${isPos ? '+' : ''}${growth.toStringAsFixed(1)}%",
-            style: GoogleFonts.poppins(
-              fontWeight: FontWeight.bold,
-              fontSize: 16,
-              color: color,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<List<Product>> _getLowStockProducts(AdminController controller) async {
-    final db = context.read<AppDatabase>();
-    return (db.select(db.products)..where(
-          (t) =>
-              t.storeId.equals(controller.storeId!) &
-              t.isStockManaged.equals(true) &
-              t.stockQuantity.isSmallerThanValue(5) &
-              t.isDeleted.equals(false),
-        ))
-        .get();
-  }
-
-  Widget _buildLowStockInsights(AdminController controller) {
-    return FutureBuilder<List<Product>>(
-      future: _getLowStockProducts(controller),
-      builder: (context, snapshot) {
-        if (!snapshot.hasData || snapshot.data!.isEmpty) {
-          return const SizedBox.shrink();
-        }
-
-        final lowStockItems = snapshot.data!;
-
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+    return Scaffold(
+      backgroundColor: isDark ? Colors.black : Colors.grey.shade50,
+      appBar: AppBar(
+        title: Row(
           children: [
-            Row(
-              children: [
-                _buildSectionTitle("INSIGHT STOK RENDAH"),
-                const SizedBox(width: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 2,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.red,
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Text(
-                    "${lowStockItems.length}",
-                    style: GoogleFonts.inter(
-                      color: Colors.white,
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ],
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Image.asset(
+                'assets/logo/logo.png',
+                height: 24,
+                fit: BoxFit.contain,
+              ),
             ),
-            const SizedBox(height: 16),
-            PinterestCard(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                children: lowStockItems.take(3).map((p) {
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 40,
-                          height: 40,
-                          decoration: BoxDecoration(
-                            color: Colors.red.withValues(alpha: 0.1),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: const Icon(
-                            Icons.warning_amber_rounded,
-                            color: Colors.red,
-                            size: 20,
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                p.name ?? "Produk",
-                                style: GoogleFonts.poppins(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 14,
-                                ),
-                              ),
-                              Text(
-                                "Tersisa ${p.stockQuantity} item",
-                                style: GoogleFonts.inter(
-                                  color: Colors.red,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        TextButton(
-                          onPressed: () => setState(() => _selectedIndex = 1),
-                          child: const Text("Update"),
-                        ),
-                      ],
-                    ),
-                  );
-                }).toList(),
+            const SizedBox(width: 12),
+            Text(
+              "Pengaturan",
+              style: GoogleFonts.plusJakartaSans(
+                fontWeight: FontWeight.w700,
+                color: isDark ? Colors.white : Colors.black87,
+                fontSize: 18,
               ),
             ),
           ],
+        ),
+        centerTitle: false,
+        backgroundColor: isDark ? const Color(0xFF1A1A1A) : Colors.white,
+        elevation: 0,
+        automaticallyImplyLeading: false,
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(1),
+          child: Container(
+            color: isDark ? const Color(0xFF374151) : const Color(0xFFE2E8F0),
+            height: 1,
+          ),
+        ),
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SizedBox(height: 8),
+            // ── Operasional & Perangkat ────────────────
+            _buildSectionTitle("Operasional & Perangkat", isDark),
+            _buildGroupedSection(isDark: isDark, items: [
+              _buildActionNavCard(
+                title: "Pengaturan Printer",
+                icon: Icons.print_outlined,
+                isDark: isDark,
+                onTap: () => onIndexSelected(7),
+              ),
+              _buildActionNavCard(
+                title: "Pengaturan Transaksi",
+                icon: Icons.receipt_long_rounded,
+                isDark: isDark,
+                onTap: () => onIndexSelected(19),
+              ),
+            ]),
+            const SizedBox(height: 24),
+            // ── Karyawan & Absensi ─────────────────────
+            _buildSectionTitle("Karyawan & Absensi", isDark),
+            _buildGroupedSection(isDark: isDark, items: [
+              _buildMenuTile(
+                index: 5,
+                label: "Kelola Pegawai & Gaji",
+                icon: Icons.badge_outlined,
+                isDark: isDark,
+              ),
+              _buildMenuTile(
+                index: 16,
+                label: "Absensi Pegawai",
+                icon: Icons.fingerprint_rounded,
+                isDark: isDark,
+              ),
+            ]),
+            const SizedBox(height: 24),
+            // ── Sistem & Pengaturan ────────────────────
+            _buildSectionTitle("Sistem & Pengaturan", isDark),
+            _buildGroupedSection(isDark: isDark, items: [
+              _buildMenuTile(
+                index: 18,
+                label: "Pencadangan & Pemulihan",
+                icon: Icons.storage_rounded,
+                isDark: isDark,
+              ),
+              _buildThemeTile(isDark),
+              _buildMenuTile(
+                index: 8,
+                label: "Profil Toko",
+                icon: Icons.store_outlined,
+                isDark: isDark,
+              ),
+              _buildMenuTile(
+                index: 20,
+                label: "Syarat & Ketentuan",
+                icon: Icons.description_outlined,
+                isDark: isDark,
+              ),
+              _buildVersionTile(isDark),
+              _buildLogoutTile(isDark),
+            ]),
+            const SizedBox(height: 40),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildGroupedSection({
+    required bool isDark,
+    required List<Widget> items,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: isDark ? Colors.white.withValues(alpha: 0.05) : Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isDark ? Colors.white10 : Colors.grey.shade200,
+        ),
+      ),
+      child: Column(
+        children: List.generate(items.length * 2 - 1, (i) {
+          if (i.isOdd) {
+            return Divider(
+              height: 1,
+              indent: 60,
+              color: isDark ? Colors.white10 : Colors.grey.shade200,
+            );
+          }
+          return items[i ~/ 2];
+        }),
+      ),
+    );
+  }
+
+  Widget _buildSectionTitle(String title, bool isDark) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 4, bottom: 12),
+      child: Text(
+        title,
+        style: GoogleFonts.plusJakartaSans(
+          fontSize: 14,
+          fontWeight: FontWeight.w600,
+          color: isDark ? Colors.white70 : Colors.black54,
+          letterSpacing: 0.5,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMenuTile({
+    required int index,
+    required String label,
+    required IconData icon,
+    required bool isDark,
+  }) {
+    return ListTile(
+      onTap: () => onIndexSelected(index),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      leading: Icon(
+        icon,
+        color: isDark ? Colors.white70 : Colors.black87,
+        size: 22,
+      ),
+      title: Text(
+        label,
+        style: GoogleFonts.openSans(
+          fontSize: 15,
+          fontWeight: FontWeight.w500,
+          color: isDark ? Colors.white : Colors.black87,
+        ),
+      ),
+      trailing: Icon(
+        Icons.chevron_right,
+        color: isDark ? Colors.white24 : Colors.grey.shade400,
+        size: 20,
+      ),
+    );
+  }
+
+  Widget _buildLogoutTile(bool isDark) {
+    return ListTile(
+      onTap: onLogout,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      leading: const Icon(Icons.logout_rounded, color: Colors.red, size: 22),
+      title: Text(
+        "Keluar Akun",
+        style: GoogleFonts.openSans(
+          fontSize: 15,
+          fontWeight: FontWeight.w600,
+          color: Colors.red,
+        ),
+      ),
+      trailing: Icon(
+        Icons.chevron_right,
+        color: Colors.red.withValues(alpha: 0.3),
+        size: 20,
+      ),
+    );
+  }
+
+  Widget _buildVersionTile(bool isDark) {
+    return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      leading: Icon(
+        Icons.info_outline_rounded,
+        color: isDark ? Colors.white70 : Colors.black87,
+        size: 22,
+      ),
+      title: Text(
+        "Versi Aplikasi",
+        style: GoogleFonts.openSans(
+          fontSize: 15,
+          fontWeight: FontWeight.w500,
+          color: isDark ? Colors.white : Colors.black87,
+        ),
+      ),
+      trailing: Text(
+        "1.0.0",
+        style: GoogleFonts.robotoMono(
+          fontSize: 14,
+          fontWeight: FontWeight.w600,
+          color: isDark ? Colors.white38 : Colors.grey,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildThemeTile(bool isDark) {
+    return ValueListenableBuilder<ThemeMode>(
+      valueListenable: ThemeController.instance.themeMode,
+      builder: (context, mode, child) {
+        final isDarkMode = mode == ThemeMode.dark;
+        return _buildGenericSettingTile(
+          label: "Mode Gelap",
+          icon: isDarkMode
+              ? Icons.dark_mode
+              : Icons.light_mode,
+          isDark: isDark,
+          trailing: CupertinoSwitch(
+            value: isDarkMode,
+            onChanged: (val) => ThemeController.instance.toggleTheme(),
+          ),
+          onTap: () => ThemeController.instance.toggleTheme(),
         );
       },
     );
   }
 
-  Widget _buildQuickMenu() {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(24, 24, 24, 12),
-          child: Text(
-            "Akses Cepat",
-            style: GoogleFonts.poppins(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-              color: isDark ? Colors.white : const Color(0xFF2D3436),
-            ),
-          ),
+  Widget _buildGenericSettingTile({
+    required String label,
+    required IconData icon,
+    required bool isDark,
+    Widget? trailing,
+    required VoidCallback onTap,
+  }) {
+    return ListTile(
+      onTap: onTap,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      leading: Icon(
+        icon,
+        color: isDark ? Colors.white70 : Colors.black87,
+        size: 22,
+      ),
+      title: Text(
+        label,
+        style: GoogleFonts.openSans(
+          fontSize: 15,
+          fontWeight: FontWeight.w500,
+          color: isDark ? Colors.white : Colors.black87,
         ),
-        SizedBox(
-          height: 110,
-          child: ListView(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            children: [
-              _buildQuickMenuItem(
-                "Dashboard",
-                CupertinoIcons.square_grid_2x2_fill,
-                () => setState(() => _selectedIndex = 0),
-                isDark,
-                const Color(0xFF3498DB), // Blue
-              ),
-              _buildQuickMenuItem(
-                "Barang",
-                CupertinoIcons.cube_box_fill,
-                () => setState(() => _selectedIndex = 1),
-                isDark,
-                const Color(0xFF2ECC71), // Green
-              ),
-              _buildQuickMenuItem(
-                "Kategori",
-                CupertinoIcons.grid,
-                () => setState(() => _selectedIndex = 2),
-                isDark,
-                const Color(0xFF9B59B6), // Purple
-              ),
-              _buildQuickMenuItem(
-                "Kasir",
-                CupertinoIcons.cart_fill,
-                () => setState(() => _selectedIndex = 3),
-                isDark,
-                const Color(0xFFEA5700), // Original Orange
-              ),
-              _buildQuickMenuItem(
-                "Riwayat",
-                CupertinoIcons.doc_text_fill,
-                () => setState(() => _selectedIndex = 4),
-                isDark,
-                const Color(0xFF1ABC9C), // Teal
-              ),
-              _buildQuickMenuItem(
-                "Karyawan",
-                CupertinoIcons.person_2_fill,
-                () => setState(() => _selectedIndex = 5),
-                isDark,
-                const Color(0xFFE91E63), // Pink
-              ),
-              _buildQuickMenuItem(
-                "Analitik",
-                CupertinoIcons.graph_square_fill,
-                () => setState(() => _selectedIndex = 6),
-                isDark,
-                const Color(0xFF00BCD4), // Cyan
-              ),
-              _buildQuickMenuItem(
-                "Laba Rugi",
-                CupertinoIcons.graph_circle_fill,
-                () => setState(() => _selectedIndex = 11),
-                isDark,
-                const Color(0xFF6C5CE7), // Soft Indigo
-              ),
-              _buildQuickMenuItem(
-                "Pelanggan",
-                CupertinoIcons.person_crop_circle_fill,
-                () => setState(() => _selectedIndex = 12),
-                isDark,
-                const Color(0xFFF1C40F), // Sun Flower Yellow
-              ),
-              _buildQuickMenuItem(
-                "Data",
-                CupertinoIcons.cloud_download_fill,
-                () => setState(() => _selectedIndex = 10),
-                isDark,
-                const Color(0xFFE17055), // Terra Cotta
-              ),
-              _buildQuickMenuItem(
-                "Printer",
-                CupertinoIcons.printer_fill,
-                () => setState(() => _selectedIndex = 7),
-                isDark,
-                const Color(0xFF636E72), // American River Grey
-              ),
-              _buildQuickMenuItem(
-                "Promosi",
-                CupertinoIcons.percent,
-                () => setState(() => _selectedIndex = 9),
-                isDark,
-                const Color(0xFFD63031), // Chi-Gong Red
-              ),
-            ],
+      ),
+      trailing:
+          trailing ??
+          Icon(
+            Icons.chevron_right,
+            color: isDark ? Colors.white24 : Colors.grey.shade400,
+            size: 20,
           ),
-        ),
-      ],
     );
   }
 
-  Widget _buildQuickMenuItem(
-    String label,
-    IconData icon,
-    VoidCallback onTap,
-    bool isDark,
-    Color itemColor,
-  ) {
-    return Padding(
-      padding: const EdgeInsets.all(4.0),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(16),
-        child: Container(
-          width: 90,
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          decoration: BoxDecoration(
-            color: isDark ? const Color(0xFF2C2C2E) : Colors.white,
-            borderRadius: BorderRadius.circular(20),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.04),
-                blurRadius: 10,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: itemColor.withValues(alpha: 0.1),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(icon, size: 24, color: itemColor),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                label,
-                style: GoogleFonts.inter(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  color: isDark ? Colors.white70 : Colors.black87,
-                ),
-                textAlign: TextAlign.center,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ],
-          ),
+  // ── Action Nav Card (Printer / Transaksi) ────────────────────────────────
+  Widget _buildActionNavCard({
+    required String title,
+    required IconData icon,
+    required bool isDark,
+    required VoidCallback onTap,
+  }) {
+    return ListTile(
+      onTap: onTap,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      leading: Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: Colors.blue.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(12),
         ),
+        child: Icon(icon, color: Colors.blue, size: 22),
+      ),
+      title: Text(
+        title,
+        style: GoogleFonts.plusJakartaSans(
+          fontSize: 15,
+          fontWeight: FontWeight.w600,
+          color: isDark ? Colors.white : Colors.black87,
+        ),
+      ),
+      trailing: Icon(
+        Icons.chevron_right_rounded,
+        color: isDark ? Colors.white24 : Colors.grey.shade400,
       ),
     );
   }
 }
+

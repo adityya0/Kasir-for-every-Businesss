@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/cupertino.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
@@ -9,12 +8,14 @@ import '../../services/export_service.dart';
 import '../../services/bulk_import_service.dart';
 import '../../services/platform/file_manager.dart';
 import '../../controllers/admin_controller.dart';
-import '../../widgets/asri_dialog.dart';
+import '../../widgets/kasir_dialog.dart';
+import '../../widgets/reset_transactions_dialog.dart';
 import 'package:drift/drift.dart' hide Column;
 
 class DataManagementPage extends StatefulWidget {
   final VoidCallback? onMenuPressed;
-  const DataManagementPage({super.key, this.onMenuPressed});
+  final VoidCallback? onBack;
+  const DataManagementPage({super.key, this.onMenuPressed, this.onBack});
 
   @override
   State<DataManagementPage> createState() => _DataManagementPageState();
@@ -43,16 +44,22 @@ class _DataManagementPageState extends State<DataManagementPage> {
   }
 
   Future<void> _exportProducts() async {
+    final adminCtrl = context.read<AdminController>();
+    final storeId = adminCtrl.storeId;
+    if (storeId == null) {
+      _showError("Store belum siap. Silakan coba kembali.");
+      return;
+    }
+
     setState(() => _isLoading = true);
     try {
       final db = context.read<AppDatabase>();
-      final adminCtrl = context.read<AdminController>();
       final products = await (db.select(
         db.products,
-      )..where((t) => t.storeId.equals(adminCtrl.storeId!))).get();
+      )..where((t) => t.storeId.equals(storeId))).get();
 
       final bytes = await _exportService.generateProductsExcel(
-        adminCtrl.storeName ?? "ASRI Store",
+        adminCtrl.storeName ?? "Warkop Alam POS",
         products,
       );
 
@@ -114,7 +121,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
   }) {
     showDialog(
       context: context,
-      builder: (ctx) => AsriDialog(
+      builder: (ctx) => KasirDialog(
         title: "Hasil Impor",
         icon: success > 0 ? Icons.check_circle_rounded : Icons.info_rounded,
         iconColor: success > 0 ? _colors['import'] : Colors.orange,
@@ -142,9 +149,9 @@ class _DataManagementPageState extends State<DataManagementPage> {
                   children: [
                     Text(
                       "Detail Kesalahan:",
-                      style: GoogleFonts.inter(
+                      style: GoogleFonts.openSans(
                         fontSize: 12,
-                        fontWeight: FontWeight.bold,
+                        fontWeight: FontWeight.w600,
                         color: Colors.red,
                       ),
                     ),
@@ -157,7 +164,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
                           padding: const EdgeInsets.only(bottom: 4),
                           child: Text(
                             "• ${errors[i]}",
-                            style: GoogleFonts.inter(
+                            style: GoogleFonts.openSans(
                               fontSize: 11,
                               color: Colors.red[700],
                             ),
@@ -182,15 +189,15 @@ class _DataManagementPageState extends State<DataManagementPage> {
       children: [
         Text(
           value,
-          style: GoogleFonts.poppins(
+          style: GoogleFonts.plusJakartaSans(
             fontSize: 24,
-            fontWeight: FontWeight.bold,
+            fontWeight: FontWeight.w600,
             color: color,
           ),
         ),
         Text(
           label,
-          style: GoogleFonts.inter(
+          style: GoogleFonts.openSans(
             fontSize: 12,
             color: Colors.grey,
             fontWeight: FontWeight.w500,
@@ -201,13 +208,19 @@ class _DataManagementPageState extends State<DataManagementPage> {
   }
 
   Future<void> _exportTransactions(String type) async {
+    final adminCtrl = context.read<AdminController>();
+    final storeId = adminCtrl.storeId;
+    if (storeId == null) {
+      _showError("Store belum siap. Silakan coba kembali.");
+      return;
+    }
+
     setState(() => _isLoading = true);
     try {
       final db = context.read<AppDatabase>();
-      final adminCtrl = context.read<AdminController>();
       final transactions =
           await (db.select(db.transactions)
-                ..where((t) => t.storeId.equals(adminCtrl.storeId!))
+                ..where((t) => t.storeId.equals(storeId))
                 ..orderBy([(t) => OrderingTerm.desc(t.createdAt)]))
               .get();
 
@@ -222,7 +235,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
 
       if (type == 'pdf') {
         bytes = await _exportService.generateTransactionsPdf(
-          adminCtrl.storeName ?? "ASRI Store",
+          adminCtrl.storeName ?? "Warkop Alam POS",
           transactions,
         );
         filename =
@@ -230,7 +243,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
         mimeType = "application/pdf";
       } else {
         bytes = await _exportService.generateTransactionsExcel(
-          adminCtrl.storeName ?? "ASRI Store",
+          adminCtrl.storeName ?? "Warkop Alam POS",
           transactions,
         );
         filename =
@@ -254,8 +267,13 @@ class _DataManagementPageState extends State<DataManagementPage> {
 
   // Stock Management Methods
   Future<void> _handleRestockAll() async {
-    final db = context.read<AppDatabase>();
     final adminCtrl = context.read<AdminController>();
+    final storeId = adminCtrl.storeId;
+    if (storeId == null) {
+      _showError("Store belum siap. Silakan coba kembali.");
+      return;
+    }
+    final db = context.read<AppDatabase>();
 
     final amount = await _showRestockAmountDialog("Restock Semua Barang");
     if (amount == null || amount <= 0) return;
@@ -266,13 +284,13 @@ class _DataManagementPageState extends State<DataManagementPage> {
       // Update all products with stock management enabled
       await (db.update(db.products)..where(
             (t) =>
-                t.storeId.equals(adminCtrl.storeId!) &
+                t.storeId.equals(storeId) &
                 t.isStockManaged.equals(true) &
                 t.isDeleted.equals(false),
           ))
           .write(
             ProductsCompanion.custom(
-              stockQuantity: db.products.stockQuantity + Variable(amount),
+              stockQuantity: db.products.stockQuantity + Variable(amount.toDouble()),
             ),
           );
 
@@ -287,12 +305,17 @@ class _DataManagementPageState extends State<DataManagementPage> {
   }
 
   Future<void> _handleRestockByCategory() async {
-    final db = context.read<AppDatabase>();
     final adminCtrl = context.read<AdminController>();
+    final storeId = adminCtrl.storeId;
+    if (storeId == null) {
+      _showError("Store belum siap. Silakan coba kembali.");
+      return;
+    }
+    final db = context.read<AppDatabase>();
 
     final categories = await (db.select(
       db.categories,
-    )..where((t) => t.storeId.equals(adminCtrl.storeId!))).get();
+    )..where((t) => t.storeId.equals(storeId))).get();
     if (categories.isEmpty) {
       if (!mounted) return;
       _showError("Belum ada kategori");
@@ -303,7 +326,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
     if (selectedCategory == null) return;
 
     final amount = await _showRestockAmountDialog(
-      "Restock Kategori: ${selectedCategory.name}",
+      "Restock Kategori: ${selectedCategory.name ?? ''}",
     );
     if (amount == null || amount <= 0) return;
 
@@ -312,20 +335,20 @@ class _DataManagementPageState extends State<DataManagementPage> {
     try {
       await (db.update(db.products)..where(
             (t) =>
-                t.storeId.equals(adminCtrl.storeId!) &
+                t.storeId.equals(storeId) &
                 t.categoryId.equals(selectedCategory.id) &
                 t.isStockManaged.equals(true) &
                 t.isDeleted.equals(false),
           ))
           .write(
             ProductsCompanion.custom(
-              stockQuantity: db.products.stockQuantity + Variable(amount),
+              stockQuantity: db.products.stockQuantity + Variable(amount.toDouble()),
             ),
           );
 
       if (!mounted) return;
       _showSuccess(
-        "Berhasil menambah $amount stok ke kategori ${selectedCategory.name}",
+        "Berhasil menambah $amount stok ke kategori ${selectedCategory.name ?? ''}",
       );
     } catch (e) {
       if (!mounted) return;
@@ -336,14 +359,19 @@ class _DataManagementPageState extends State<DataManagementPage> {
   }
 
   Future<void> _handleEmptyStock(bool all) async {
-    final db = context.read<AppDatabase>();
     final adminCtrl = context.read<AdminController>();
+    final storeId = adminCtrl.storeId;
+    if (storeId == null) {
+      _showError("Store belum siap. Silakan coba kembali.");
+      return;
+    }
+    final db = context.read<AppDatabase>();
     Category? selectedCategory;
 
     if (!all) {
       final categories = await (db.select(
         db.categories,
-      )..where((t) => t.storeId.equals(adminCtrl.storeId!))).get();
+      )..where((t) => t.storeId.equals(storeId))).get();
       selectedCategory = await _showCategorySelectionDialog(categories);
       if (selectedCategory == null) return;
     }
@@ -351,11 +379,11 @@ class _DataManagementPageState extends State<DataManagementPage> {
     if (!mounted) return;
     final confirm = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AsriDialog(
+      builder: (ctx) => KasirDialog(
         title: all ? "Kosongkan Semua Stok?" : "Kosongkan Stok Kategori?",
         message: all
             ? "Semua stok barang 'Terbatas' akan diubah menjadi 0. Tindakan ini tidak dapat dibatalkan."
-            : "Stok barang '${selectedCategory!.name}' akan diubah menjadi 0. Tindakan ini tidak dapat dibatalkan.",
+            : "Stok barang '${selectedCategory?.name ?? 'Kategori'}' akan diubah menjadi 0. Tindakan ini tidak dapat dibatalkan.",
         icon: Icons.warning_amber_rounded,
         iconColor: _colors['danger'],
         isDestructive: true,
@@ -373,7 +401,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
       final query = db.update(db.products)
         ..where(
           (t) =>
-              t.storeId.equals(adminCtrl.storeId!) &
+              t.storeId.equals(storeId) &
               t.isStockManaged.equals(true) &
               t.isDeleted.equals(false),
         );
@@ -382,7 +410,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
         query.where((t) => t.categoryId.equals(selectedCategory!.id));
       }
 
-      await query.write(const ProductsCompanion(stockQuantity: Value(0)));
+      await query.write(const ProductsCompanion(stockQuantity: Value(0.0)));
 
       if (!mounted) return;
       _showSuccess("Berhasil mengosongkan stok");
@@ -399,7 +427,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
     final controller = TextEditingController();
     return showDialog<int>(
       context: context,
-      builder: (ctx) => AsriDialog(
+      builder: (ctx) => KasirDialog(
         title: title,
         icon: Icons.add_business_rounded,
         iconColor: _colors['restock'],
@@ -409,10 +437,10 @@ class _DataManagementPageState extends State<DataManagementPage> {
               controller: controller,
               keyboardType: TextInputType.number,
               autofocus: true,
-              style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
+              style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w600),
               decoration: InputDecoration(
                 labelText: "Jumlah Tambahan",
-                labelStyle: GoogleFonts.inter(fontSize: 14),
+                labelStyle: GoogleFonts.openSans(fontSize: 14),
                 hintText: "Contoh: 10",
                 filled: true,
                 fillColor: Theme.of(context).brightness == Brightness.dark
@@ -443,9 +471,9 @@ class _DataManagementPageState extends State<DataManagementPage> {
   ) async {
     return showDialog<Category>(
       context: context,
-      builder: (ctx) => AsriDialog(
+      builder: (ctx) => KasirDialog(
         title: "Pilih Kategori",
-        icon: CupertinoIcons.square_grid_2x2_fill,
+        icon: Icons.grid_view,
         iconColor: _colors['category'],
         content: SizedBox(
           width: double.maxFinite,
@@ -479,7 +507,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
                             shape: BoxShape.circle,
                           ),
                           child: Icon(
-                            CupertinoIcons.tag_fill,
+                            Icons.label,
                             size: 14,
                             color: _colors['category'],
                           ),
@@ -487,14 +515,14 @@ class _DataManagementPageState extends State<DataManagementPage> {
                         const SizedBox(width: 16),
                         Text(
                           cat.name!,
-                          style: GoogleFonts.poppins(
+                          style: GoogleFonts.plusJakartaSans(
                             fontWeight: FontWeight.w600,
                             fontSize: 14,
                           ),
                         ),
                         const Spacer(),
                         const Icon(
-                          CupertinoIcons.chevron_right,
+                          Icons.chevron_right,
                           size: 14,
                           color: Colors.grey,
                         ),
@@ -540,257 +568,235 @@ class _DataManagementPageState extends State<DataManagementPage> {
       );
     }
   }
-
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    
     return Scaffold(
-      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      backgroundColor: isDark ? const Color(0xFF000000) : const Color(0xFFF2F2F7),
       appBar: AppBar(
-        title: Text(
-          "Manajemen Data & Stok",
-          style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
+        backgroundColor: isDark ? const Color(0xFF1A1A1A) : Colors.white,
+        elevation: 0,
+        automaticallyImplyLeading: false,
+        centerTitle: false,
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(1),
+          child: Container(
+            color: isDark ? const Color(0xFF374151) : const Color(0xFFE2E8F0),
+            height: 1,
+          ),
         ),
         leading: IconButton(
-          icon: const Icon(CupertinoIcons.bars),
-          onPressed:
-              widget.onMenuPressed ?? () => Scaffold.of(context).openDrawer(),
+          icon: Icon(
+            Icons.arrow_back,
+            color: isDark ? Colors.white : Colors.black87,
+          ),
+          onPressed: () {
+            if (widget.onBack != null) {
+              widget.onBack!();
+            } else if (Navigator.canPop(context)) {
+              Navigator.pop(context);
+            }
+          },
+        ),
+        title: Text(
+          "Manajemen Data & Stok",
+          style: GoogleFonts.plusJakartaSans(
+            fontWeight: FontWeight.w700,
+            color: isDark ? Colors.white : Colors.black87,
+            fontSize: 18,
+          ),
         ),
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : LayoutBuilder(
-              builder: (context, constraints) {
-                return ListView(
-                  padding: const EdgeInsets.all(20),
-                  children: [
-                    _buildSectionHeader("EKSPOR & IMPOR DATA"),
-                    Wrap(
-                      spacing: 16,
-                      runSpacing: 16,
-                      children: [
-                        _buildActionCard(
-                          title: "Ekspor Produk",
-                          subtitle: "Simpan semua produk ke Excel (.xlsx)",
-                          description:
-                              "Download seluruh daftar produk Anda ke dalam file Excel. Berguna untuk cadangan data atau pengeditan massal di luar aplikasi.",
-                          icon: CupertinoIcons.cube_box,
-                          color: _colors['export']!,
-                          onTap: _exportProducts,
-                        ),
-                        _buildActionCard(
-                          title: "Impor Produk",
-                          subtitle: "Unggah Excel untuk input barang massal",
-                          description:
-                              "Gunakan template Excel (dari fitur Ekspor) untuk menambah atau memperbarui ribuan produk sekaligus. Sangat cepat untuk stok baru atau perpindahan data.",
-                          icon: CupertinoIcons.cloud_upload,
-                          color: _colors['import']!,
-                          onTap: _handleBulkImport,
-                        ),
-                        _buildActionCard(
-                          title: "Laporan Transaksi",
-                          subtitle: "Ekspor riwayat ke PDF atau Excel",
-                          description:
-                              "Melihat seluruh sejarah penjualan dalam periode tertentu. Bisa disimpan dalam format PDF (cetak) atau Excel (analisis data).",
-                          icon: CupertinoIcons.doc_text,
-                          color: _colors['transactions']!,
-                          onTap: () => _showExportFormatDialog('transaksi'),
-                        ),
-                      ],
-                    ),
-
-                    const SizedBox(height: 32),
-                    _buildSectionHeader("MANAJEMEN STOK"),
-                    Wrap(
-                      spacing: 16,
-                      runSpacing: 16,
-                      children: [
-                        _buildActionCard(
-                          title: "Restock Semua",
-                          subtitle: "Tambah jumlah stok ke seluruh barang",
-                          description:
-                              "Menambah jumlah stok yang sama ke SELURUH produk yang stoknya dikelola (Terbatas). Contoh: Menambah 10 ke semua barang.",
-                          icon: Icons.playlist_add_check_rounded,
-                          color: _colors['restock']!,
-                          onTap: _handleRestockAll,
-                        ),
-                        _buildActionCard(
-                          title: "Restock per Kategori",
-                          subtitle: "Pilih kategori untuk ditambah stoknya",
-                          description:
-                              "Menambah stok hanya untuk kategori tertentu. Misal: Menambah 20 stok khusus untuk kategori 'Minuman'.",
-                          icon: CupertinoIcons.square_grid_2x2,
-                          color: _colors['category']!,
-                          onTap: _handleRestockByCategory,
-                        ),
-                        _buildActionCard(
-                          title: "Kosongkan Semua Stok",
-                          subtitle: "Setel semua stok barang menjadi 0",
-                          description:
-                              "Mengubah seluruh jumlah stok produk (Terbatas) menjadi 0. Biasanya digunakan saat ingin melakukan stok opname dari awal.",
-                          icon: Icons.delete_sweep_rounded,
-                          color: _colors['danger']!,
-                          onTap: () => _handleEmptyStock(true),
-                        ),
-                        _buildActionCard(
-                          title: "Kosongkan Stok Kategori",
-                          subtitle: "Setel stok kategori tertentu menjadi 0",
-                          description:
-                              "Mengubah stok produk dalam kategori pilihan menjadi 0 tanpa mempengaruhi kategori lain.",
-                          icon: Icons.delete_outline_rounded,
-                          color: _colors['danger']!.withValues(alpha: 0.8),
-                          onTap: () => _handleEmptyStock(false),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 20),
-                  ],
-                );
-              },
+          : SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+              child: Center(
+                child: Container(
+                  constraints: const BoxConstraints(maxWidth: 800),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const SizedBox(height: 8),
+                      // ── Ekspor & Impor Data ──────────────────────────────
+                      _buildSectionHeader("EKSPOR & IMPOR DATA"),
+                      _buildGroupedSection(
+                        isDark: isDark,
+                        items: [
+                          _buildSettingsActionItem(
+                            label: "Ekspor Produk (.xlsx)",
+                            icon: Icons.inventory_2_outlined,
+                            color: _colors['export']!,
+                            onTap: _exportProducts,
+                            isDark: isDark,
+                          ),
+                          _buildSettingsActionItem(
+                            label: "Impor Produk (Excel)",
+                            icon: Icons.cloud_upload_outlined,
+                            color: _colors['import']!,
+                            onTap: _handleBulkImport,
+                            isDark: isDark,
+                          ),
+                          _buildSettingsActionItem(
+                            label: "Laporan Transaksi",
+                            icon: Icons.description_outlined,
+                            color: _colors['transactions']!,
+                            onTap: () => _showExportFormatDialog('transaksi'),
+                            isDark: isDark,
+                          ),
+                        ],
+                      ),
+                      
+                      const SizedBox(height: 24),
+                      // ── Manajemen Stok ──────────────────────────────────
+                      _buildSectionHeader("MANAJEMEN STOK"),
+                      _buildGroupedSection(
+                        isDark: isDark,
+                        items: [
+                          _buildSettingsActionItem(
+                            label: "Restock Semua Barang",
+                            icon: Icons.playlist_add_check_rounded,
+                            color: _colors['restock']!,
+                            onTap: _handleRestockAll,
+                            isDark: isDark,
+                          ),
+                          _buildSettingsActionItem(
+                            label: "Restock per Kategori",
+                            icon: Icons.grid_view,
+                            color: _colors['category']!,
+                            onTap: _handleRestockByCategory,
+                            isDark: isDark,
+                          ),
+                          _buildSettingsActionItem(
+                            label: "Kosongkan Semua Stok",
+                            icon: Icons.delete_sweep_rounded,
+                            color: _colors['danger']!,
+                            onTap: () => _handleEmptyStock(true),
+                            isDark: isDark,
+                          ),
+                          _buildSettingsActionItem(
+                            label: "Kosongkan Stok Kategori",
+                            icon: Icons.delete_outline_rounded,
+                            color: _colors['danger']!,
+                            onTap: () => _handleEmptyStock(false),
+                            isDark: isDark,
+                          ),
+                          _buildSettingsActionItem(
+                            label: "Reset Riwayat Transaksi & Tren",
+                            icon: Icons.history_toggle_off_rounded,
+                            color: _colors['danger']!,
+                            onTap: () {
+                              final adminCtrl = context.read<AdminController>();
+                              final storeId = adminCtrl.storeId;
+                              if (storeId != null) {
+                                ResetTransactionsDialog.show(
+                                  context,
+                                  storeId: storeId,
+                                );
+                              }
+                            },
+                            isDark: isDark,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 40),
+                    ],
+                  ),
+                ),
+              ),
             ),
     );
   }
 
+  // ── Section header ────────────────────────────────────────────────────────
   Widget _buildSectionHeader(String title) {
     return Padding(
       padding: const EdgeInsets.only(left: 4, bottom: 12),
       child: Text(
         title,
-        style: GoogleFonts.inter(
-          fontSize: 12,
-          fontWeight: FontWeight.bold,
+        style: GoogleFonts.plusJakartaSans(
+          fontSize: 14,
+          fontWeight: FontWeight.w600,
           color: Colors.grey,
-          letterSpacing: 1.2,
+          letterSpacing: 0.5,
         ),
       ),
     );
   }
 
-  Widget _buildActionCard({
-    required String title,
-    required String subtitle,
-    required String description,
+  // ── Grouped section container ─────────────────────────────────────────────
+  Widget _buildGroupedSection({
+    required bool isDark,
+    required List<Widget> items,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: isDark ? Colors.white.withValues(alpha: 0.05) : Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isDark ? Colors.white10 : Colors.grey.shade200,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.02),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        children: List.generate(items.length * 2 - 1, (i) {
+          if (i.isOdd) {
+            return Divider(
+              height: 1,
+              indent: 60,
+              color: isDark ? Colors.white10 : Colors.grey.shade200,
+            );
+          }
+          return items[i ~/ 2];
+        }),
+      ),
+    );
+  }
+
+  // ── Settings-style list item ──────────────────────────────────────────────
+  Widget _buildSettingsActionItem({
+    required String label,
     required IconData icon,
     required Color color,
     required VoidCallback onTap,
+    required bool isDark,
   }) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final width = MediaQuery.of(context).size.width;
-    // Calculate card width based on screen size
-    final cardWidth = width > 1200
-        ? (width - 100) / 3
-        : (width > 720 ? (width - 80) / 2 : double.infinity);
-
-    return InkWell(
+    return ListTile(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(24),
-      child: Container(
-        width: cardWidth,
-        padding: const EdgeInsets.all(20),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      leading: Container(
+        padding: const EdgeInsets.all(10),
         decoration: BoxDecoration(
-          color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
-          borderRadius: BorderRadius.circular(24),
-          border: Border.all(color: color.withValues(alpha: 0.08)),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.02),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
-            ),
-          ],
+          color: color.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(12),
         ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(18),
-              ),
-              child: Icon(icon, color: color, size: 26),
-            ),
-            const SizedBox(width: 20),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          title,
-                          style: GoogleFonts.poppins(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 15,
-                          ),
-                        ),
-                      ),
-                      InkWell(
-                        onTap: () =>
-                            _showFeatureInfo(title, description, icon, color),
-                        borderRadius: BorderRadius.circular(20),
-                        child: Icon(
-                          CupertinoIcons.info_circle,
-                          size: 16,
-                          color: color.withValues(alpha: 0.5),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    subtitle,
-                    style: GoogleFonts.inter(
-                      fontSize: 11,
-                      color: Colors.grey[500],
-                      height: 1.3,
-                    ),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 8),
-            Icon(
-              CupertinoIcons.chevron_right,
-              size: 14,
-              color: Colors.grey.withValues(alpha: 0.3),
-            ),
-          ],
+        child: Icon(icon, color: color, size: 22),
+      ),
+      title: Text(
+        label,
+        style: GoogleFonts.openSans(
+          fontSize: 15,
+          fontWeight: FontWeight.w500,
+          color: isDark ? Colors.white : Colors.black87,
         ),
+      ),
+      trailing: Icon(
+        Icons.chevron_right_rounded,
+        color: isDark ? Colors.white24 : Colors.grey.shade400,
+        size: 20,
       ),
     );
   }
 
-  void _showFeatureInfo(
-    String title,
-    String description,
-    IconData icon,
-    Color color,
-  ) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AsriDialog(
-        title: title,
-        icon: icon,
-        iconColor: color,
-        content: Text(
-          description,
-          textAlign: TextAlign.center,
-          style: GoogleFonts.inter(
-            height: 1.5,
-            color: Theme.of(context).brightness == Brightness.dark
-                ? Colors.white70
-                : Colors.grey[700],
-          ),
-        ),
-        primaryActionLabel: "Paham",
-        onPrimaryAction: () => Navigator.pop(ctx),
-      ),
-    );
-  }
+  // ── Cleaned up legacy methods ──
+
 
   void _showExportFormatDialog(String category) {
     showModalBottomSheet(
@@ -818,8 +824,8 @@ class _DataManagementPageState extends State<DataManagementPage> {
                 padding: const EdgeInsets.symmetric(vertical: 20),
                 child: Text(
                   "Pilih Format Ekspor",
-                  style: GoogleFonts.poppins(
-                    fontWeight: FontWeight.bold,
+                  style: GoogleFonts.plusJakartaSans(
+                    fontWeight: FontWeight.w600,
                     fontSize: 18,
                   ),
                 ),
@@ -892,7 +898,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
               const SizedBox(height: 12),
               Text(
                 label,
-                style: GoogleFonts.inter(
+                style: GoogleFonts.openSans(
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
                   color: isDark ? Colors.white : Colors.black87,
@@ -905,3 +911,4 @@ class _DataManagementPageState extends State<DataManagementPage> {
     );
   }
 }
+

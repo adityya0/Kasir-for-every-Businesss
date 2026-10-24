@@ -3,10 +3,14 @@
 #
 
 list(APPEND FLUTTER_PLUGIN_LIST
+  app_links
+  audioplayers_windows
   connectivity_plus
   file_saver
   file_selector_windows
+  flutter_secure_storage_windows
   printing
+  restart_app
   screen_retriever_windows
   share_plus
   sqlite3_flutter_libs

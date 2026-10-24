@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:drift/drift.dart' as drift;
+import '../../../core/app_theme.dart';
 
 class ProductOptionModal extends StatefulWidget {
   final Product product;
@@ -19,6 +20,8 @@ class _ProductOptionModalState extends State<ProductOptionModal> {
   List<Map<String, dynamic>> _options = [];
   final Map<String, String> _selectedValues = {}; // OptionID -> ValueID
   final _notesController = TextEditingController();
+  Unit? _unit;
+  Stream<Product>? _productStream;
 
   final _currencyFormat = NumberFormat.currency(
     locale: 'id',
@@ -32,7 +35,19 @@ class _ProductOptionModalState extends State<ProductOptionModal> {
     // Use addPostFrameCallback to access context for provider
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _fetchOptions();
+      _initStreams();
     });
+  }
+
+  void _initStreams() {
+    final db = context.read<AppDatabase>();
+    _productStream = (db.select(db.products)..where((t) => t.id.equals(widget.product.id))).watchSingle();
+    
+    if (widget.product.unitId != null) {
+      (db.select(db.units)..where((t) => t.id.equals(widget.product.unitId!))).getSingleOrNull().then((u) {
+        if (mounted) setState(() => _unit = u);
+      });
+    }
   }
 
   Future<void> _fetchOptions() async {
@@ -101,6 +116,28 @@ class _ProductOptionModalState extends State<ProductOptionModal> {
     return total;
   }
 
+  double _calculateStockConsumption() {
+    double multiplier = 1.0;
+    
+    for (var entry in _selectedValues.entries) {
+      final optId = entry.key;
+      final valId = entry.value;
+
+      final opt = _options.firstWhere((o) => o['id'] == optId);
+      final vals = List<Map<String, dynamic>>.from(
+        opt['product_option_values'] ?? [],
+      );
+      final val = vals.firstWhere((v) => v['id'] == valId);
+
+      final sm = val['stockMultiplier'];
+      if (sm != null) {
+        multiplier *= (sm as num).toDouble();
+      }
+    }
+    
+    return multiplier;
+  }
+
   void _confirmSelection() {
     // Validate required options
     for (var opt in _options) {
@@ -129,6 +166,7 @@ class _ProductOptionModalState extends State<ProductOptionModal> {
         'value_id': val['id'],
         'value_name': val['valueName'],
         'price_adjustment': val['priceAdjustment'],
+        'stock_multiplier': val['stockMultiplier'],
       });
     }
 
@@ -143,7 +181,7 @@ class _ProductOptionModalState extends State<ProductOptionModal> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    const primaryColor = Color(0xFFFF4D4D);
+    const primaryColor = AppTheme.primaryColor;
 
     return Container(
       height: MediaQuery.of(context).size.height * 0.85,
@@ -168,34 +206,66 @@ class _ProductOptionModalState extends State<ProductOptionModal> {
             // Header
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          widget.product.name ?? "Unknown Product",
-                          style: GoogleFonts.poppins(
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                          ),
+              child: StreamBuilder<Product>(
+                stream: _productStream,
+                initialData: widget.product,
+                builder: (context, snapshot) {
+                  final p = snapshot.data ?? widget.product;
+                  final currentStock = p.stockQuantity ?? 0.0;
+                  final remainingPriceLabel = _currencyFormat.format(widget.product.salePrice ?? 0);
+                  
+                  return Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              p.name ?? "Unknown Product",
+                              style: GoogleFonts.plusJakartaSans(
+                                fontSize: 20,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            Row(
+                              children: [
+                                Text(
+                                  remainingPriceLabel,
+                                  style: GoogleFonts.openSans(
+                                    color: primaryColor,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                if (p.isStockManaged) ...[
+                                  const SizedBox(width: 8),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: primaryColor.withValues(alpha: 0.1),
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: Text(
+                                      "Stok: ${NumberFormat.decimalPattern('id').format(currentStock)} ${_unit?.code ?? ''}",
+                                      style: GoogleFonts.openSans(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w600,
+                                        color: primaryColor,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ],
                         ),
-                        Text(
-                          _currencyFormat.format(widget.product.salePrice ?? 0),
-                          style: GoogleFonts.inter(
-                            color: primaryColor,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  IconButton(
-                    onPressed: () => Navigator.pop(context),
-                    icon: const Icon(Icons.close_rounded),
-                  ),
-                ],
+                      ),
+                      IconButton(
+                        onPressed: () => Navigator.pop(context),
+                        icon: const Icon(Icons.close_rounded),
+                      ),
+                    ],
+                  );
+                }
               ),
             ),
             const Divider(),
@@ -213,9 +283,9 @@ class _ProductOptionModalState extends State<ProductOptionModal> {
                         const SizedBox(height: 16),
                         Text(
                           "Catatan Khusus",
-                          style: GoogleFonts.poppins(
+                          style: GoogleFonts.plusJakartaSans(
                             fontSize: 14,
-                            fontWeight: FontWeight.bold,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                         const SizedBox(height: 8),
@@ -225,7 +295,7 @@ class _ProductOptionModalState extends State<ProductOptionModal> {
                           decoration: InputDecoration(
                             hintText:
                                 "Contoh: Jangan pakai bawang, pedas banget...",
-                            hintStyle: GoogleFonts.inter(
+                            hintStyle: GoogleFonts.openSans(
                               fontSize: 13,
                               color: Colors.grey,
                             ),
@@ -264,18 +334,50 @@ class _ProductOptionModalState extends State<ProductOptionModal> {
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          "Total Harga",
-                          style: GoogleFonts.inter(
-                            fontSize: 12,
-                            color: Colors.grey,
-                          ),
+                        StreamBuilder<Product>(
+                          stream: _productStream,
+                          initialData: widget.product,
+                          builder: (context, snapshot) {
+                            final p = snapshot.data ?? widget.product;
+                            if (!p.isStockManaged) {
+                              return Text(
+                                "Total Harga",
+                                style: GoogleFonts.openSans(
+                                  fontSize: 12,
+                                  color: Colors.grey,
+                                ),
+                              );
+                            }
+                            final currentStock = p.stockQuantity ?? 0.0;
+                            final consumption = _calculateStockConsumption();
+                            final remaining = currentStock - consumption;
+                            
+                            return Row(
+                              children: [
+                                Text(
+                                  "Sisa Stok: ",
+                                  style: GoogleFonts.openSans(
+                                    fontSize: 11,
+                                    color: Colors.grey,
+                                  ),
+                                ),
+                                Text(
+                                  "${NumberFormat.decimalPattern('id').format(remaining)} ${_unit?.code ?? ''}",
+                                  style: GoogleFonts.openSans(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                    color: remaining < 0 ? Colors.red : Colors.green[700],
+                                  ),
+                                ),
+                              ],
+                            );
+                          }
                         ),
                         Text(
                           _currencyFormat.format(_calculateTotalPrice()),
-                          style: GoogleFonts.poppins(
+                          style: GoogleFonts.plusJakartaSans(
                             fontSize: 18,
-                            fontWeight: FontWeight.bold,
+                            fontWeight: FontWeight.w600,
                             color: primaryColor,
                           ),
                         ),
@@ -295,8 +397,8 @@ class _ProductOptionModalState extends State<ProductOptionModal> {
                       ),
                       child: Text(
                         "Tambah ke Cart",
-                        style: GoogleFonts.poppins(
-                          fontWeight: FontWeight.bold,
+                        style: GoogleFonts.plusJakartaSans(
+                          fontWeight: FontWeight.w600,
                           color: Colors.white,
                         ),
                       ),
@@ -312,6 +414,7 @@ class _ProductOptionModalState extends State<ProductOptionModal> {
   }
 
   Widget _buildOptionSection(Map<String, dynamic> opt, bool isDark) {
+    const primaryColor = AppTheme.primaryColor;
     final values = List<Map<String, dynamic>>.from(
       opt['product_option_values'] ?? [],
     );
@@ -323,9 +426,9 @@ class _ProductOptionModalState extends State<ProductOptionModal> {
           children: [
             Text(
               opt['optionName'] ?? "Opsi",
-              style: GoogleFonts.poppins(
+              style: GoogleFonts.plusJakartaSans(
                 fontSize: 15,
-                fontWeight: FontWeight.bold,
+                fontWeight: FontWeight.w600,
               ),
             ),
             if (opt['isRequired'] == true) ...[
@@ -333,15 +436,15 @@ class _ProductOptionModalState extends State<ProductOptionModal> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                 decoration: BoxDecoration(
-                  color: Colors.orange.withValues(alpha: 0.1),
+                  color: AppTheme.primaryDark.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(4),
                 ),
                 child: Text(
                   "WAJIB",
-                  style: GoogleFonts.inter(
+                  style: GoogleFonts.openSans(
                     fontSize: 9,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.orange[800],
+                    fontWeight: FontWeight.w600,
+                    color: AppTheme.primaryDark,
                   ),
                 ),
               ),
@@ -373,19 +476,19 @@ class _ProductOptionModalState extends State<ProductOptionModal> {
                 });
               },
               backgroundColor: isDark ? Colors.grey[800] : Colors.white,
-              selectedColor: const Color(0xFFFF4D4D).withValues(alpha: 0.1),
-              labelStyle: GoogleFonts.inter(
+              selectedColor: primaryColor.withValues(alpha: 0.1),
+              labelStyle: GoogleFonts.openSans(
                 fontSize: 13,
                 color: isSelected
-                    ? const Color(0xFFFF4D4D)
+                    ? primaryColor
                     : (isDark ? Colors.white : Colors.black87),
-                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
               ),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
                 side: BorderSide(
                   color: isSelected
-                      ? const Color(0xFFFF4D4D)
+                      ? primaryColor
                       : Colors.grey.withValues(alpha: 0.2),
                 ),
               ),
@@ -398,3 +501,4 @@ class _ProductOptionModalState extends State<ProductOptionModal> {
     );
   }
 }
+
