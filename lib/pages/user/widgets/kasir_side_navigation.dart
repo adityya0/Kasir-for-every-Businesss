@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:provider/provider.dart';
@@ -23,7 +23,7 @@ class KasirSideNavigation extends StatelessWidget {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final bgColor = isDark ? const Color(0xFF1A1C1E) : Colors.white;
-    const accentColor = Color(0xFFC0392B);
+    const accentColor = Color(0xFF00BF63);
     final adminCtrl = context.watch<AdminController>();
     final settings = SettingsController.instance;
 
@@ -263,7 +263,7 @@ class KasirSideNavigation extends StatelessWidget {
   }
 
   Widget _buildProfileAvatar(AdminController adminCtrl, int effectiveIndex) {
-    const accentColor = Color(0xFFC0392B);
+    const accentColor = Color(0xFF00BF63);
     return GestureDetector(
       onTap: () => onIndexSelected?.call(8),
       child: Container(

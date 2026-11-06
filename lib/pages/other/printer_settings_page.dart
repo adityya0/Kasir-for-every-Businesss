@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../services/bluetooth_printer_service.dart';
 import '../../widgets/kasir_drawer.dart';
@@ -29,7 +29,7 @@ class _PrinterSettingsPageState extends State<PrinterSettingsPage> {
   bool _isScanning = false;
   bool _isConnecting = false;
 
-  static const Color primaryColor = Color(0xFFC0392B);
+  static const Color primaryColor = Color(0xFF00BF63);
 
   @override
   void initState() {
@@ -439,13 +439,17 @@ class _PrinterSettingsPageState extends State<PrinterSettingsPage> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
             decoration: BoxDecoration(
-              color: isDark ? Colors.white10 : const Color(0xFFF8FAFC),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: borderColor, width: 1),
+              color: isDark ? const Color(0xFF1E293B) : Colors.white,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: isDark ? const Color(0xFF475569) : const Color(0xFF1E293B),
+                width: 1.2,
+              ),
             ),
             child: DropdownButtonHideUnderline(
               child: DropdownButton<BluetoothDevice>(
                 isExpanded: true,
+                dropdownColor: isDark ? const Color(0xFF1E293B) : Colors.white,
                 value: _selectedDevice,
                 hint: Row(
                   children: [
@@ -463,7 +467,6 @@ class _PrinterSettingsPageState extends State<PrinterSettingsPage> {
                   ],
                 ),
                 icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 20),
-                dropdownColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
                 items: _devices.map((device) {
                   return DropdownMenuItem<BluetoothDevice>(
                     value: device,

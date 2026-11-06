@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
@@ -108,7 +108,7 @@ class _SuperAdminPageState extends State<SuperAdminPage> {
         title: "Keluar dari Super Admin?",
         message: "Anda akan keluar dari sesi Super Admin dan kembali ke layar login.",
         icon: Icons.logout_rounded,
-        iconColor: const Color(0xFFC0392B),
+        iconColor: const Color(0xFF00BF63),
         primaryActionLabel: "Keluar",
         onPrimaryAction: () => Navigator.pop(ctx, true),
         secondaryActionLabel: "Batal",
@@ -253,10 +253,13 @@ class _SuperAdminPageState extends State<SuperAdminPage> {
                     decoration: BoxDecoration(
                       color: Colors.grey[50],
                       borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: Colors.grey.shade400),
+                      border: Border.all(color: const Color(0xFF1E293B), width: 1.2),
                     ),
                     child: DropdownButtonHideUnderline(
                       child: DropdownButton<String>(
+                        dropdownColor: Colors.white,
+                        style: GoogleFonts.plusJakartaSans(color: const Color(0xFF00BF63), fontWeight: FontWeight.w600, fontSize: 13),
+                        icon: const Icon(Icons.arrow_drop_down_rounded, color: Color(0xFF00BF63)),
                         value: selectedRole,
                         isExpanded: true,
                         items: hasAdmin
@@ -415,10 +418,13 @@ class _SuperAdminPageState extends State<SuperAdminPage> {
                     decoration: BoxDecoration(
                       color: Colors.grey[50],
                       borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: Colors.grey.shade400),
+                      border: Border.all(color: const Color(0xFF1E293B), width: 1.2),
                     ),
                     child: DropdownButtonHideUnderline(
                       child: DropdownButton<String>(
+                        dropdownColor: Colors.white,
+                        style: GoogleFonts.plusJakartaSans(color: const Color(0xFF00BF63), fontWeight: FontWeight.w600, fontSize: 13),
+                        icon: const Icon(Icons.arrow_drop_down_rounded, color: Color(0xFF00BF63)),
                         value: isSuper
                             ? SuperAdminService.roleSuperAdmin
                             : (selectedRole == 'admin' || selectedRole == 'owner' ? 'admin' : 'cashier'),

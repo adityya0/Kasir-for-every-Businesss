@@ -1,8 +1,11 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'core/supabase_config.dart';
+import 'services/activation_service.dart';
 import 'pages/user/user_profile_page.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'pages/auth/login_page.dart';
+import 'pages/auth/activation_page.dart';
 import 'pages/admin/laporan_page.dart';
 import 'pages/admin/admin_page.dart';
 import 'pages/auth/onboarding_page.dart';
@@ -40,7 +43,7 @@ void main() async {
       backgroundColor: Colors.transparent,
       skipTaskbar: false,
       titleBarStyle: TitleBarStyle.normal,
-      title: 'Warkop Alam POS',
+      title: 'Kakilima Pos',
     );
     windowManager.waitUntilReadyToShow(windowOptions, () async {
       await windowManager.show();
@@ -60,6 +63,17 @@ void main() async {
   }
 
 
+
+  // Inisialisasi Supabase Auth & Cloud Server
+  try {
+    await Supabase.initialize(
+      url: SupabaseConfig.url,
+      anonKey: SupabaseConfig.anonKey,
+    );
+    debugPrint("Supabase initialized successfully");
+  } catch (e) {
+    debugPrint("Supabase init error: $e");
+  }
 
   // Initialize Localization
   await initializeDateFormatting('id', null);
@@ -140,7 +154,7 @@ class _RootAppState extends State<RootApp> {
               ],
               child: MaterialApp(
                 debugShowCheckedModeBanner: false,
-                title: 'Warkop Alam POS',
+                title: 'Kakilima Pos',
                 themeMode: currentMode,
                 locale: currentLocale,
                 localizationsDelegates: const [
@@ -169,14 +183,41 @@ class _RootAppState extends State<RootApp> {
                 },
                 theme: ThemeData(
                   colorScheme: ColorScheme.fromSeed(
-                    seedColor: const Color(0xFFEA5700),
-                    primary: const Color(0xFFEA5700),
-                    secondary: const Color(0xFFFF8E53),
+                    seedColor: const Color(0xFF00BF63),
+                    primary: const Color(0xFF00BF63),
+                    secondary: const Color(0xFF10B981),
                     brightness: Brightness.light,
                   ),
                   useMaterial3: true,
                   scaffoldBackgroundColor: const Color(0xFFF8F9FD),
                   cardColor: Colors.white,
+                  popupMenuTheme: PopupMenuThemeData(
+                    color: Colors.white,
+                    surfaceTintColor: Colors.transparent,
+                    elevation: 8,
+                    shadowColor: Colors.black26,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      side: const BorderSide(color: Color(0xFF1E293B), width: 1.2),
+                    ),
+                    textStyle: GoogleFonts.plusJakartaSans(
+                      color: const Color(0xFF00BF63),
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13,
+                    ),
+                  ),
+                  dropdownMenuTheme: DropdownMenuThemeData(
+                    menuStyle: MenuStyle(
+                      backgroundColor: const WidgetStatePropertyAll<Color>(Colors.white),
+                      surfaceTintColor: const WidgetStatePropertyAll<Color>(Colors.transparent),
+                      shape: WidgetStatePropertyAll<OutlinedBorder>(
+                        RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          side: const BorderSide(color: Color(0xFF1E293B), width: 1.2),
+                        ),
+                      ),
+                    ),
+                  ),
                   textTheme: GoogleFonts.openSansTextTheme().copyWith(
                     titleLarge: GoogleFonts.plusJakartaSans(
                       fontWeight: FontWeight.w600,
@@ -216,14 +257,41 @@ class _RootAppState extends State<RootApp> {
                 ),
                 darkTheme: ThemeData(
                   colorScheme: ColorScheme.fromSeed(
-                    seedColor: const Color(0xFFEA5700),
-                    primary: const Color(0xFFEA5700),
-                    secondary: const Color(0xFFFF8E53),
+                    seedColor: const Color(0xFF00BF63),
+                    primary: const Color(0xFF00BF63),
+                    secondary: const Color(0xFF10B981),
                     brightness: Brightness.dark,
                   ),
                   useMaterial3: true,
                   scaffoldBackgroundColor: const Color(0xFF121212),
                   cardColor: const Color(0xFF1E1E1E),
+                  popupMenuTheme: PopupMenuThemeData(
+                    color: const Color(0xFF1E293B),
+                    surfaceTintColor: Colors.transparent,
+                    elevation: 8,
+                    shadowColor: Colors.black54,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      side: const BorderSide(color: Color(0xFF475569), width: 1.2),
+                    ),
+                    textStyle: GoogleFonts.plusJakartaSans(
+                      color: const Color(0xFF00BF63),
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13,
+                    ),
+                  ),
+                  dropdownMenuTheme: DropdownMenuThemeData(
+                    menuStyle: MenuStyle(
+                      backgroundColor: const WidgetStatePropertyAll<Color>(Color(0xFF1E293B)),
+                      surfaceTintColor: const WidgetStatePropertyAll<Color>(Colors.transparent),
+                      shape: WidgetStatePropertyAll<OutlinedBorder>(
+                        RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          side: const BorderSide(color: Color(0xFF475569), width: 1.2),
+                        ),
+                      ),
+                    ),
+                  ),
                   textTheme: GoogleFonts.openSansTextTheme(
                     ThemeData.dark().textTheme,
                   ).copyWith(
@@ -275,7 +343,7 @@ class _RootAppState extends State<RootApp> {
                     if (snapshot.connectionState != ConnectionState.done) {
                       return const SplashPage();
                     }
-                    return const LocalAuthGate();
+                    return const AuthGuardGate();
                   },
                 ),
                 onGenerateRoute: (settings) {
@@ -284,11 +352,11 @@ class _RootAppState extends State<RootApp> {
                     case '/onboarding':
                       page = const OnboardingPage();
                       break;
-                    case '/register': // Redirect to login or onboarding
-                      page = const LoginPage();
-                      break;
+                    case '/register':
                     case '/login':
-                      page = const LoginPage();
+                    case '/pin-verification':
+                    case '/activation':
+                      page = const ActivationPage();
                       break;
                     case '/super-admin':
                       page = const AdminPage();
@@ -378,59 +446,67 @@ class CustomPageRoute extends PageRouteBuilder {
 }
 
 // --- GERBANG OTOMATIS BERDASARKAN ROLE (LOKAL) ---
-class LocalAuthGate extends StatelessWidget {
-  const LocalAuthGate({super.key});
+// --- GERBANG KEAMANAN & AUTENTIKASI SUPABASE POS (SESSION & ACTIVATION GUARD) ---
+class AuthGuardGate extends StatelessWidget {
+  const AuthGuardGate({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final db = Provider.of<AppDatabase>(context, listen: false);
-
-    return FutureBuilder<SharedPreferences>(
-      future: SharedPreferences.getInstance(),
-      builder: (context, prefsSnapshot) {
-        if (!prefsSnapshot.hasData) {
+    // 1. Cek penyimpanan lokal apakah lisensi sudah teraktivasi (is_activated == true)
+    return FutureBuilder<bool>(
+      future: ActivationService().isActivated(),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) {
           return const Scaffold(
-            body: Center(child: CircularProgressIndicator()),
+            body: Center(
+              child: CircularProgressIndicator(color: Color(0xFFBD1B19)),
+            ),
           );
         }
 
-        final prefs = prefsSnapshot.data!;
-        final currentUserId = prefs.getString('current_user_id');
-        if (currentUserId == null) {
-          return const LoginPage();
+        final isActivated = snapshot.data ?? false;
+
+        // MODE OFFLINE HARIAN (Setelah Lisensi Berhasil Diaktivasi):
+        // Jika lisensi sudah aktif, langsung buka Dashboard Kasir secara otomatis tanpa form login / verifikasi lagi
+        if (isActivated) {
+          return FutureBuilder<SharedPreferences>(
+            future: SharedPreferences.getInstance(),
+            builder: (context, prefsSnapshot) {
+              if (!prefsSnapshot.hasData) {
+                return const Scaffold(
+                  body: Center(
+                    child: CircularProgressIndicator(color: Color(0xFFBD1B19)),
+                  ),
+                );
+              }
+
+              final prefs = prefsSnapshot.data!;
+              final String? lastRoute = prefs.getString('last_route');
+
+              Widget target = const AdminPage();
+              if (lastRoute == '/order-history') {
+                target = const HistoryPage(storeId: null);
+              } else if (lastRoute == '/attendance') {
+                target = const AttendancePage();
+              } else if (lastRoute == '/printer-settings') {
+                target = const PrinterSettingsPage();
+              } else {
+                target = const AdminPage();
+              }
+
+              return target;
+            },
+          );
         }
 
-        return StreamBuilder<List<Profile>>(
-          stream: (db.select(db.profiles)..where((t) => t.id.equals(currentUserId))).watch(),
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Scaffold(
-                body: Center(child: CircularProgressIndicator()),
-              );
-            }
-
-            final profiles = snapshot.data;
-            if (profiles == null || profiles.isEmpty) {
-              return const LoginPage();
-            }
-
-            final String? lastRoute = prefs.getString('last_route');
-
-            Widget target = const AdminPage();
-            if (lastRoute == '/order-history') {
-              target = const HistoryPage(storeId: null);
-            } else if (lastRoute == '/attendance') {
-              target = const AttendancePage();
-            } else if (lastRoute == '/printer-settings') {
-              target = const PrinterSettingsPage();
-            } else {
-              target = const AdminPage();
-            }
-
-            return target;
-          },
-        );
+        // BELUM TERAKTIVASI:
+        // Tampilkan 1 halaman bersih: Masukkan Kode Lisensi & Tombol Aktivasi
+        return const ActivationPage();
       },
     );
   }
 }
+
+// Backward compatibility aliases
+typedef ActivationGate = AuthGuardGate;
+typedef LocalAuthGate = AuthGuardGate;

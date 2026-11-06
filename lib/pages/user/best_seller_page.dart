@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -154,7 +154,7 @@ class _BestSellerPageState extends State<BestSellerPage> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    const primaryColor = Color(0xFFC0392B);
+    const primaryColor = Color(0xFF00BF63);
     final borderColor = isDark ? const Color(0xFF374151) : const Color(0xFFCBD5E1);
 
     final filtered = _allProducts.where((p) {
@@ -505,7 +505,7 @@ class _BestSellerPageState extends State<BestSellerPage> {
             style: GoogleFonts.plusJakartaSans(
               fontSize: 13,
               fontWeight: FontWeight.w800,
-              color: const Color(0xFFC0392B),
+              color: const Color(0xFF00BF63),
             ),
           ),
         ],

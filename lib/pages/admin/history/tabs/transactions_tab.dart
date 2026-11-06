@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
@@ -8,7 +8,6 @@ import '../../../../services/report_service.dart';
 import '../../../../controllers/admin_controller.dart';
 import '../widgets/transaction_item.dart';
 import '../transaction_detail_page.dart';
-import '../../../../widgets/reset_transactions_dialog.dart';
 import '../../../../services/order_service.dart';
 import '../../../../widgets/kasir_dialog.dart';
 import '../../../../controllers/analytics_controller.dart';
@@ -18,10 +17,10 @@ class TransactionsTab extends StatefulWidget {
   const TransactionsTab({super.key, required this.storeId});
 
   @override
-  State<TransactionsTab> createState() => _TransactionsTabState();
+  State<TransactionsTab> createState() => TransactionsTabState();
 }
 
-class _TransactionsTabState extends State<TransactionsTab> {
+class TransactionsTabState extends State<TransactionsTab> {
   late ReportService _reportService;
   bool _isLoading = true;
   List<Map<String, dynamic>> _allTransactions = [];
@@ -37,6 +36,39 @@ class _TransactionsTabState extends State<TransactionsTab> {
     "Minggu Ini",
     "Bulan Ini",
   ];
+
+  String get selectedFilter => _selectedFilter;
+
+  DateTime? get currentStartDate {
+    final now = DateTime.now();
+    if (_selectedFilter == "Hari Ini") {
+      return DateTime(now.year, now.month, now.day);
+    } else if (_selectedFilter == "Kemarin") {
+      final yesterday = now.subtract(const Duration(days: 1));
+      return DateTime(yesterday.year, yesterday.month, yesterday.day);
+    } else if (_selectedFilter == "Minggu Ini") {
+      final startOfWeek = now.subtract(Duration(days: now.weekday - 1));
+      return DateTime(startOfWeek.year, startOfWeek.month, startOfWeek.day);
+    } else if (_selectedFilter == "Bulan Ini") {
+      return DateTime(now.year, now.month, 1);
+    }
+    return null;
+  }
+
+  DateTime? get currentEndDate {
+    final now = DateTime.now();
+    if (_selectedFilter == "Hari Ini") {
+      return DateTime(now.year, now.month, now.day, 23, 59, 59);
+    } else if (_selectedFilter == "Kemarin") {
+      final yesterday = now.subtract(const Duration(days: 1));
+      return DateTime(yesterday.year, yesterday.month, yesterday.day, 23, 59, 59);
+    } else if (_selectedFilter == "Minggu Ini") {
+      return DateTime(now.year, now.month, now.day, 23, 59, 59);
+    } else if (_selectedFilter == "Bulan Ini") {
+      return DateTime(now.year, now.month, now.day, 23, 59, 59);
+    }
+    return null;
+  }
 
   List<Map<String, dynamic>> _cashiers = [];
   String? _selectedCashierId; // null = Semua Staf (Admin only)
@@ -237,16 +269,16 @@ class _TransactionsTabState extends State<TransactionsTab> {
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   margin: const EdgeInsets.only(bottom: 10),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFC0392B).withValues(alpha: 0.08),
+                    color: const Color(0xFF00BF63).withValues(alpha: 0.08),
                     borderRadius: BorderRadius.circular(8),
                     border: Border.all(
-                      color: const Color(0xFFC0392B).withValues(alpha: 0.25),
+                      color: const Color(0xFF00BF63).withValues(alpha: 0.25),
                       width: 1,
                     ),
                   ),
                   child: Row(
                     children: [
-                      const Icon(Icons.person_outline, size: 16, color: Color(0xFFC0392B)),
+                      const Icon(Icons.person_outline, size: 16, color: Color(0xFF00BF63)),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
@@ -254,7 +286,7 @@ class _TransactionsTabState extends State<TransactionsTab> {
                           style: GoogleFonts.plusJakartaSans(
                             fontSize: 12,
                             fontWeight: FontWeight.w700,
-                            color: const Color(0xFFC0392B),
+                            color: const Color(0xFF00BF63),
                           ),
                         ),
                       ),
@@ -302,29 +334,6 @@ class _TransactionsTabState extends State<TransactionsTab> {
                       ),
                     ),
                   ),
-                  if (isAdmin) ...[
-                    const SizedBox(width: 8),
-                    Container(
-                      height: 44,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFEF4444).withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(
-                          color: const Color(0xFFEF4444).withValues(alpha: 0.3),
-                          width: 1.2,
-                        ),
-                      ),
-                      child: IconButton(
-                        icon: const Icon(Icons.delete_sweep_rounded, color: Color(0xFFEF4444), size: 20),
-                        tooltip: "Reset Riwayat Transaksi",
-                        onPressed: () => ResetTransactionsDialog.show(
-                          context,
-                          storeId: widget.storeId,
-                          onResetSuccess: _loadTransactions,
-                        ),
-                      ),
-                    ),
-                  ],
                 ],
               ),
               const SizedBox(height: 10),
@@ -352,12 +361,12 @@ class _TransactionsTabState extends State<TransactionsTab> {
                             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                             decoration: BoxDecoration(
                               color: isSelected
-                                  ? const Color(0xFFC0392B)
+                                  ? const Color(0xFF00BF63)
                                   : (isDark ? const Color(0xFF1E1E1E) : Colors.white),
                               borderRadius: BorderRadius.circular(8),
                               border: Border.all(
                                 color: isSelected
-                                    ? const Color(0xFFC0392B)
+                                    ? const Color(0xFF00BF63)
                                     : (isDark ? const Color(0xFF374151) : const Color(0xFFCBD5E1)),
                                 width: 1.2,
                               ),
@@ -430,7 +439,7 @@ class _TransactionsTabState extends State<TransactionsTab> {
               ? const Center(child: CupertinoActivityIndicator())
               : RefreshIndicator(
                   onRefresh: _loadTransactions,
-                  color: const Color(0xFFC0392B),
+                  color: const Color(0xFF00BF63),
                   child: ListView(
                     padding: const EdgeInsets.symmetric(horizontal: 20),
                     children: [
@@ -578,12 +587,12 @@ class _TransactionsTabState extends State<TransactionsTab> {
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFC0392B).withValues(alpha: 0.1),
+                  color: const Color(0xFF00BF63).withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: const Icon(
                   Icons.receipt_long_rounded,
-                  color: Color(0xFFC0392B),
+                  color: Color(0xFF00BF63),
                   size: 20,
                 ),
               ),
@@ -617,7 +626,7 @@ class _TransactionsTabState extends State<TransactionsTab> {
             style: GoogleFonts.plusJakartaSans(
               fontSize: 17,
               fontWeight: FontWeight.w800,
-              color: const Color(0xFFC0392B),
+              color: const Color(0xFF00BF63),
             ),
           ),
         ],

@@ -98,7 +98,7 @@ class _SplitItemDialogState extends State<SplitItemDialog> {
                         style: GoogleFonts.plusJakartaSans(
                           fontSize: 20,
                           fontWeight: FontWeight.bold,
-                          color: isDark ? Colors.white : Colors.black87,
+                        color: const Color(0xFF00BF63),
                         ),
                       ),
                       Text(
@@ -263,7 +263,7 @@ class _SplitItemDialogState extends State<SplitItemDialog> {
                           style: GoogleFonts.plusJakartaSans(
                             fontWeight: FontWeight.w600,
                             fontSize: 13,
-                            color: isDark ? Colors.white : Colors.black87,
+                        color: const Color(0xFF00BF63),
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -443,7 +443,7 @@ class _SplitPaymentSheetState extends State<SplitPaymentSheet> {
                     style: GoogleFonts.plusJakartaSans(
                       fontSize: 20,
                       fontWeight: FontWeight.bold,
-                      color: isDark ? Colors.white : Colors.black87,
+                        color: const Color(0xFF00BF63),
                     ),
                   ),
                   Text(
@@ -645,18 +645,18 @@ class _SplitPaymentSheetState extends State<SplitPaymentSheet> {
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12),
                   decoration: BoxDecoration(
-                    color: isDark ? Colors.white10 : Colors.white,
+                    color: isDark ? const Color(0xFF1E293B) : Colors.white,
                     borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: isDark ? Colors.white24 : Colors.grey[300]!),
+                    border: Border.all(color: isDark ? const Color(0xFF475569) : const Color(0xFF1E293B), width: 1.2),
                   ),
                   child: DropdownButtonHideUnderline(
                     child: DropdownButton<String>(
                       value: payment['method'] as String,
-                      dropdownColor: isDark ? const Color(0xFF2A2A2A) : Colors.white,
+                      dropdownColor: isDark ? const Color(0xFF1E293B) : Colors.white,
                       style: GoogleFonts.plusJakartaSans(
                         fontWeight: FontWeight.w600,
                         fontSize: 13,
-                        color: isDark ? Colors.white : Colors.black87,
+                        color: const Color(0xFF00BF63),
                       ),
                       items: methods
                           .map((m) => DropdownMenuItem(value: m, child: Text(m)))

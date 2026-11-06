@@ -79,7 +79,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
     required String label,
     required VoidCallback onTap,
   }) {
-    const primaryColor = Color(0xFFC0392B);
+    const primaryColor = Color(0xFF00BF63);
     return GestureDetector(
       onTap: onTap,
       child: Column(
@@ -186,7 +186,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFC0392B),
+              backgroundColor: const Color(0xFF00BF63),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(10),
               ),
@@ -216,7 +216,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
     final adminCtrl = context.watch<AdminController>();
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    const primaryColor = Color(0xFFC0392B);
+    const primaryColor = Color(0xFF00BF63);
 
     final content = LayoutBuilder(
       builder: (context, constraints) {

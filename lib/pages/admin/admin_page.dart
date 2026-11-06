@@ -1,3 +1,4 @@
+import '../../controllers/settings_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter/services.dart';
@@ -16,7 +17,13 @@ import 'data_management_page.dart';
 import 'report/profit_loss_page.dart';
 import 'customer_page.dart';
 import 'trends_page.dart';
+import 'payment_settings_page.dart';
 import 'transaction_settings_page.dart';
+import 'laporan_page.dart';
+import 'unit_page.dart';
+import 'report/expense_management_page.dart';
+import 'feature_settings_page.dart';
+import 'table_management_page.dart';
 import 'widgets/admin_navigation_rail.dart';
 
 import 'package:google_fonts/google_fonts.dart';
@@ -48,9 +55,23 @@ class _AdminPageState extends State<AdminPage> {
     decimalDigits: 0,
   );
 
+  // Maksimal kedalaman riwayat 2 halaman sebelumnya sebelum langsung kembali ke halaman utama Kasir
+  static const int _maxHistoryLimit = 2;
+
   void _onSelectIndex(int index) {
     if (_selectedIndex == index) return;
-    _indexHistory.add(_selectedIndex);
+    if (index == 3) {
+      // Jika kembali ke halaman utama Kasir, bersihkan riwayat
+      _indexHistory.clear();
+    } else {
+      if (_indexHistory.isEmpty || _indexHistory.last != _selectedIndex) {
+        _indexHistory.add(_selectedIndex);
+        // Batasi riwayat maksimal 2 halaman sebelumnya
+        while (_indexHistory.length > _maxHistoryLimit) {
+          _indexHistory.removeAt(0);
+        }
+      }
+    }
     setState(() => _selectedIndex = index);
   }
 
@@ -59,13 +80,19 @@ class _AdminPageState extends State<AdminPage> {
       Navigator.pop(context);
       return true;
     }
+    // Jika masih ada riwayat 2-3 halaman sebelumnya
     if (_indexHistory.isNotEmpty) {
       final previous = _indexHistory.removeLast();
+      if (previous == 3) {
+        _indexHistory.clear();
+      }
       setState(() => _selectedIndex = previous);
       return true;
     }
+    // Jika riwayat habis dan belum di halaman utama Kasir, langsung kembali ke Kasir
     if (_selectedIndex != 3) {
-      setState(() => _selectedIndex = 9);
+      _indexHistory.clear();
+      setState(() => _selectedIndex = 3);
       return true;
     }
     return false;
@@ -78,24 +105,34 @@ class _AdminPageState extends State<AdminPage> {
         return 0; // Kasir
       case 11:
       case 14:
+      case 21:
+      case 23:
+        return 1; // Uang (Laporan)
+      case 26:
+        return 2; // Keuangan
+      case 12:
+      case 13:
+        return 3; // Kontak (Pelanggan & Supplier)
+      case 1:
+      case 2:
+      case 22:
+      case 6:
+        return 4; // Produk (termasuk Tren & Kategori & Satuan)
+      case 15:
+      case 4:
       case 5:
       case 16:
-        return 1; // Uang (termasuk Pegawai / Absensi dari pintasan uang)
-      case 4:
-      case 6:
-        return 2; // Tren
-      case 9:
-      case 17:
-      case 2:
-      case 10:
-        return 3; // Aksi
-      case 15:
       case 7:
       case 8:
+      case 9:
+      case 10:
+      case 17:
       case 18:
       case 19:
       case 20:
-        return 4; // Pengaturan
+      case 24:
+      case 25:
+        return 5; // Pengaturan
       default:
         return 0; // Default to Kasir
     }
@@ -111,12 +148,15 @@ class _AdminPageState extends State<AdminPage> {
         appIndex = 11; // Uang
         break;
       case 2:
-        appIndex = 6; // Tren
+        appIndex = 26; // Keuangan
         break;
       case 3:
-        appIndex = 9; // Aksi
+        appIndex = 12; // Kontak
         break;
       case 4:
+        appIndex = 1; // Produk (termasuk Tren)
+        break;
+      case 5:
         appIndex = 15; // Pengaturan
         break;
       default:
@@ -179,7 +219,7 @@ class _AdminPageState extends State<AdminPage> {
                     children: [
                       AdminNavigationRail(
                         selectedIndex: _selectedIndex,
-                        onDestinationSelected: (index) => setState(() => _selectedIndex = index),
+                        onDestinationSelected: (index) => _onSelectIndex(index),
                         storeLogo: controller.storeLogo,
                         onLogout: () async {
                           final prefs = await SharedPreferences.getInstance();
@@ -212,7 +252,7 @@ class _AdminPageState extends State<AdminPage> {
   }
 
   Widget _buildBottomNavBar(ThemeData theme, bool isDark, Color primaryColor) {
-    const orange = Color(0xFFF25A22);
+    final activeGreen = primaryColor;
     return Container(
       decoration: BoxDecoration(
         color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
@@ -228,33 +268,36 @@ class _AdminPageState extends State<AdminPage> {
         data: theme.copyWith(
           navigationBarTheme: NavigationBarThemeData(
             backgroundColor: Colors.transparent,
-            indicatorColor: orange.withValues(alpha: 0.12),
+            indicatorColor: Colors.transparent,
+            overlayColor: WidgetStateProperty.all(Colors.transparent),
+            surfaceTintColor: Colors.transparent,
             labelTextStyle: WidgetStateProperty.resolveWith((states) {
               if (states.contains(WidgetState.selected)) {
-                return const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: orange,
+                return GoogleFonts.plusJakartaSans(
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w700,
+                  color: activeGreen,
                 );
               }
-              return TextStyle(
-                fontSize: 11,
-                color: isDark ? Colors.white60 : Colors.black54,
+              return GoogleFonts.plusJakartaSans(
+                fontSize: 10.5,
+                fontWeight: FontWeight.w500,
+                color: isDark ? Colors.white60 : const Color(0xFF64748B),
               );
             }),
             iconTheme: WidgetStateProperty.resolveWith((states) {
               if (states.contains(WidgetState.selected)) {
-                return const IconThemeData(color: orange, size: 24);
+                return IconThemeData(color: activeGreen, size: 22);
               }
               return IconThemeData(
-                color: isDark ? Colors.white60 : Colors.black54,
-                size: 24,
+                color: isDark ? Colors.white60 : const Color(0xFF64748B),
+                size: 22,
               );
             }),
           ),
         ),
         child: NavigationBar(
-          height: 65,
+          height: 60,
           selectedIndex: _getBottomNavIndex(),
           onDestinationSelected: _onBottomNavItemTapped,
           destinations: const [
@@ -269,14 +312,19 @@ class _AdminPageState extends State<AdminPage> {
               label: 'Uang',
             ),
             NavigationDestination(
-              icon: Icon(Icons.trending_up_rounded),
-              selectedIcon: Icon(Icons.trending_up_rounded),
-              label: 'Tren',
+              icon: Icon(Icons.payments_outlined),
+              selectedIcon: Icon(Icons.payments),
+              label: 'Keuangan',
             ),
             NavigationDestination(
-              icon: Icon(Icons.bolt_outlined),
-              selectedIcon: Icon(Icons.bolt),
-              label: 'Aksi',
+              icon: Icon(Icons.people_outline_rounded),
+              selectedIcon: Icon(Icons.people_rounded),
+              label: 'Kontak',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.inventory_2_outlined),
+              selectedIcon: Icon(Icons.inventory_2),
+              label: 'Produk',
             ),
             NavigationDestination(
               icon: Icon(Icons.settings_outlined),
@@ -310,6 +358,7 @@ class _AdminPageState extends State<AdminPage> {
           onMenuPressed: onMenuPressed,
           onBack: _handleBackNavigation,
           onNavigateToCategories: () => _onSelectIndex(2),
+          onNavigateToIndex: (index) => _onSelectIndex(index),
         );
       case 2:
         return CategoryPage(
@@ -342,9 +391,12 @@ class _AdminPageState extends State<AdminPage> {
           onBack: _handleBackNavigation,
         );
       case 6:
-        return TrendsPage(
-          storeId: sId!,
+        return InventoryPage(
+          onMenuPressed: onMenuPressed,
+          onBack: _handleBackNavigation,
+          onNavigateToCategories: () => _onSelectIndex(2),
           onNavigateToIndex: (index) => _onSelectIndex(index),
+          initialTabIndex: 1,
         );
       case 7:
         return PrinterSettingsPage(
@@ -401,6 +453,26 @@ class _AdminPageState extends State<AdminPage> {
         return TermsConditionsPage(
           onBack: _handleBackNavigation,
         );
+      case 21:
+        return LaporanPage(
+          storeId: sId!,
+        );
+      case 22:
+        return const UnitManagementPage();
+      case 23:
+        return ExpenseManagementPage(
+          storeId: sId!,
+        );
+      case 24:
+        return const FeatureSettingsPage();
+      case 25:
+        return TableManagementPage(
+          storeId: sId!,
+        );
+      case 26:
+        return PaymentSettingsPage(
+          storeId: sId!,
+        );
 
       default:
         return TrendsPage(
@@ -415,7 +487,7 @@ class _AdminPageState extends State<AdminPage> {
       context: context,
       builder: (context) => KasirDialog(
         title: "Keluar Aplikasi",
-        message: "Apakah Anda yakin ingin menutup dan keluar dari aplikasi Warkop Alam POS?",
+        message: "Apakah Anda yakin ingin menutup dan keluar dari aplikasi Kakilima Pos?",
         icon: Icons.power_settings_new_rounded,
         iconColor: Colors.redAccent,
         isDestructive: true,
@@ -470,30 +542,13 @@ class _QuickMenuPage extends StatelessWidget {
     return Scaffold(
       backgroundColor: isDark ? Colors.black : Colors.grey.shade50,
       appBar: AppBar(
-        title: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Image.asset(
-                'assets/logo/logo.png',
-                height: 24,
-                fit: BoxFit.contain,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Text(
-              "Pengaturan",
-              style: GoogleFonts.plusJakartaSans(
-                fontWeight: FontWeight.w700,
-                color: isDark ? Colors.white : Colors.black87,
-                fontSize: 18,
-              ),
-            ),
-          ],
+        title: Text(
+          "Pengaturan",
+          style: GoogleFonts.plusJakartaSans(
+            fontWeight: FontWeight.w700,
+            color: isDark ? Colors.white : Colors.black87,
+            fontSize: 18,
+          ),
         ),
         centerTitle: false,
         backgroundColor: isDark ? const Color(0xFF1A1A1A) : Colors.white,
@@ -513,43 +568,123 @@ class _QuickMenuPage extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const SizedBox(height: 8),
-            // ── Operasional & Perangkat ────────────────
-            _buildSectionTitle("Operasional & Perangkat", isDark),
+            // ── Manajemen Produk & Inventaris ────────────────
+            _buildSectionTitle("Manajemen Produk & Inventaris", isDark),
             _buildGroupedSection(isDark: isDark, items: [
-              _buildActionNavCard(
-                title: "Pengaturan Printer",
+              _buildMenuTile(
+                index: 1,
+                label: "Daftar Produk",
+                icon: Icons.inventory_2_outlined,
+                isDark: isDark,
+              ),
+              _buildMenuTile(
+                index: 2,
+                label: "Kategori Produk",
+                icon: Icons.grid_view_rounded,
+                isDark: isDark,
+              ),
+              _buildMenuTile(
+                index: 22,
+                label: "Kelola Satuan",
+                icon: Icons.straighten_rounded,
+                isDark: isDark,
+              ),
+              _buildMenuTile(
+                index: 7,
+                label: "Pengaturan Printer",
                 icon: Icons.print_outlined,
                 isDark: isDark,
-                onTap: () => onIndexSelected(7),
               ),
-              _buildActionNavCard(
-                title: "Pengaturan Transaksi",
+              _buildMenuTile(
+                index: 19,
+                label: "Pengaturan Transaksi",
                 icon: Icons.receipt_long_rounded,
                 isDark: isDark,
-                onTap: () => onIndexSelected(19),
               ),
             ]),
             const SizedBox(height: 24),
-            // ── Karyawan & Absensi ─────────────────────
-            _buildSectionTitle("Karyawan & Absensi", isDark),
+
+            // ── Penjualan & Promosi ──────────────────────────
+            _buildSectionTitle("Penjualan & Promosi", isDark),
+            ValueListenableBuilder<bool>(
+              valueListenable: SettingsController.instance.featureMejaEnabled,
+              builder: (context, mejaEnabled, _) {
+                final promoItems = [
+                  _buildMenuTile(
+                    index: 17,
+                    label: "Promosi & Diskon",
+                    icon: Icons.discount_outlined,
+                    isDark: isDark,
+                  ),
+                  if (mejaEnabled)
+                    _buildMenuTile(
+                      index: 25,
+                      label: "Manajemen Meja",
+                      icon: Icons.table_restaurant_outlined,
+                      isDark: isDark,
+                    ),
+                ];
+                return _buildGroupedSection(isDark: isDark, items: promoItems);
+              },
+            ),
+            const SizedBox(height: 24),
+
+            // ── Keuangan & Pengeluaran ───────────────────────────
+            _buildSectionTitle("Keuangan & Pengeluaran", isDark),
             _buildGroupedSection(isDark: isDark, items: [
               _buildMenuTile(
-                index: 5,
-                label: "Kelola Pegawai & Gaji",
-                icon: Icons.badge_outlined,
-                isDark: isDark,
-              ),
-              _buildMenuTile(
-                index: 16,
-                label: "Absensi Pegawai",
-                icon: Icons.fingerprint_rounded,
+                index: 23,
+                label: "Kelola Pengeluaran",
+                icon: Icons.payments_outlined,
                 isDark: isDark,
               ),
             ]),
             const SizedBox(height: 24),
-            // ── Sistem & Pengaturan ────────────────────
+
+            // ── Karyawan & Absensi ───────────────────────────
+            ValueListenableBuilder<bool>(
+              valueListenable: SettingsController.instance.featureKaryawanEnabled,
+              builder: (context, karyawanEnabled, _) {
+                if (!karyawanEnabled) return const SizedBox.shrink();
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildSectionTitle("Karyawan & Absensi", isDark),
+                    _buildGroupedSection(isDark: isDark, items: [
+                      _buildMenuTile(
+                        index: 5,
+                        label: "Kelola Pegawai & Gaji",
+                        icon: Icons.badge_outlined,
+                        isDark: isDark,
+                      ),
+                      _buildMenuTile(
+                        index: 16,
+                        label: "Absensi Pegawai",
+                        icon: Icons.fingerprint_rounded,
+                        isDark: isDark,
+                      ),
+                    ]),
+                    const SizedBox(height: 24),
+                  ],
+                );
+              },
+            ),
+
+            // ── Sistem & Pengaturan ──────────────────────────
             _buildSectionTitle("Sistem & Pengaturan", isDark),
             _buildGroupedSection(isDark: isDark, items: [
+              _buildMenuTile(
+                index: 24,
+                label: "Pusat Fitur Aplikasi",
+                icon: Icons.rocket_launch_rounded,
+                isDark: isDark,
+              ),
+              _buildMenuTile(
+                index: 10,
+                label: "Manajemen Data (CSV/Excel)",
+                icon: Icons.upload_file_rounded,
+                isDark: isDark,
+              ),
               _buildMenuTile(
                 index: 18,
                 label: "Pencadangan & Pemulihan",
@@ -750,39 +885,6 @@ class _QuickMenuPage extends StatelessWidget {
             color: isDark ? Colors.white24 : Colors.grey.shade400,
             size: 20,
           ),
-    );
-  }
-
-  // ── Action Nav Card (Printer / Transaksi) ────────────────────────────────
-  Widget _buildActionNavCard({
-    required String title,
-    required IconData icon,
-    required bool isDark,
-    required VoidCallback onTap,
-  }) {
-    return ListTile(
-      onTap: onTap,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      leading: Container(
-        padding: const EdgeInsets.all(10),
-        decoration: BoxDecoration(
-          color: Colors.blue.withValues(alpha: 0.1),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Icon(icon, color: Colors.blue, size: 22),
-      ),
-      title: Text(
-        title,
-        style: GoogleFonts.plusJakartaSans(
-          fontSize: 15,
-          fontWeight: FontWeight.w600,
-          color: isDark ? Colors.white : Colors.black87,
-        ),
-      ),
-      trailing: Icon(
-        Icons.chevron_right_rounded,
-        color: isDark ? Colors.white24 : Colors.grey.shade400,
-      ),
     );
   }
 }

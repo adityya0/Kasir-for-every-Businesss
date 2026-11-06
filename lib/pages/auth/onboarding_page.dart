@@ -1,8 +1,8 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
-const colorbase = Color(0xFFC0392B);
+const colorbase = Color(0xFFBD1B19);
 
 class OnboardingPage extends StatefulWidget {
   const OnboardingPage({super.key});
@@ -102,7 +102,7 @@ class _OnboardingPageState extends State<OnboardingPage>
                         const SizedBox(height: 50),
                         // Title & Subtitle
                         Text(
-                          "Warkop Alam POS \n Manajemen Apps",
+                          "Kakilima Pos \n Manajemen Apps",
                           textAlign: TextAlign.center,
                           style: GoogleFonts.plusJakartaSans(
                             fontSize: 32,

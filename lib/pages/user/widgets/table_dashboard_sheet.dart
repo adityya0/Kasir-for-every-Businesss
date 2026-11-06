@@ -20,7 +20,7 @@ class TableDashboardSheet extends StatefulWidget {
 }
 
 class _TableDashboardSheetState extends State<TableDashboardSheet> {
-  final Color _primaryColor = const Color(0xFFC0392B);
+  final Color _primaryColor = const Color(0xFF00BF63);
 
   Future<void> _clearTable(StoreTable table) async {
     final db = Provider.of<AppDatabase>(context, listen: false);

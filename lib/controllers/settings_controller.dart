@@ -46,18 +46,32 @@ class SettingsController {
   final ValueNotifier<bool> showNumpad = ValueNotifier(false);
   static const String _showNumpadKey = 'show_numpad';
 
+  // Auto focus / auto open keyboard on kasir search bar
+  final ValueNotifier<bool> autoFocusKasirSearch = ValueNotifier(false);
+  static const String _autoFocusKasirSearchKey = 'auto_focus_kasir_search';
+
   // Feature Flags
   final ValueNotifier<bool> featureGrosirEnabled = ValueNotifier(false);
   final ValueNotifier<bool> featureMejaEnabled = ValueNotifier(false);
   final ValueNotifier<bool> featureStokEnabled = ValueNotifier(true);
   final ValueNotifier<bool> featureLoyaltyEnabled = ValueNotifier(true);
   final ValueNotifier<bool> featureHutangEnabled = ValueNotifier(false);
+  final ValueNotifier<bool> featurePelangganEnabled = ValueNotifier(true);
+  final ValueNotifier<bool> featurePisahBillEnabled = ValueNotifier(true);
+  final ValueNotifier<bool> featureSplitPayEnabled = ValueNotifier(true);
+  final ValueNotifier<bool> featureKaryawanEnabled = ValueNotifier(false);
+  final ValueNotifier<bool> featureAntreanPesananEnabled = ValueNotifier(true);
 
   static const String _featureGrosirKey = 'feature_grosir_enabled';
   static const String _featureMejaKey = 'feature_meja_enabled';
   static const String _featureStokKey = 'feature_stok_enabled';
   static const String _featureLoyaltyKey = 'feature_loyalty_enabled';
   static const String _featureHutangKey = 'feature_hutang_enabled';
+  static const String _featurePelangganKey = 'feature_pelanggan_enabled';
+  static const String _featurePisahBillKey = 'feature_pisah_bill_enabled';
+  static const String _featureSplitPayKey = 'feature_split_pay_enabled';
+  static const String _featureKaryawanKey = 'feature_karyawan_enabled';
+  static const String _featureAntreanPesananKey = 'feature_antrean_pesanan_enabled';
 
   // Receipt Settings
   final ValueNotifier<bool> receiptShowLogo = ValueNotifier(true);
@@ -281,12 +295,20 @@ class SettingsController {
     // Load Numpad visibility
     showNumpad.value = prefs.getBool(_showNumpadKey) ?? false;
 
+    // Load Kasir Search auto focus
+    autoFocusKasirSearch.value = prefs.getBool(_autoFocusKasirSearchKey) ?? false;
+
     // Load Feature Flags
     featureGrosirEnabled.value = prefs.getBool(_featureGrosirKey) ?? false;
     featureMejaEnabled.value = prefs.getBool(_featureMejaKey) ?? false;
     featureStokEnabled.value = prefs.getBool(_featureStokKey) ?? true;
     featureLoyaltyEnabled.value = prefs.getBool(_featureLoyaltyKey) ?? true;
     featureHutangEnabled.value = prefs.getBool(_featureHutangKey) ?? false;
+    featurePelangganEnabled.value = prefs.getBool(_featurePelangganKey) ?? true;
+    featurePisahBillEnabled.value = prefs.getBool(_featurePisahBillKey) ?? true;
+    featureSplitPayEnabled.value = prefs.getBool(_featureSplitPayKey) ?? true;
+    featureKaryawanEnabled.value = prefs.getBool(_featureKaryawanKey) ?? false;
+    featureAntreanPesananEnabled.value = prefs.getBool(_featureAntreanPesananKey) ?? true;
 
     // Load Receipt Settings
     receiptShowLogo.value = prefs.getBool(_receiptShowLogoKey) ?? true;
@@ -353,6 +375,12 @@ class SettingsController {
     showNumpad.value = value;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_showNumpadKey, value);
+  }
+
+  Future<void> setAutoFocusKasirSearch(bool value) async {
+    autoFocusKasirSearch.value = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_autoFocusKasirSearchKey, value);
   }
 
   Future<void> setReceiptShowLogo(bool value) async {
@@ -438,6 +466,36 @@ class SettingsController {
     featureHutangEnabled.value = value;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_featureHutangKey, value);
+  }
+
+  Future<void> setFeaturePelangganEnabled(bool value) async {
+    featurePelangganEnabled.value = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_featurePelangganKey, value);
+  }
+
+  Future<void> setFeaturePisahBillEnabled(bool value) async {
+    featurePisahBillEnabled.value = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_featurePisahBillKey, value);
+  }
+
+  Future<void> setFeatureSplitPayEnabled(bool value) async {
+    featureSplitPayEnabled.value = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_featureSplitPayKey, value);
+  }
+
+  Future<void> setFeatureKaryawanEnabled(bool value) async {
+    featureKaryawanEnabled.value = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_featureKaryawanKey, value);
+  }
+
+  Future<void> setFeatureAntreanPesananEnabled(bool value) async {
+    featureAntreanPesananEnabled.value = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_featureAntreanPesananKey, value);
   }
 
   bool get isIndonesian => locale.value.languageCode == 'id';

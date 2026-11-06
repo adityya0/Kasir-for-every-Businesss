@@ -315,7 +315,7 @@ class ProductGrid extends StatelessWidget {
                             ),
                             if (p.isStockManaged)
                               Text(
-                                "Stok: ${NumberFormat.decimalPattern('id').format(p.stockQuantity ?? 0)} ${unitMap[p.unitId] ?? ''}",
+                                "Stok: ${(p.stockQuantity ?? 0) % 1 == 0 ? (p.stockQuantity ?? 0).toInt() : p.stockQuantity} ${unitMap[p.unitId] ?? ''}".trim(),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: GoogleFonts.openSans(
@@ -440,7 +440,7 @@ class ProductGrid extends StatelessWidget {
                       ),
                       if (p.isStockManaged)
                         Text(
-                          "Stok: ${NumberFormat.decimalPattern('id').format(p.stockQuantity ?? 0)} ${unitMap[p.unitId] ?? ''}",
+                          "Stok: ${(p.stockQuantity ?? 0) % 1 == 0 ? (p.stockQuantity ?? 0).toInt() : p.stockQuantity} ${unitMap[p.unitId] ?? ''}".trim(),
                           style: GoogleFonts.openSans(
                             fontSize: 12,
                             color: Colors.grey,

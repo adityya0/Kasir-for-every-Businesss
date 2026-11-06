@@ -19,9 +19,9 @@ import '../../widgets/big_search_bar.dart';
 import '../../services/app_database.dart';
 import '../../services/platform/file_manager.dart';
 import '../admin/report/expense_management_page.dart';
-import '../admin/debt/debt_management_page.dart';
 import '../admin/employee/employee_management_page.dart';
 import '../attendance/attendance_page.dart';
+import '../admin/customer_page.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../controllers/analytics_controller.dart';
 
@@ -63,8 +63,8 @@ class _KasirPageState extends State<KasirPage> {
   Map<String, int> _salesMap = {};
 
   static const _promoColors = [
-    Color(0xFFC0392B), // Brand
-    Color(0xFFE05A4E), // Brand Light
+    Color(0xFF00BF63), // Brand
+    Color(0xFF10B981), // Brand Light
     Color(0xFF8B1A1A), // Brand Dark
     Color(0xFF384333),
     Color(0xFF4A5744),
@@ -298,7 +298,7 @@ class _KasirPageState extends State<KasirPage> {
       child: IconButton(
         icon: const Icon(
           Icons.bolt_rounded,
-          color: Color(0xFFC0392B),
+          color: Color(0xFF00BF63),
           size: 24,
         ),
         onPressed: () => _showKasirQuickShortcutsSheet(context, isDark),
@@ -346,10 +346,10 @@ class _KasirPageState extends State<KasirPage> {
                       Container(
                         padding: const EdgeInsets.all(6),
                         decoration: BoxDecoration(
-                          color: const Color(0xFFC0392B).withValues(alpha: 0.1),
+                          color: const Color(0xFF00BF63).withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(8),
                         ),
-                        child: const Icon(Icons.bolt_rounded, color: Color(0xFFC0392B), size: 20),
+                        child: const Icon(Icons.bolt_rounded, color: Color(0xFF00BF63), size: 20),
                       ),
                       const SizedBox(width: 10),
                       Column(
@@ -445,24 +445,6 @@ class _KasirPageState extends State<KasirPage> {
                         },
                       ),
                       _buildKasirShortcutTile(
-                        icon: Icons.credit_card_outlined,
-                        label: "Buku Hutang",
-                        subtitle: "Catatan piutang & kasbon",
-                        color: const Color(0xFFD97706),
-                        isDark: isDark,
-                        onTap: () {
-                          Navigator.pop(ctx);
-                          if (_storeId != null) {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => DebtManagementPage(storeId: _storeId!),
-                              ),
-                            );
-                          }
-                        },
-                      ),
-                      _buildKasirShortcutTile(
                         icon: Icons.discount_outlined,
                         label: "Promosi & Diskon",
                         subtitle: "Atur promo & voucher",
@@ -473,38 +455,67 @@ class _KasirPageState extends State<KasirPage> {
                           widget.onNavigateToIndex?.call(17);
                         },
                       ),
-                      _buildKasirShortcutTile(
-                        icon: Icons.badge_outlined,
-                        label: "Kelola Pegawai",
-                        subtitle: "Daftar staf & gaji",
-                        color: const Color(0xFF0D9488),
-                        isDark: isDark,
-                        onTap: () {
-                          Navigator.pop(ctx);
-                          if (widget.onNavigateToIndex != null) {
-                            widget.onNavigateToIndex!(5);
-                          } else if (_storeId != null) {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => EmployeeManagementPage(storeId: _storeId!),
+                      ValueListenableBuilder<bool>(
+                        valueListenable: SettingsController.instance.featureKaryawanEnabled,
+                        builder: (context, karyawanEnabled, _) {
+                          if (!karyawanEnabled) return const SizedBox.shrink();
+                          return Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              _buildKasirShortcutTile(
+                                icon: Icons.badge_outlined,
+                                label: "Kelola Pegawai",
+                                subtitle: "Daftar staf & gaji",
+                                color: const Color(0xFF0D9488),
+                                isDark: isDark,
+                                onTap: () {
+                                  Navigator.pop(ctx);
+                                  if (widget.onNavigateToIndex != null) {
+                                    widget.onNavigateToIndex!(5);
+                                  } else if (_storeId != null) {
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (_) => EmployeeManagementPage(storeId: _storeId!),
+                                      ),
+                                    );
+                                  }
+                                },
                               ),
-                            );
-                          }
+                              _buildKasirShortcutTile(
+                                icon: Icons.fingerprint_rounded,
+                                label: "Absensi Pegawai",
+                                subtitle: "Check-in & shift kerja",
+                                color: const Color(0xFFE11D48),
+                                isDark: isDark,
+                                onTap: () {
+                                  Navigator.pop(ctx);
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => const AttendancePage(showSidebar: false),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ],
+                          );
                         },
                       ),
                       _buildKasirShortcutTile(
-                        icon: Icons.fingerprint_rounded,
-                        label: "Absensi Pegawai",
-                        subtitle: "Check-in & shift kerja",
-                        color: const Color(0xFFE11D48),
+                        icon: Icons.people_alt_outlined,
+                        label: "Pelanggan & Supplier",
+                        subtitle: "Kontak, piutang & hutang",
+                        color: const Color(0xFF0D9488),
                         isDark: isDark,
                         onTap: () {
                           Navigator.pop(ctx);
                           Navigator.push(
                             context,
                             MaterialPageRoute(
-                              builder: (_) => const AttendancePage(showSidebar: false),
+                              builder: (_) => CustomerPage(
+                                onBack: () => Navigator.pop(context),
+                              ),
                             ),
                           );
                         },
@@ -871,7 +882,7 @@ class _KasirPageState extends State<KasirPage> {
       if (currentInCart >= (product.stockQuantity ?? 0)) {
         if (mounted) {
           _showTopNotification(
-            "Stok tidak mencukupi! Hanya tersedia ${product.stockQuantity} item.",
+            "Stok tidak mencukupi! Hanya tersedia ${(product.stockQuantity ?? 0) % 1 == 0 ? (product.stockQuantity ?? 0).toInt() : product.stockQuantity} item.",
             color: Colors.redAccent,
           );
         }
@@ -1046,6 +1057,7 @@ class _KasirPageState extends State<KasirPage> {
         customerName: customerName,
         subtotal: totalAmount,
         pajakAmount: pajakAmount,
+        splitPayments: splitPayments,
       );
 
       try {
@@ -1069,7 +1081,7 @@ class _KasirPageState extends State<KasirPage> {
       final now = DateTime.now();
       final double finalCash = _cashReceived;
       final double finalChange = _cashReceived - finalTotal;
-      final currentStoreName = _storeName ?? "Warkop Alam POS";
+      final currentStoreName = _storeName ?? "Kakilima Pos";
       final currentStoreLogo = _storeLogoUrl;
 
       final List<Map<String, dynamic>> receiptItems = [];
@@ -1284,33 +1296,14 @@ class _KasirPageState extends State<KasirPage> {
                 backgroundColor: isDark ? const Color(0xFF1A1C1E) : Colors.white,
                 elevation: 0,
                 leading: null,
-                title: Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Image.asset(
-                        'assets/logo/logo.png',
-                        height: 24,
-                        fit: BoxFit.contain,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        _storeName ?? "Warkop Alam POS",
-                        style: GoogleFonts.plusJakartaSans(
-                          fontWeight: FontWeight.w700,
-                          fontSize: 18,
-                          color: isDark ? Colors.white : Colors.black87,
-                        ),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ],
+                title: Text(
+                  _storeName ?? "KakiLima Pos",
+                  style: GoogleFonts.plusJakartaSans(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 18,
+                    color: isDark ? Colors.white : Colors.black87,
+                  ),
+                  overflow: TextOverflow.ellipsis,
                 ),
                 actions: [
                   IconButton(
@@ -1338,8 +1331,19 @@ class _KasirPageState extends State<KasirPage> {
                       );
                     }
                   ),
-                  _buildHeldCartsIcon(isDark),
-                  const SizedBox(width: 8),
+                  ValueListenableBuilder<bool>(
+                    valueListenable: SettingsController.instance.featureAntreanPesananEnabled,
+                    builder: (context, enabled, _) {
+                      if (!enabled) return const SizedBox.shrink();
+                      return Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          _buildHeldCartsIcon(isDark),
+                          const SizedBox(width: 8),
+                        ],
+                      );
+                    },
+                  ),
                   _buildKasirShortcutsButton(isDark),
                   const SizedBox(width: 8),
                 ],
@@ -1381,19 +1385,24 @@ class _KasirPageState extends State<KasirPage> {
                                             final rowContent = Row(
                                               children: [
                                                 Expanded(
-                                                  child: BigSearchBar(
-                                                    controller: _searchController,
-                                                    autoFocus: true,
-                                                    hintText: "Cari menu atau Scan SKU...",
-                                                    onChanged: (val) => setState(
-                                                      () => _searchQuery = val.toLowerCase(),
-                                                    ),
-                                                    onSubmitted: _searchAndAddBySku,
-                                                    onClear: () {
-                                                      setState(() {
-                                                        _searchController.clear();
-                                                        _searchQuery = "";
-                                                      });
+                                                  child: ValueListenableBuilder<bool>(
+                                                    valueListenable: SettingsController.instance.autoFocusKasirSearch,
+                                                    builder: (context, autoFocus, _) {
+                                                      return BigSearchBar(
+                                                        controller: _searchController,
+                                                        autoFocus: autoFocus,
+                                                        hintText: "Cari menu atau Scan SKU...",
+                                                        onChanged: (val) => setState(
+                                                          () => _searchQuery = val.toLowerCase(),
+                                                        ),
+                                                        onSubmitted: _searchAndAddBySku,
+                                                        onClear: () {
+                                                          setState(() {
+                                                            _searchController.clear();
+                                                            _searchQuery = "";
+                                                          });
+                                                        },
+                                                      );
                                                     },
                                                   ),
                                                 ),
@@ -1414,8 +1423,19 @@ class _KasirPageState extends State<KasirPage> {
                                                 const SizedBox(width: 12),
                                                 _buildCategoryDropdown(isDark),
                                                 const SizedBox(width: 12),
-                                                _buildHeldCartsIcon(isDark),
-                                                const SizedBox(width: 12),
+                                                ValueListenableBuilder<bool>(
+                                                  valueListenable: SettingsController.instance.featureAntreanPesananEnabled,
+                                                  builder: (context, enabled, _) {
+                                                    if (!enabled) return const SizedBox.shrink();
+                                                    return Row(
+                                                      mainAxisSize: MainAxisSize.min,
+                                                      children: [
+                                                        _buildHeldCartsIcon(isDark),
+                                                        const SizedBox(width: 12),
+                                                      ],
+                                                    );
+                                                  },
+                                                ),
                                                 _buildKasirShortcutsButton(isDark),
                                                 const SizedBox(width: 12),
                                                 Container(
@@ -1767,18 +1787,23 @@ class _KasirPageState extends State<KasirPage> {
                                   child: Row(
                                     children: [
                                       Expanded(
-                                        child: BigSearchBar(
-                                          controller: _searchController,
-                                          autoFocus: true,
-                                          hintText: "Cari menu...",
-                                          onChanged: (val) => setState(
-                                            () => _searchQuery = val.toLowerCase(),
-                                          ),
-                                          onClear: () {
-                                            setState(() {
-                                              _searchController.clear();
-                                              _searchQuery = "";
-                                            });
+                                        child: ValueListenableBuilder<bool>(
+                                          valueListenable: SettingsController.instance.autoFocusKasirSearch,
+                                          builder: (context, autoFocus, _) {
+                                            return BigSearchBar(
+                                              controller: _searchController,
+                                              autoFocus: autoFocus,
+                                              hintText: "Cari menu...",
+                                              onChanged: (val) => setState(
+                                                () => _searchQuery = val.toLowerCase(),
+                                              ),
+                                              onClear: () {
+                                                setState(() {
+                                                  _searchController.clear();
+                                                  _searchQuery = "";
+                                                });
+                                              },
+                                            );
                                           },
                                         ),
                                       ),
@@ -1962,7 +1987,7 @@ class _KasirPageState extends State<KasirPage> {
   }
 
   Widget _buildFilterTab(String label, bool isActive) {
-    const primaryColor = Color(0xFFC0392B);
+    const primaryColor = Color(0xFF00BF63);
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return InkWell(
@@ -1995,38 +2020,50 @@ class _KasirPageState extends State<KasirPage> {
 
   Widget _buildCategoryDropdown(bool isDark, {bool isMobile = false}) {
     return Container(
-      height: isMobile ? 45 : 50,
+      height: 48,
       padding: const EdgeInsets.symmetric(horizontal: 12),
       decoration: BoxDecoration(
-        color: isDark ? Colors.white10 : Colors.white,
-        borderRadius: BorderRadius.circular(15),
-        border: Border.all(color: isDark ? const Color(0xFF374151) : const Color(0xFFCBD5E1), width: 1.2),
+        color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isDark ? 0.3 : 0.04),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
+        border: Border.all(
+          color: isDark ? const Color(0xFF374151) : const Color(0xFFCBD5E1),
+          width: 1.2,
+        ),
       ),
       child: DropdownButtonHideUnderline(
         child: DropdownButton<String>(
           value: _selectedPromoIndex >= 0 ? null : _selectedCategory,
           hint: Text(
             "Kategori",
-            style: GoogleFonts.openSans(
+            style: GoogleFonts.plusJakartaSans(
               fontSize: 13,
-              color: isDark ? Colors.white70 : Colors.grey[600],
+              fontWeight: FontWeight.w700,
+              color: const Color(0xFF00BF63),
             ),
           ),
-          dropdownColor: isDark ? const Color(0xFF1A1C1E) : Colors.white,
-          icon: Icon(
+          dropdownColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+          icon: const Icon(
             Icons.keyboard_arrow_down_rounded,
-            color: isDark ? Colors.white70 : Colors.grey[600],
+            color: Color(0xFF00BF63),
             size: 20,
           ),
           items: _categories.map((String cat) {
+            final isSel = _selectedCategory == cat;
             return DropdownMenuItem<String>(
               value: cat,
               child: Text(
                 cat,
-                style: GoogleFonts.openSans(
+                style: GoogleFonts.plusJakartaSans(
                   fontSize: 13,
-                  fontWeight: _selectedCategory == cat ? FontWeight.w600 : FontWeight.normal,
-                  color: isDark ? Colors.white : Colors.black87,
+                  fontWeight: isSel ? FontWeight.w700 : FontWeight.w600,
+                  color: const Color(0xFF00BF63),
                 ),
               ),
             );

@@ -245,7 +245,7 @@ class _ProductOptionModalState extends State<ProductOptionModal> {
                                       borderRadius: BorderRadius.circular(6),
                                     ),
                                     child: Text(
-                                      "Stok: ${NumberFormat.decimalPattern('id').format(currentStock)} ${_unit?.code ?? ''}",
+                                      "Stok: ${currentStock % 1 == 0 ? currentStock.toInt() : currentStock} ${_unit?.code ?? ''}".trim(),
                                       style: GoogleFonts.openSans(
                                         fontSize: 11,
                                         fontWeight: FontWeight.w600,
@@ -362,7 +362,7 @@ class _ProductOptionModalState extends State<ProductOptionModal> {
                                   ),
                                 ),
                                 Text(
-                                  "${NumberFormat.decimalPattern('id').format(remaining)} ${_unit?.code ?? ''}",
+                                  "${remaining % 1 == 0 ? remaining.toInt() : remaining} ${_unit?.code ?? ''}".trim(),
                                   style: GoogleFonts.openSans(
                                     fontSize: 11,
                                     fontWeight: FontWeight.bold,

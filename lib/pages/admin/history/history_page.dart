@@ -1,3 +1,4 @@
+﻿import 'package:open_filex/open_filex.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -9,7 +10,6 @@ import '../../../services/platform/file_manager.dart';
 import 'package:intl/intl.dart';
 import '../../../services/app_database.dart';
 import 'package:drift/drift.dart' hide Column;
-import '../../../controllers/settings_controller.dart';
 import '../../../widgets/custom_toast.dart';
 import '../../../widgets/reset_transactions_dialog.dart';
 
@@ -33,7 +33,7 @@ class HistoryPage extends StatefulWidget {
 class _HistoryPageState extends State<HistoryPage> {
   String? _storeId;
   bool _isLoading = true;
-  Key _tabKey = UniqueKey();
+  GlobalKey<TransactionsTabState> _tabKey = GlobalKey<TransactionsTabState>();
 
   @override
   void initState() {
@@ -68,30 +68,13 @@ class _HistoryPageState extends State<HistoryPage> {
           final content = Scaffold(
             backgroundColor: isDark ? const Color(0xFF121212) : Colors.white,
             appBar: AppBar(
-              title: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Image.asset(
-                      'assets/logo/logo.png',
-                      height: 24,
-                      fit: BoxFit.contain,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Text(
-                    "Riwayat Transaksi",
-                    style: GoogleFonts.plusJakartaSans(
-                      fontWeight: FontWeight.w700,
-                      color: isDark ? Colors.white : const Color(0xFF2D3436),
-                      fontSize: 18,
-                    ),
-                  ),
-                ],
+              title: Text(
+                "Riwayat Transaksi",
+                style: GoogleFonts.plusJakartaSans(
+                  fontWeight: FontWeight.w700,
+                  color: isDark ? Colors.white : const Color(0xFF2D3436),
+                  fontSize: 18,
+                ),
               ),
               backgroundColor: isDark ? const Color(0xFF1A1C1E) : Colors.white,
               elevation: 0,
@@ -108,28 +91,136 @@ class _HistoryPageState extends State<HistoryPage> {
                 Consumer<AdminController>(
                   builder: (context, adminCtrl, _) {
                     final isAdmin = adminCtrl.role == 'admin' || adminCtrl.role == 'owner';
-                    if (!isAdmin || _storeId == null) return const SizedBox.shrink();
-                    return IconButton(
-                      onPressed: () => ResetTransactionsDialog.show(
-                        context,
-                        storeId: _storeId!,
-                        onResetSuccess: () {
-                          setState(() {
-                            _tabKey = UniqueKey();
-                          });
-                        },
+                    return Theme(
+                      data: Theme.of(context).copyWith(
+                        hoverColor: isDark ? Colors.white.withValues(alpha: 0.05) : const Color(0xFFF1F5F9),
                       ),
-                      icon: const Icon(Icons.delete_sweep_rounded, color: Color(0xFFEF4444)),
-                      tooltip: "Reset Riwayat Transaksi",
+                      child: PopupMenuButton<String>(
+                        offset: const Offset(0, 44),
+                        elevation: 8,
+                        surfaceTintColor: Colors.transparent,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          side: BorderSide(
+                            color: isDark ? const Color(0xFF475569) : const Color(0xFF1E293B),
+                            width: 1.2,
+                          ),
+                        ),
+                        color: isDark ? const Color(0xFF1E293B) : Colors.white,
+                        icon: Container(
+                          padding: const EdgeInsets.all(7),
+                          decoration: BoxDecoration(
+                            color: isDark ? Colors.white10 : const Color(0xFFF1F5F9),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: isDark ? const Color(0xFF374151) : const Color(0xFFCBD5E1),
+                              width: 1,
+                            ),
+                          ),
+                          child: Icon(
+                            Icons.settings_outlined,
+                            size: 20,
+                            color: isDark ? Colors.white70 : const Color(0xFF475569),
+                          ),
+                        ),
+                        tooltip: "Pengaturan & Ekspor",
+                        onSelected: (value) {
+                          if (value == 'export_pdf') {
+                            _handleExport('pdf');
+                          } else if (value == 'export_excel') {
+                            _handleExport('excel');
+                          } else if (value == 'export_csv') {
+                            _handleExport('csv');
+                          } else if (value == 'reset_transactions') {
+                            if (_storeId != null) {
+                              ResetTransactionsDialog.show(
+                                context,
+                                storeId: _storeId!,
+                                onResetSuccess: () {
+                                  setState(() {
+                                    _tabKey = GlobalKey<TransactionsTabState>();
+                                  });
+                                },
+                              );
+                            }
+                          }
+                        },
+                        itemBuilder: (context) => [
+                          PopupMenuItem<String>(
+                            value: 'export_pdf',
+                            child: Row(
+                              children: [
+                                const Icon(Icons.picture_as_pdf_rounded, color: Colors.redAccent, size: 20),
+                                const SizedBox(width: 10),
+                                Text(
+                                  "Ekspor PDF",
+                                  style: GoogleFonts.plusJakartaSans(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: isDark ? Colors.white : const Color(0xFF1E293B),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          PopupMenuItem<String>(
+                            value: 'export_excel',
+                            child: Row(
+                              children: [
+                                const Icon(Icons.table_chart_rounded, color: Color(0xFF00BF63), size: 20),
+                                const SizedBox(width: 10),
+                                Text(
+                                  "Ekspor Excel",
+                                  style: GoogleFonts.plusJakartaSans(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: isDark ? Colors.white : const Color(0xFF1E293B),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          PopupMenuItem<String>(
+                            value: 'export_csv',
+                            child: Row(
+                              children: [
+                                const Icon(Icons.description_outlined, color: Color(0xFF0D9488), size: 20),
+                                const SizedBox(width: 10),
+                                Text(
+                                  "Ekspor CSV",
+                                  style: GoogleFonts.plusJakartaSans(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: isDark ? Colors.white : const Color(0xFF1E293B),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (isAdmin) ...[
+                            const PopupMenuDivider(height: 12),
+                            PopupMenuItem<String>(
+                              value: 'reset_transactions',
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.delete_sweep_rounded, color: Color(0xFFEF4444), size: 20),
+                                  const SizedBox(width: 10),
+                                  Text(
+                                    "Hapus Riwayat Transaksi",
+                                    style: GoogleFonts.plusJakartaSans(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                      color: const Color(0xFFEF4444),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
                     );
                   },
-                ),
-                IconButton(
-                  onPressed: () => _showExportMenu(context),
-                  icon: const Icon(Icons.ios_share_rounded),
-                  tooltip: SettingsController.instance.getString(
-                    'export_report',
-                  ),
                 ),
                 const SizedBox(width: 8),
               ],
@@ -168,50 +259,6 @@ class _HistoryPageState extends State<HistoryPage> {
     );
   }
 
-  void _showExportMenu(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 20),
-              child: Text(
-                SettingsController.instance.getString('export_history_title'),
-                style: GoogleFonts.plusJakartaSans(
-                  fontWeight: FontWeight.w600,
-                  fontSize: 16,
-                ),
-              ),
-            ),
-            ListTile(
-              leading: const Icon(Icons.picture_as_pdf, color: Colors.red),
-              title: Text(SettingsController.instance.getString('export_pdf')),
-              onTap: () {
-                Navigator.pop(context);
-                _handleExport('pdf');
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.table_chart, color: Colors.green),
-              title: Text(
-                SettingsController.instance.getString('export_excel'),
-              ),
-              onTap: () {
-                Navigator.pop(context);
-                _handleExport('excel');
-              },
-            ),
-            const SizedBox(height: 10),
-          ],
-        ),
-      ),
-    );
-  }
 
   Future<void> _handleExport(String type) async {
     if (_storeId == null) return;
@@ -220,15 +267,24 @@ class _HistoryPageState extends State<HistoryPage> {
     final exportService = ExportService();
 
     try {
-      final transactions =
-          await (db.select(db.transactions)
-                ..where((t) => t.storeId.equals(_storeId!))
-                ..orderBy([(t) => OrderingTerm.desc(t.createdAt)]))
-              .get();
+      final tabState = _tabKey.currentState;
+      final filterLabel = tabState?.selectedFilter ?? 'Semua';
+      final startDate = tabState?.currentStartDate;
+      final endDate = tabState?.currentEndDate;
+
+      final query = db.select(db.transactions)..where((t) => t.storeId.equals(_storeId!));
+      if (startDate != null && endDate != null) {
+        query.where((t) => t.createdAt.isBiggerOrEqualValue(startDate) & t.createdAt.isSmallerOrEqualValue(endDate));
+      }
+      query.orderBy([(t) => OrderingTerm.desc(t.createdAt)]);
+      final transactions = await query.get();
 
       if (transactions.isEmpty) {
         if (mounted) {
-          CustomToast.show(context, "Tidak ada transaksi untuk diekspor", isError: true);
+          final msg = filterLabel != 'Semua'
+              ? "Tidak ada transaksi untuk periode $filterLabel"
+              : "Tidak ada transaksi untuk diekspor";
+          CustomToast.show(context, msg, isError: true);
         }
         return;
       }
@@ -236,31 +292,70 @@ class _HistoryPageState extends State<HistoryPage> {
       Uint8List bytes;
       String filename;
       String mimeType;
+      final activePeriod = filterLabel != 'Semua' ? filterLabel : null;
 
       if (type == 'pdf') {
         bytes = await exportService.generateTransactionsPdf(
-          "Warkop Alam POS",
+          "Kakilima Pos",
           transactions,
+          periodLabel: activePeriod,
+          startDate: startDate,
+          endDate: endDate,
         );
         filename =
-            "Laporan_Transaksi_${DateFormat('yyyyMMdd').format(DateTime.now())}.pdf";
+            "Laporan_Transaksi_${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.pdf";
         mimeType = "application/pdf";
-      } else {
+      } else if (type == 'excel') {
         bytes = await exportService.generateTransactionsExcel(
-          "Warkop Alam POS",
+          "Kakilima Pos",
           transactions,
+          periodLabel: activePeriod,
+          startDate: startDate,
+          endDate: endDate,
         );
         filename =
-            "Laporan_Transaksi_${DateFormat('yyyyMMdd').format(DateTime.now())}.xlsx";
+            "Laporan_Transaksi_${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.xlsx";
         mimeType =
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+      } else {
+        final effStart = startDate ?? (transactions.isNotEmpty ? (transactions.last.createdAt ?? DateTime.now()) : DateTime.now());
+        final effEnd = endDate ?? (transactions.isNotEmpty ? (transactions.first.createdAt ?? DateTime.now()) : DateTime.now());
+        bytes = exportService.generateTransactionsCsv(
+          storeName: "Kakilima Pos",
+          startDate: effStart,
+          endDate: effEnd,
+          transactions: transactions,
+        );
+        filename =
+            "Laporan_Transaksi_${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.csv";
+        mimeType = "text/csv";
       }
 
-      await FileManager().saveAndShareBytes(
+      final savedPath = await FileManager().saveAndShareBytes(
         filename,
         bytes,
         mimeType: mimeType,
       );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Laporan berhasil disimpan di folder Download\n()',
+              style: GoogleFonts.openSans(fontSize: 13, color: Colors.white),
+            ),
+            backgroundColor: const Color(0xFF00BF63),
+            duration: const Duration(seconds: 6),
+            action: (savedPath != null)
+                ? SnackBarAction(
+                    label: 'Buka',
+                    textColor: Colors.white,
+                    onPressed: () => OpenFilex.open(savedPath),
+                  )
+                : null,
+          ),
+        );
+      }
     } catch (e) {
       if (mounted) {
         CustomToast.show(context, "Gagal ekspor: $e", isError: true);

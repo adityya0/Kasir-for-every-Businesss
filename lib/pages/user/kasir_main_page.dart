@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -35,9 +35,23 @@ class _KasirMainPageState extends State<KasirMainPage> {
     });
   }
 
+  // Maksimal kedalaman riwayat 2 halaman sebelumnya sebelum langsung kembali ke halaman utama Kasir
+  static const int _maxHistoryLimit = 2;
+
   void _onSelectIndex(int index) {
     if (_selectedIndex == index) return;
-    _indexHistory.add(_selectedIndex);
+    if (index == 3) {
+      // Jika kembali ke halaman utama Kasir, bersihkan riwayat
+      _indexHistory.clear();
+    } else {
+      if (_indexHistory.isEmpty || _indexHistory.last != _selectedIndex) {
+        _indexHistory.add(_selectedIndex);
+        // Batasi riwayat maksimal 2 halaman sebelumnya
+        while (_indexHistory.length > _maxHistoryLimit) {
+          _indexHistory.removeAt(0);
+        }
+      }
+    }
     setState(() => _selectedIndex = index);
   }
 
@@ -46,12 +60,18 @@ class _KasirMainPageState extends State<KasirMainPage> {
       Navigator.pop(context);
       return true;
     }
+    // Jika masih ada riwayat 2-3 halaman sebelumnya
     if (_indexHistory.isNotEmpty) {
       final previous = _indexHistory.removeLast();
+      if (previous == 3) {
+        _indexHistory.clear();
+      }
       setState(() => _selectedIndex = previous);
       return true;
     }
+    // Jika riwayat habis dan belum di halaman utama Kasir, langsung kembali ke Kasir
     if (_selectedIndex != 3) {
+      _indexHistory.clear();
       setState(() => _selectedIndex = 3);
       return true;
     }
@@ -176,7 +196,7 @@ class _KasirMainPageState extends State<KasirMainPage> {
       context: context,
       builder: (context) => KasirDialog(
         title: "Keluar Aplikasi",
-        message: "Apakah Anda yakin ingin menutup dan keluar dari aplikasi Warkop Alam POS?",
+        message: "Apakah Anda yakin ingin menutup dan keluar dari aplikasi Kakilima Pos?",
         icon: Icons.power_settings_new_rounded,
         iconColor: Colors.redAccent,
         isDestructive: true,
@@ -252,7 +272,7 @@ class _KasirMainPageState extends State<KasirMainPage> {
     required int currentIndex,
   }) {
     final isSelected = currentIndex == index;
-    const accentColor = Color(0xFFC0392B);
+    const accentColor = Color(0xFF00BF63);
     final color = isSelected ? accentColor : const Color(0xFF94A3B8);
 
     return GestureDetector(
@@ -286,7 +306,7 @@ class _KasirMainPageState extends State<KasirMainPage> {
   // ─── Employee Wide Screen Rail (Tablet/Desktop) ─────────────────────────
   Widget _buildEmployeeWideRail(AdminController adminCtrl) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    const accentColor = Color(0xFFC0392B);
+    const accentColor = Color(0xFF00BF63);
 
     return Container(
       width: 220,
@@ -394,7 +414,7 @@ class _KasirMainPageState extends State<KasirMainPage> {
     required String label,
   }) {
     final isSelected = _selectedIndex == index;
-    const accentColor = Color(0xFFC0392B);
+    const accentColor = Color(0xFF00BF63);
 
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),

@@ -1,5 +1,6 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -31,7 +32,7 @@ class _BackupRestorePageState extends State<BackupRestorePage> {
   bool _isHistoryLoading = false;
   GoogleUserInfo? _currentUser;
   List<drive.File> _backupHistory = [];
-  bool _showTutorial = false;
+  int _selectedTab = 0; // 0: Pencadangan, 1: Pemulihan
 
   @override
   void initState() {
@@ -112,11 +113,8 @@ class _BackupRestorePageState extends State<BackupRestorePage> {
             email: savedEmail,
             displayName: prefs.getString('gdrive_user_name'),
           );
-          _showTutorial = false;
         });
         _fetchHistory();
-      } else {
-        if (mounted) setState(() => _showTutorial = true);
       }
     } catch (e) {
       debugPrint("Gdrive Status Check Error: $e");
@@ -146,17 +144,119 @@ class _BackupRestorePageState extends State<BackupRestorePage> {
           _fetchHistory();
         }
       } else {
-        throw "Sinkronisasi dibatalkan atau gagal";
+        final err = _driveService.lastError ?? "";
+        if (mounted) {
+          _showGdriveSetupInfoDialog(context, errorDetail: err);
+        }
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Gagal Sinkronisasi: $e"), backgroundColor: Colors.red),
-        );
+        _showGdriveSetupInfoDialog(context, errorDetail: e.toString());
       }
     } finally {
       if (mounted) setState(() => _isGdriveLoading = false);
     }
+  }
+
+  void _showGdriveSetupInfoDialog(BuildContext context, {String? errorDetail}) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.orange.withValues(alpha: 0.1),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.cloud_off_rounded, color: Colors.orange, size: 24),
+            ),
+            const SizedBox(width: 10),
+            const Expanded(
+              child: Text(
+                "Sinkronisasi Google Drive",
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              "Google Sign-In API di Android memerlukan registrasi sertifikat SHA-1 di Google Cloud Console untuk package aplikasi.",
+              style: TextStyle(fontSize: 13),
+            ),
+            const SizedBox(height: 12),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.grey.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text("Package Name:", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                  Text("com.kakilima.pos", style: TextStyle(fontSize: 11, color: Color(0xFF00BF63), fontWeight: FontWeight.w600)),
+                  SizedBox(height: 6),
+                  Text("SHA-1 Sertifikat:", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                  SelectableText("4E:71:D3:6E:AF:93:D0:37:24:36:AB:6E:ED:26:77:63:2B:A7:0A:9F", style: TextStyle(fontSize: 10, color: Color(0xFF00BF63), fontWeight: FontWeight.w600)),
+                ],
+              ),
+            ),
+            const SizedBox(height: 14),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: const Color(0xFF00BF63).withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFF00BF63).withValues(alpha: 0.2)),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.lightbulb_outline_rounded, color: Color(0xFF00BF63), size: 20),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      "Solusi Cepat: Anda bisa langsung mencadangkan ke Google Drive melalui menu 'Cadangkan & Bagikan ke Drive' tanpa perlu login API.",
+                      style: TextStyle(fontSize: 11.5, color: Colors.black87),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              Clipboard.setData(const ClipboardData(
+                text: "Package: com.kakilima.pos\nSHA-1: 4E:71:D3:6E:AF:93:D0:37:24:36:AB:6E:ED:26:77:63:2B:A7:0A:9F",
+              ));
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text("Info SHA-1 disalin ke clipboard")),
+              );
+            },
+            child: const Text("Salin Info"),
+          ),
+          ElevatedButton.icon(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _backupLocal(context);
+            },
+            icon: const Icon(Icons.share_rounded, size: 16, color: Colors.white),
+            label: const Text("Cadangkan Sekarang", style: TextStyle(color: Colors.white)),
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00BF63)),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _handleGdriveLogout() async {
@@ -199,150 +299,83 @@ class _BackupRestorePageState extends State<BackupRestorePage> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final primaryColor = Theme.of(context).primaryColor;
+    const primaryColor = Color(0xFF00BF63);
+    final cardBg = isDark ? const Color(0xFF1E293B) : Colors.white;
+    final borderColor = isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0);
+    final secondaryTextColor = isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B);
 
     return Scaffold(
-      backgroundColor: isDark ? Colors.black : Colors.grey.shade50,
+      backgroundColor: isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC),
       appBar: AppBar(
         title: Text(
           "Pencadangan & Pemulihan",
-          style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w600),
+          style: GoogleFonts.plusJakartaSans(
+            fontWeight: FontWeight.w700,
+            fontSize: 18,
+            color: isDark ? Colors.white : const Color(0xFF0F172A),
+          ),
         ),
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20),
+          icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 18),
           onPressed: widget.onBack,
         ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.help_outline_rounded, size: 21),
+            tooltip: "Panduan Sinkronisasi",
+            onPressed: () => _showGdriveSetupInfoDialog(context),
+          ),
+          const SizedBox(width: 8),
+        ],
         elevation: 0,
         backgroundColor: Colors.transparent,
       ),
-      body: _showTutorial && _currentUser == null
-          ? _buildTutorialView(isDark, primaryColor)
-          : SingleChildScrollView(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+      body: Column(
+        children: [
+          // ── SEGMENTED TAB SELECTOR (Efisien & Mudah Beralih) ─────────────
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+            child: Container(
+              padding: const EdgeInsets.all(4),
+              decoration: BoxDecoration(
+                color: isDark ? const Color(0xFF1E293B) : const Color(0xFFE2E8F0),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
                 children: [
-                  _buildGdriveStatusCard(isDark, primaryColor),
-                  const SizedBox(height: 24),
-                  _buildAutoBackupCard(isDark, primaryColor),
-                  const SizedBox(height: 24),
-                  _buildSectionTitle("Pencadangan Manual", isDark),
-                  _buildActionCard(
-                    title: "Cadangkan ke Perangkat",
-                    icon: Icons.share_rounded,
-                    color: Colors.blue,
-                    isDark: isDark,
-                    onTap: () => _backupLocal(context),
+                  Expanded(
+                    child: _buildSegmentButton(
+                      index: 0,
+                      label: "Pencadangan (Backup)",
+                      icon: Icons.cloud_upload_outlined,
+                      isSelected: _selectedTab == 0,
+                      primaryColor: primaryColor,
+                      isDark: isDark,
+                    ),
                   ),
-                  const SizedBox(height: 12),
-                  _buildActionCard(
-                    title: "Cadangkan ke Google Drive",
-                    icon: Icons.cloud_upload_outlined,
-                    color: Colors.green,
-                    isDark: isDark,
-                    onTap: _currentUser == null ? null : () => _backupToGdrive(context),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: _buildSegmentButton(
+                      index: 1,
+                      label: "Pemulihan (Restore)",
+                      icon: Icons.settings_backup_restore_rounded,
+                      isSelected: _selectedTab == 1,
+                      primaryColor: primaryColor,
+                      isDark: isDark,
+                    ),
                   ),
-                  const SizedBox(height: 24),
-                  _buildSectionTitle("Pemulihan Data", isDark),
-                  _buildActionCard(
-                    title: "Pulihkan dari Perangkat",
-                    icon: Icons.folder_open_rounded,
-                    color: Colors.orange,
-                    isDark: isDark,
-                    onTap: () => _restoreLocal(context),
-                  ),
-                  const SizedBox(height: 12),
-                  _buildActionCard(
-                    title: "Pulihkan dari Google Drive",
-                    icon: Icons.cloud_download_outlined,
-                    color: Colors.purple,
-                    isDark: isDark,
-                    onTap: _currentUser == null ? null : () => _restoreFromGdrive(context),
-                  ),
-                  const SizedBox(height: 32),
-                  _buildHistorySection(isDark),
-                  const SizedBox(height: 40),
                 ],
               ),
             ),
-    );
-  }
+          ),
 
-  Widget _buildTutorialView(bool isDark, Color primaryColor) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(32),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          const SizedBox(height: 40),
-          Container(
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              color: primaryColor.withValues(alpha: 0.1),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(Icons.cloud_sync_rounded, size: 80, color: primaryColor),
-          ),
-          const SizedBox(height: 40),
-          Text(
-            "Amankan Data Anda ke Cloud",
-            textAlign: TextAlign.center,
-            style: GoogleFonts.plusJakartaSans(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: isDark ? Colors.white : Colors.black87,
-            ),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            "Hubungkan Google Drive untuk mencadangkan data penjualan, stok, dan laporan Anda secara otomatis dan aman.",
-            textAlign: TextAlign.center,
-            style: GoogleFonts.plusJakartaSans(
-              fontSize: 15,
-              color: isDark ? Colors.white60 : Colors.black54,
-              height: 1.5,
-            ),
-          ),
-          const SizedBox(height: 48),
-          _buildTutorialItem(
-            Icons.security_rounded,
-            "Keamanan Data",
-            "Data Anda tersimpan aman di akun Google pribadi Anda.",
-            isDark,
-          ),
-          const SizedBox(height: 24),
-          _buildTutorialItem(
-            Icons.devices_rounded,
-            "Sinkronisasi Perangkat",
-            "Pulihkan data di perangkat baru kapan saja dengan mudah.",
-            isDark,
-          ),
-          const SizedBox(height: 24),
-          _buildTutorialItem(
-            Icons.auto_awesome_rounded,
-            "Gratis & Mudah",
-            "Gunakan penyimpanan gratis Google Drive tanpa biaya tambahan.",
-            isDark,
-          ),
-          const SizedBox(height: 60),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: () => setState(() => _showTutorial = false),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: primaryColor,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 20),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                elevation: 0,
-              ),
-              child: Text(
-                "Lanjutkan",
-                style: GoogleFonts.plusJakartaSans(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 16,
-                ),
-              ),
+          // ── TAB CONTENT ──────────────────────────────────────────────────
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 28),
+              child: _selectedTab == 0
+                  ? _buildBackupTab(isDark, primaryColor, cardBg, borderColor, secondaryTextColor)
+                  : _buildRestoreTab(isDark, primaryColor, cardBg, borderColor, secondaryTextColor),
             ),
           ),
         ],
@@ -350,38 +383,794 @@ class _BackupRestorePageState extends State<BackupRestorePage> {
     );
   }
 
-  Widget _buildTutorialItem(IconData icon, String title, String desc, bool isDark) {
-    return Row(
-      children: [
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: isDark ? Colors.white.withValues(alpha: 0.05) : Colors.grey.shade100,
-            borderRadius: BorderRadius.circular(14),
-          ),
-          child: Icon(icon, color: Colors.blue, size: 24),
+  Widget _buildSegmentButton({
+    required int index,
+    required String label,
+    required IconData icon,
+    required bool isSelected,
+    required Color primaryColor,
+    required bool isDark,
+  }) {
+    return GestureDetector(
+      onTap: () {
+        setState(() => _selectedTab = index);
+        if (index == 1 && _currentUser != null && _backupHistory.isEmpty) {
+          _fetchHistory();
+        }
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? (isDark ? const Color(0xFF334155) : Colors.white)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(10),
+          boxShadow: isSelected
+              ? [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.06),
+                    blurRadius: 4,
+                    offset: const Offset(0, 1),
+                  ),
+                ]
+              : null,
         ),
-        const SizedBox(width: 20),
-        Expanded(
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              icon,
+              size: 17,
+              color: isSelected ? primaryColor : (isDark ? Colors.white60 : const Color(0xFF64748B)),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              label,
+              style: GoogleFonts.plusJakartaSans(
+                fontSize: 12.5,
+                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
+                color: isSelected
+                    ? (isDark ? Colors.white : const Color(0xFF0F172A))
+                    : (isDark ? Colors.white60 : const Color(0xFF64748B)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // TAB 1: PENCADANGAN (BACKUP)
+  // ════════════════════════════════════════════════════════════════════════════
+  Widget _buildBackupTab(
+    bool isDark,
+    Color primaryColor,
+    Color cardBg,
+    Color borderColor,
+    Color secondaryTextColor,
+  ) {
+    final bool isSynced = _currentUser != null;
+    final autoBackup = _autoBackup;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // ── 1. Unified Cloud & Auto-Backup Card ──────────────────────────────
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: cardBg,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: borderColor, width: 1.1),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.02),
+                blurRadius: 6,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // Header Cloud
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: (isSynced ? Colors.green : Colors.blue).withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(
+                      isSynced ? Icons.cloud_done_rounded : Icons.cloud_sync_rounded,
+                      color: isSynced ? Colors.green : Colors.blue,
+                      size: 22,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          "Google Drive Cloud",
+                          style: GoogleFonts.plusJakartaSans(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                            color: isDark ? Colors.white : const Color(0xFF0F172A),
+                          ),
+                        ),
+                        Text(
+                          isSynced ? _currentUser!.email : "Belum terhubung ke cloud",
+                          style: GoogleFonts.openSans(
+                            fontSize: 12,
+                            color: isSynced ? (isDark ? Colors.white70 : const Color(0xFF475569)) : secondaryTextColor,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: (isSynced ? Colors.green : Colors.grey).withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 6,
+                          height: 6,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: isSynced ? Colors.green : Colors.grey,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          isSynced ? "Terhubung" : "Offline",
+                          style: GoogleFonts.plusJakartaSans(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: isSynced ? Colors.green : Colors.grey,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 14),
+
+              if (!isSynced) ...[
+                Text(
+                  "Hubungkan akun Google Drive untuk menyimpan database secara otomatis & aman di cloud tanpa takut data hilang.",
+                  style: GoogleFonts.openSans(fontSize: 12, color: secondaryTextColor, height: 1.4),
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  height: 44,
+                  child: ElevatedButton.icon(
+                    onPressed: _isGdriveLoading ? null : _handleGdriveSync,
+                    icon: _isGdriveLoading
+                        ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                        : const Icon(Icons.link_rounded, size: 18),
+                    label: Text(
+                      _isGdriveLoading ? "Menghubungkan..." : "Hubungkan ke Google Drive",
+                      style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w700, fontSize: 13.5),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: primaryColor,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      elevation: 0,
+                    ),
+                  ),
+                ),
+              ] else ...[
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      "Akun pencadangan aktif",
+                      style: GoogleFonts.openSans(fontSize: 11.5, color: secondaryTextColor),
+                    ),
+                    InkWell(
+                      onTap: _handleGdriveLogout,
+                      borderRadius: BorderRadius.circular(6),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.logout_rounded, size: 14, color: Colors.red),
+                            const SizedBox(width: 4),
+                            Text(
+                              "Putuskan",
+                              style: GoogleFonts.plusJakartaSans(
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.red,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+
+              const SizedBox(height: 14),
+              Divider(height: 1, color: borderColor),
+              const SizedBox(height: 14),
+
+              // Sub-section: Jadwal Pencadangan Otomatis
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.schedule_rounded, size: 18, color: Colors.teal),
+                      const SizedBox(width: 8),
+                      Text(
+                        "Pencadangan Otomatis Harian",
+                        style: GoogleFonts.plusJakartaSans(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: isDark ? Colors.white : const Color(0xFF0F172A),
+                        ),
+                      ),
+                    ],
+                  ),
+                  Switch(
+                    value: autoBackup.isEnabled && isSynced,
+                    activeThumbColor: Colors.teal,
+                    onChanged: !isSynced
+                        ? null
+                        : (val) async {
+                            await autoBackup.setEnabled(val);
+                          },
+                  ),
+                ],
+              ),
+
+              if (autoBackup.isEnabled && isSynced) ...[
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    // Chip Ganti Jam
+                    InkWell(
+                      onTap: () async {
+                        final picked = await BackupTimePickerDialog.show(
+                          context,
+                          initialTime: autoBackup.backupTime,
+                        );
+                        if (picked != null) {
+                          await autoBackup.setBackupTime(picked);
+                        }
+                      },
+                      borderRadius: BorderRadius.circular(8),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: Colors.teal.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.teal.withValues(alpha: 0.3)),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.alarm_rounded, size: 15, color: Colors.teal),
+                            const SizedBox(width: 6),
+                            Text(
+                              "${autoBackup.backupTime.hour.toString().padLeft(2, '0')}:${autoBackup.backupTime.minute.toString().padLeft(2, '0')} WIB",
+                              style: GoogleFonts.plusJakartaSans(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.teal,
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            const Icon(Icons.edit_rounded, size: 12, color: Colors.teal),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    // Hanya Wi-Fi
+                    Expanded(
+                      child: Row(
+                        children: [
+                          Icon(Icons.wifi_rounded, size: 16, color: secondaryTextColor),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              "Hanya Wi-Fi",
+                              style: GoogleFonts.plusJakartaSans(fontSize: 12, fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                          Switch(
+                            value: autoBackup.wifiOnly,
+                            activeThumbColor: Colors.teal,
+                            onChanged: (val) async {
+                              await autoBackup.setWifiOnly(val);
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        autoBackup.lastBackupStatus != null
+                            ? "Status: ${autoBackup.lastBackupStatus}"
+                            : "Status: Menunggu jadwal pkl ${autoBackup.backupTime.hour.toString().padLeft(2, '0')}:${autoBackup.backupTime.minute.toString().padLeft(2, '0')}",
+                        style: GoogleFonts.openSans(fontSize: 11, color: secondaryTextColor),
+                      ),
+                    ),
+                    InkWell(
+                      onTap: autoBackup.isBackingUp
+                          ? null
+                          : () async {
+                              final messenger = ScaffoldMessenger.of(context);
+                              messenger.showSnackBar(const SnackBar(content: Text("Memulai uji coba pencadangan...")));
+                              final res = await autoBackup.checkAndRunBackup(force: true);
+                              if (!mounted) return;
+                              messenger.showSnackBar(
+                                SnackBar(
+                                  content: Text(res.message),
+                                  backgroundColor: res.success ? Colors.green : Colors.red,
+                                ),
+                              );
+                              if (res.success) _fetchHistory();
+                            },
+                      borderRadius: BorderRadius.circular(6),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                        child: Text(
+                          "Uji Coba Sekarang",
+                          style: GoogleFonts.plusJakartaSans(fontSize: 11, fontWeight: FontWeight.w700, color: Colors.teal),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
+
+        const SizedBox(height: 20),
+
+        // ── 2. Aksi Cadangkan Cepat (Side-by-Side 2 Cards) ────────────────────
+        Text(
+          "AKSI PENCADANGAN CEPAT",
+          style: GoogleFonts.plusJakartaSans(
+            fontSize: 11.5,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 0.5,
+            color: isDark ? Colors.white60 : const Color(0xFF64748B),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            // Card A: Ke Google Drive
+            Expanded(
+              child: _buildQuickActionCard(
+                icon: Icons.cloud_upload_rounded,
+                iconColor: Colors.green,
+                title: "Ke Google Drive",
+                subtitle: isSynced ? "Unggah cadangan ke cloud" : "Hubungkan Drive dahulu",
+                isDark: isDark,
+                cardBg: cardBg,
+                borderColor: borderColor,
+                secondaryTextColor: secondaryTextColor,
+                isDisabled: !isSynced,
+                onTap: isSynced ? () => _backupToGdrive(context) : null,
+              ),
+            ),
+            const SizedBox(width: 10),
+            // Card B: Ekspor & Bagikan
+            Expanded(
+              child: _buildQuickActionCard(
+                icon: Icons.share_rounded,
+                iconColor: primaryColor,
+                title: "Ekspor & Bagikan",
+                subtitle: "Simpan ZIP / WhatsApp",
+                isDark: isDark,
+                cardBg: cardBg,
+                borderColor: borderColor,
+                secondaryTextColor: secondaryTextColor,
+                isDisabled: false,
+                onTap: () => _backupLocal(context),
+              ),
+            ),
+          ],
+        ),
+
+        const SizedBox(height: 24),
+
+        // ── 3. Riwayat Cadangan di Cloud ─────────────────────────────────────
+        if (isSynced) ...[
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
               Text(
-                title,
+                "RIWAYAT CADANGAN DI DRIVE (${_backupHistory.length})",
                 style: GoogleFonts.plusJakartaSans(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 15,
-                  color: isDark ? Colors.white : Colors.black87,
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.5,
+                  color: isDark ? Colors.white60 : const Color(0xFF64748B),
                 ),
               ),
-              const SizedBox(height: 4),
-              Text(
-                desc,
-                style: GoogleFonts.plusJakartaSans(
-                  fontSize: 13,
-                  color: isDark ? Colors.white54 : Colors.black54,
+              InkWell(
+                onTap: _fetchHistory,
+                borderRadius: BorderRadius.circular(6),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  child: Row(
+                    children: [
+                      if (_isHistoryLoading)
+                        const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2))
+                      else
+                        const Icon(Icons.refresh_rounded, size: 15, color: Colors.grey),
+                      const SizedBox(width: 4),
+                      Text("Segarkan", style: GoogleFonts.plusJakartaSans(fontSize: 11.5, color: Colors.grey)),
+                    ],
+                  ),
                 ),
               ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          if (_backupHistory.isEmpty && !_isHistoryLoading)
+            _buildEmptyHistory(isDark)
+          else
+            ListView.separated(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: _backupHistory.length,
+              separatorBuilder: (context, index) => const SizedBox(height: 8),
+              itemBuilder: (context, index) {
+                final file = _backupHistory[index];
+                final dateStr = file.createdTime != null
+                    ? DateFormat('dd MMM yyyy, HH:mm', 'id_ID').format(file.createdTime!.toLocal())
+                    : '-';
+                final sizeStr = file.size != null ? _formatFileSize(int.parse(file.size!)) : '-';
+
+                return Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: cardBg,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: borderColor),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.blue.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Icon(Icons.archive_outlined, color: Colors.blue, size: 18),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              file.name ?? 'Cadangan',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: GoogleFonts.plusJakartaSans(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                                color: isDark ? Colors.white : const Color(0xFF0F172A),
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              "$dateStr • $sizeStr",
+                              style: GoogleFonts.openSans(
+                                fontSize: 11.5,
+                                color: secondaryTextColor,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.more_vert_rounded, size: 18),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                        onPressed: () => _showBackupOptions(context, file),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+        ],
+      ],
+    );
+  }
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // TAB 2: PEMULIHAN (RESTORE)
+  // ════════════════════════════════════════════════════════════════════════════
+  Widget _buildRestoreTab(
+    bool isDark,
+    Color primaryColor,
+    Color cardBg,
+    Color borderColor,
+    Color secondaryTextColor,
+  ) {
+    final bool isSynced = _currentUser != null;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // ── Notice Alert Card ──────────────────────────────────────────────
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.amber.withValues(alpha: isDark ? 0.12 : 0.08),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.amber.withValues(alpha: 0.3)),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Icon(Icons.warning_amber_rounded, color: Colors.amber, size: 20),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  "Penting: Proses pemulihan akan menimpa database saat ini dengan data dari file cadangan. Pastikan file backup yang dipilih adalah yang benar.",
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: 12,
+                    color: isDark ? Colors.amber.shade200 : Colors.amber.shade900,
+                    height: 1.4,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        const SizedBox(height: 18),
+
+        Text(
+          "PILIH SUMBER PEMULIHAN",
+          style: GoogleFonts.plusJakartaSans(
+            fontSize: 11.5,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 0.5,
+            color: isDark ? Colors.white60 : const Color(0xFF64748B),
+          ),
+        ),
+        const SizedBox(height: 8),
+
+        // ── Metode 1: Dari File Perangkat (.ZIP) ───────────────────────────
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: cardBg,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: borderColor, width: 1.1),
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.orange.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.folder_open_rounded, color: Colors.orange, size: 22),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      "File .ZIP dari Perangkat",
+                      style: GoogleFonts.plusJakartaSans(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: isDark ? Colors.white : const Color(0xFF0F172A),
+                      ),
+                    ),
+                    Text(
+                      "Dari memori HP, WhatsApp, atau folder Downloads",
+                      style: GoogleFonts.openSans(fontSize: 11.5, color: secondaryTextColor),
+                    ),
+                  ],
+                ),
+              ),
+              ElevatedButton(
+                onPressed: () => _restoreLocal(context),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.orange,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  elevation: 0,
+                ),
+                child: Text(
+                  "Pilih File",
+                  style: GoogleFonts.plusJakartaSans(fontSize: 12.5, fontWeight: FontWeight.w700),
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        const SizedBox(height: 12),
+
+        // ── Metode 2: Dari Google Drive Cloud ──────────────────────────────
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: cardBg,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: borderColor, width: 1.1),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(Icons.cloud_download_outlined, color: Colors.blue, size: 22),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          "Dari Google Drive Cloud",
+                          style: GoogleFonts.plusJakartaSans(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                            color: isDark ? Colors.white : const Color(0xFF0F172A),
+                          ),
+                        ),
+                        Text(
+                          isSynced
+                              ? "Pilih cadangan langsung dari riwayat cloud"
+                              : "Hubungkan Google Drive untuk memulihkan",
+                          style: GoogleFonts.openSans(fontSize: 11.5, color: secondaryTextColor),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (!isSynced)
+                    ElevatedButton(
+                      onPressed: _handleGdriveSync,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: primaryColor,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        elevation: 0,
+                      ),
+                      child: Text(
+                        "Hubungkan",
+                        style: GoogleFonts.plusJakartaSans(fontSize: 12, fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                ],
+              ),
+
+              if (isSynced) ...[
+                const SizedBox(height: 14),
+                Divider(height: 1, color: borderColor),
+                const SizedBox(height: 12),
+
+                if (_isHistoryLoading) ...[
+                  const Center(
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(vertical: 16),
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  ),
+                ] else if (_backupHistory.isEmpty) ...[
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    child: Center(
+                      child: Text(
+                        "Tidak ada file cadangan ditemukan di Google Drive.",
+                        style: GoogleFonts.openSans(fontSize: 12, color: secondaryTextColor),
+                      ),
+                    ),
+                  ),
+                ] else ...[
+                  Text(
+                    "Pilih Cadangan Cloud untuk Dipulihkan:",
+                    style: GoogleFonts.plusJakartaSans(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w700,
+                      color: isDark ? Colors.white70 : const Color(0xFF475569),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  ...List.generate(
+                    _backupHistory.length > 5 ? 5 : _backupHistory.length,
+                    (index) {
+                      final file = _backupHistory[index];
+                      final dateStr = file.createdTime != null
+                          ? DateFormat('dd MMM yyyy, HH:mm', 'id_ID').format(file.createdTime!.toLocal())
+                          : '-';
+                      final sizeStr = file.size != null ? _formatFileSize(int.parse(file.size!)) : '-';
+
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: borderColor),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.cloud_done_outlined, size: 18, color: Colors.blue),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    file.name ?? 'Cadangan',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: GoogleFonts.plusJakartaSans(fontSize: 12.5, fontWeight: FontWeight.w700),
+                                  ),
+                                  Text(
+                                    "$dateStr • $sizeStr",
+                                    style: GoogleFonts.openSans(fontSize: 11, color: secondaryTextColor),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            OutlinedButton.icon(
+                              onPressed: () => _restoreSpecificBackup(context, file),
+                              icon: const Icon(Icons.download_rounded, size: 14),
+                              label: const Text("Pulihkan", style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700)),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: Colors.blue,
+                                side: const BorderSide(color: Colors.blue),
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ],
+              ],
             ],
           ),
         ),
@@ -389,108 +1178,95 @@ class _BackupRestorePageState extends State<BackupRestorePage> {
     );
   }
 
-  Widget _buildHistorySection(bool isDark) {
-    if (_currentUser == null) return const SizedBox.shrink();
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            _buildSectionTitle("Riwayat Pencadangan (Drive)", isDark),
-            if (_isHistoryLoading)
-              const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-            else
-              IconButton(
-                icon: const Icon(Icons.refresh_rounded, size: 20),
-                onPressed: _fetchHistory,
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(),
-              ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        if (_backupHistory.isEmpty && !_isHistoryLoading)
-          _buildEmptyHistory(isDark)
-        else
-          ListView.separated(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: _backupHistory.length,
-            separatorBuilder: (context, index) => const SizedBox(height: 10),
-            itemBuilder: (context, index) {
-              final file = _backupHistory[index];
-              final dateStr = file.createdTime != null 
-                  ? DateFormat('dd MMM yyyy HH:mm', 'id_ID').format(file.createdTime!.toLocal())
-                  : '-';
-              
-              // Size is in bytes, convert to human readable
-              final sizeStr = file.size != null ? _formatFileSize(int.parse(file.size!)) : '-';
-
-              return Container(
-                decoration: BoxDecoration(
-                  color: isDark ? Colors.white.withValues(alpha: 0.05) : Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: isDark ? Colors.white10 : Colors.grey.shade200),
+  Widget _buildQuickActionCard({
+    required IconData icon,
+    required Color iconColor,
+    required String title,
+    required String subtitle,
+    required bool isDark,
+    required Color cardBg,
+    required Color borderColor,
+    required Color secondaryTextColor,
+    required bool isDisabled,
+    required VoidCallback? onTap,
+  }) {
+    return Opacity(
+      opacity: isDisabled ? 0.45 : 1.0,
+      child: Material(
+        color: cardBg,
+        borderRadius: BorderRadius.circular(14),
+        child: InkWell(
+          onTap: isDisabled ? null : onTap,
+          borderRadius: BorderRadius.circular(14),
+          child: Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: borderColor, width: 1.1),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: iconColor.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(icon, color: iconColor, size: 20),
                 ),
-                child: ListTile(
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  leading: Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: Colors.indigo.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Icon(Icons.description_outlined, color: Colors.indigo),
-                  ),
-                  title: Text(
-                    file.name ?? 'Cadangan',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: GoogleFonts.plusJakartaSans(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: isDark ? Colors.white : Colors.black87,
-                    ),
-                  ),
-                  subtitle: Text(
-                    "Tgl: $dateStr • Ukuran: $sizeStr",
-                    style: GoogleFonts.plusJakartaSans(
-                      fontSize: 12,
-                      color: isDark ? Colors.white60 : Colors.black54,
-                    ),
-                  ),
-                  trailing: IconButton(
-                    icon: const Icon(Icons.more_vert_rounded),
-                    onPressed: () => _showBackupOptions(context, file),
+                const SizedBox(height: 10),
+                Text(
+                  title,
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w700,
+                    color: isDark ? Colors.white : const Color(0xFF0F172A),
                   ),
                 ),
-              );
-            },
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.openSans(
+                    fontSize: 11,
+                    color: secondaryTextColor,
+                  ),
+                ),
+              ],
+            ),
           ),
-      ],
+        ),
+      ),
     );
   }
 
   Widget _buildEmptyHistory(bool isDark) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(vertical: 40),
+      padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
       decoration: BoxDecoration(
-        color: isDark ? Colors.white.withValues(alpha: 0.02) : Colors.grey.shade50,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: isDark ? Colors.white10 : Colors.grey.shade200, style: BorderStyle.none),
+        color: isDark ? const Color(0xFF1E293B) : Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0),
+        ),
       ),
       child: Column(
         children: [
-          Icon(Icons.history_rounded, size: 48, color: isDark ? Colors.white10 : Colors.grey.shade300),
-          const SizedBox(height: 16),
+          Icon(
+            Icons.history_toggle_off_rounded,
+            size: 36,
+            color: isDark ? const Color(0xFF64748B) : const Color(0xFF94A3B8),
+          ),
+          const SizedBox(height: 8),
           Text(
-            "Belum ada riwayat cadangan",
+            "Belum ada riwayat cadangan di Google Drive",
             style: GoogleFonts.plusJakartaSans(
-              color: isDark ? Colors.white30 : Colors.grey.shade400,
-              fontSize: 14,
+              fontSize: 12.5,
+              fontWeight: FontWeight.w600,
+              color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
             ),
           ),
         ],
@@ -499,565 +1275,132 @@ class _BackupRestorePageState extends State<BackupRestorePage> {
   }
 
   void _showBackupOptions(BuildContext context, drive.File file) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     showModalBottomSheet(
       context: context,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
-      builder: (context) => Container(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              "Opsi Pencadangan",
-              style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.bold, fontSize: 18),
-            ),
-            const SizedBox(height: 24),
-            ListTile(
-              leading: const Icon(Icons.cloud_download_outlined, color: Colors.blue),
-              title: const Text("Pulihkan data ini"),
-              onTap: () {
-                Navigator.pop(context);
-                _restoreSpecificBackup(context, file);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.delete_outline_rounded, color: Colors.red),
-              title: const Text("Hapus dari Drive"),
-              onTap: () async {
-                Navigator.pop(context);
-                final confirm = await showDialog<bool>(
-                  context: context,
-                  builder: (ctx) => KasirDialog(
-                    title: "Hapus Cadangan",
-                    message: "Yakin ingin menghapus cadangan '${file.name}' dari Google Drive?",
-                    primaryActionLabel: "Hapus",
-                    isDestructive: true,
-                    onPrimaryAction: () => Navigator.pop(ctx, true),
-                    secondaryActionLabel: "Batal",
-                    onSecondaryAction: () => Navigator.pop(ctx, false),
-                  ),
-                );
-                if (confirm == true && file.id != null) {
-                  try {
-                    await _driveService.deleteBackup(file.id!);
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text("Cadangan berhasil dihapus"), backgroundColor: Colors.green),
-                      );
-                    }
-                  } catch (e) {
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text("Gagal menghapus: $e"), backgroundColor: Colors.red),
-                      );
-                    }
-                  }
-                }
-              },
-            ),
-          ],
-        ),
+      backgroundColor: isDark ? const Color(0xFF1E293B) : Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 36,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 16),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.withValues(alpha: 0.3),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.download_rounded, color: Colors.blue),
+                  title: Text(
+                    "Pulihkan dari Cadangan Ini",
+                    style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w600, fontSize: 13.5),
+                  ),
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    _restoreSpecificBackup(context, file);
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.delete_outline_rounded, color: Colors.red),
+                  title: Text(
+                    "Hapus Cadangan dari Drive",
+                    style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w600, fontSize: 13.5, color: Colors.red),
+                  ),
+                  onTap: () async {
+                    Navigator.pop(sheetContext);
+                    final confirm = await showDialog<bool>(
+                      context: context,
+                      builder: (c) => KasirDialog(
+                        title: "Hapus File Cadangan?",
+                        message: "File cadangan '${file.name ?? 'ini'}' akan dihapus secara permanen dari Google Drive.",
+                        primaryActionLabel: "HAPUS",
+                        isDestructive: true,
+                        onPrimaryAction: () => Navigator.pop(c, true),
+                        secondaryActionLabel: "Batal",
+                        onSecondaryAction: () => Navigator.pop(c, false),
+                      ),
+                    );
+                    if (confirm == true && file.id != null) {
+                      try {
+                        await _driveService.deleteBackup(file.id!);
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text("Cadangan berhasil dihapus"), backgroundColor: Colors.green),
+                          );
+                        }
+                        _fetchHistory();
+                      } catch (e) {
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text("Gagal menghapus: $e"), backgroundColor: Colors.red),
+                          );
+                        }
+                      }
+                    }
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
   Future<void> _restoreSpecificBackup(BuildContext context, drive.File file) async {
+    if (file.id == null) return;
+    
     final confirm = await showDialog<bool>(
       context: context,
-      builder: (context) => KasirDialog(
+      builder: (c) => KasirDialog(
         title: "Konfirmasi Pemulihan",
-        message: "Tindakan ini akan MENGGANTI SEMUA DATA yang ada. Ingin melanjutkan?",
+        message: "Tindakan ini akan MENGGANTI SEMUA DATA yang ada dengan data dari '${file.name ?? 'cadangan'}'. Aplikasi akan otomatis dimuat ulang.",
         primaryActionLabel: "PULIHKAN",
         isDestructive: true,
-        onPrimaryAction: () => Navigator.pop(context, true),
+        onPrimaryAction: () => Navigator.pop(c, true),
         secondaryActionLabel: "Batal",
-        onSecondaryAction: () => Navigator.pop(context, false),
+        onSecondaryAction: () => Navigator.pop(c, false),
       ),
     );
 
     if (confirm != true) return;
-    
+    if (!context.mounted) return;
+
     showDialog(
-      context: context, 
+      context: context,
       barrierDismissible: false,
-      builder: (c) => const Center(child: CircularProgressIndicator())
+      builder: (c) => const Center(child: CircularProgressIndicator()),
     );
-    
+
     try {
-      final downloadedPath = await _driveService.downloadBackup(file.id!, file.name!);
-      if (downloadedPath == null) {
-        if (context.mounted) Navigator.pop(context);
-        throw "Gagal mengunduh file cadangan";
-      }
-      
+      final downloadedPath = await _driveService.downloadBackup(file.id!, file.name ?? 'pos_backup.zip');
+      if (downloadedPath == null) throw "Gagal mengunduh file cadangan dari Google Drive";
+
       if (!context.mounted) return;
       final db = context.read<AppDatabase>();
       await BackupService(db).restoreFullBackup(downloadedPath);
-      
+
       if (!context.mounted) return;
-      Navigator.pop(context); // close loading
-      
+      if (Navigator.of(context).canPop()) Navigator.pop(context); // dismiss loading
+
       await _handleRestoreSuccess();
     } catch (e) {
       if (context.mounted) {
-        if (Navigator.of(context).canPop()) Navigator.pop(context); 
+        if (Navigator.of(context).canPop()) Navigator.pop(context); // dismiss loading
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text("Gagal pemulihan: $e"), backgroundColor: Colors.red),
         );
       }
     }
-  }
-
-  Widget _buildGdriveStatusCard(bool isDark, Color primaryColor) {
-    final bool isSynced = _currentUser != null;
-
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: isDark ? Colors.white.withValues(alpha: 0.05) : Colors.white,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: isDark ? Colors.white10 : Colors.grey.shade200),
-        boxShadow: [
-          if (!isDark)
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.05),
-              blurRadius: 20,
-              offset: const Offset(0, 4),
-            ),
-        ],
-      ),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: (isSynced ? Colors.green : Colors.grey).withValues(alpha: 0.1),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(
-                  isSynced ? Icons.cloud_done_rounded : Icons.cloud_off_rounded,
-                  color: isSynced ? Colors.green : Colors.grey,
-                  size: 28,
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      isSynced ? "Terhubung ke Google Drive" : "Belum Terhubung",
-                      style: GoogleFonts.plusJakartaSans(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: isDark ? Colors.white : Colors.black87,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      isSynced 
-                          ? _currentUser!.email 
-                          : "Hubungkan untuk akses pencadangan cloud",
-                      style: GoogleFonts.plusJakartaSans(
-                        fontSize: 13,
-                        color: isDark ? Colors.white60 : Colors.black54,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
-          SizedBox(
-            width: double.infinity,
-            child: _isGdriveLoading
-                ? const Center(child: CircularProgressIndicator())
-                : ElevatedButton.icon(
-                    onPressed: isSynced 
-                      ? null // Locked if already synced as requested
-                      : _handleGdriveSync,
-                    icon: Icon(isSynced ? Icons.lock_outline : Icons.link_rounded),
-                    label: Text(isSynced ? "Akun Terhubung (Terkunci)" : "Hubungkan Akun"),
-                    style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      backgroundColor: isSynced ? Colors.grey.shade400 : primaryColor,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                      elevation: 0,
-                    ),
-                  ),
-          ),
-          if (isSynced) ...[
-            const SizedBox(height: 12),
-            TextButton.icon(
-              onPressed: _handleGdriveLogout,
-              icon: const Icon(Icons.logout_rounded, size: 18, color: Colors.red),
-              label: const Text("Putuskan Koneksi", style: TextStyle(color: Colors.red)),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Widget _buildAutoBackupCard(bool isDark, Color primaryColor) {
-    final bool isSynced = _currentUser != null;
-    final autoBackup = _autoBackup;
-
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: isDark ? Colors.white.withValues(alpha: 0.05) : Colors.white,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: isDark ? Colors.white10 : Colors.grey.shade200),
-        boxShadow: [
-          if (!isDark)
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.04),
-              blurRadius: 16,
-              offset: const Offset(0, 4),
-            ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: (autoBackup.isEnabled && isSynced ? Colors.teal : Colors.grey).withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Icon(
-                  Icons.alarm_on_rounded,
-                  color: autoBackup.isEnabled && isSynced ? Colors.teal : Colors.grey,
-                  size: 26,
-                ),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      "Pencadangan Otomatis",
-                      style: GoogleFonts.plusJakartaSans(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: isDark ? Colors.white : Colors.black87,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      autoBackup.isEnabled && isSynced
-                          ? "Aktif setiap hari pkl ${autoBackup.backupTime.hour.toString().padLeft(2, '0')}:${autoBackup.backupTime.minute.toString().padLeft(2, '0')} WIB"
-                          : "Cadangkan database otomatis terjadwal",
-                      style: GoogleFonts.plusJakartaSans(
-                        fontSize: 12,
-                        color: isDark ? Colors.white60 : Colors.black54,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Switch.adaptive(
-                value: autoBackup.isEnabled && isSynced,
-                activeTrackColor: Colors.teal,
-                onChanged: !isSynced
-                    ? null
-                    : (val) async {
-                        await autoBackup.setEnabled(val);
-                      },
-              ),
-            ],
-          ),
-
-          if (!isSynced) ...[
-            const SizedBox(height: 14),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-              decoration: BoxDecoration(
-                color: Colors.amber.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.amber.withValues(alpha: 0.3)),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.info_outline_rounded, color: Colors.amber, size: 20),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      "Hubungkan Google Drive di atas untuk mengaktifkan pencadangan otomatis.",
-                      style: GoogleFonts.plusJakartaSans(
-                        fontSize: 12,
-                        color: isDark ? Colors.amber.shade200 : Colors.amber.shade900,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ] else if (autoBackup.isEnabled) ...[
-            const SizedBox(height: 16),
-            const Divider(height: 1),
-            const SizedBox(height: 12),
-
-            // Pilihan Jam Pencadangan
-            InkWell(
-              onTap: () async {
-                final picked = await BackupTimePickerDialog.show(
-                  context,
-                  initialTime: autoBackup.backupTime,
-                );
-                if (picked != null) {
-                  await autoBackup.setBackupTime(picked);
-                }
-              },
-              borderRadius: BorderRadius.circular(12),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
-                child: Row(
-                  children: [
-                    Icon(Icons.schedule_rounded, size: 20, color: isDark ? Colors.white70 : Colors.black54),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            "Waktu Pencadangan Harian",
-                            style: GoogleFonts.plusJakartaSans(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                              color: isDark ? Colors.white : Colors.black87,
-                            ),
-                          ),
-                          Text(
-                            "Ketuk untuk mengganti jam",
-                            style: GoogleFonts.plusJakartaSans(
-                              fontSize: 11,
-                              color: isDark ? Colors.white54 : Colors.black45,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: Colors.teal.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        "${autoBackup.backupTime.hour.toString().padLeft(2, '0')}:${autoBackup.backupTime.minute.toString().padLeft(2, '0')} WIB",
-                        style: GoogleFonts.plusJakartaSans(
-                          fontWeight: FontWeight.bold,
-                          color: Colors.teal,
-                          fontSize: 13,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Icon(Icons.arrow_forward_ios_rounded, size: 14, color: isDark ? Colors.white30 : Colors.black26),
-                  ],
-                ),
-              ),
-            ),
-
-            const SizedBox(height: 6),
-
-            // Opsi Hanya Wi-Fi
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
-              child: Row(
-                children: [
-                  Icon(Icons.wifi_rounded, size: 20, color: isDark ? Colors.white70 : Colors.black54),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          "Hanya Lewat Wi-Fi",
-                          style: GoogleFonts.plusJakartaSans(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                            color: isDark ? Colors.white : Colors.black87,
-                          ),
-                        ),
-                        Text(
-                          "Mencegah penggunaan kuota seluler kasir",
-                          style: GoogleFonts.plusJakartaSans(
-                            fontSize: 11,
-                            color: isDark ? Colors.white54 : Colors.black45,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Switch.adaptive(
-                    value: autoBackup.wifiOnly,
-                    activeTrackColor: Colors.teal,
-                    onChanged: (val) async {
-                      await autoBackup.setWifiOnly(val);
-                    },
-                  ),
-                ],
-              ),
-            ),
-
-            const SizedBox(height: 12),
-
-            // Status Card / Last Run
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: isDark ? Colors.white.withValues(alpha: 0.03) : Colors.grey.shade100,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Row(
-                children: [
-                  if (autoBackup.isBackingUp) ...[
-                    const SizedBox(
-                      width: 14,
-                      height: 14,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        "Sedang memproses pencadangan...",
-                        style: GoogleFonts.plusJakartaSans(fontSize: 12, fontWeight: FontWeight.w500),
-                      ),
-                    ),
-                  ] else ...[
-                    Icon(
-                      autoBackup.lastBackupStatus != null && autoBackup.lastBackupStatus!.contains("Berhasil")
-                          ? Icons.check_circle_rounded
-                          : Icons.info_outline_rounded,
-                      size: 16,
-                      color: autoBackup.lastBackupStatus != null && autoBackup.lastBackupStatus!.contains("Berhasil")
-                          ? Colors.green
-                          : Colors.grey,
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        autoBackup.lastBackupStatus != null
-                            ? "Status: ${autoBackup.lastBackupStatus}"
-                            : "Status: Menunggu jadwal pkl ${autoBackup.backupTime.hour.toString().padLeft(2, '0')}:${autoBackup.backupTime.minute.toString().padLeft(2, '0')}",
-                        style: GoogleFonts.plusJakartaSans(
-                          fontSize: 11,
-                          color: isDark ? Colors.white70 : Colors.black87,
-                        ),
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-
-            const SizedBox(height: 14),
-
-            // Tombol Uji Coba Sekarang
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: autoBackup.isBackingUp
-                    ? null
-                    : () async {
-                        final messenger = ScaffoldMessenger.of(context);
-                        messenger.showSnackBar(
-                          const SnackBar(content: Text("Memulai uji coba pencadangan...")),
-                        );
-                        final res = await autoBackup.checkAndRunBackup(force: true);
-                        if (!mounted) return;
-                        messenger.showSnackBar(
-                          SnackBar(
-                            content: Text(res.message),
-                            backgroundColor: res.success ? Colors.green : Colors.red,
-                          ),
-                        );
-                        if (res.success) {
-                          _fetchHistory();
-                        }
-                      },
-                icon: const Icon(Icons.play_circle_outline_rounded, size: 18),
-                label: const Text("Uji Coba Pencadangan Sekarang"),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.teal,
-                  side: const BorderSide(color: Colors.teal),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                ),
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSectionTitle(String title, bool isDark) {
-    return Padding(
-      padding: const EdgeInsets.only(left: 4, bottom: 12),
-      child: Text(
-        title,
-        style: GoogleFonts.plusJakartaSans(
-          fontSize: 15,
-          fontWeight: FontWeight.bold,
-          color: isDark ? Colors.white70 : Colors.black54,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildActionCard({
-    required String title,
-    required IconData icon,
-    required Color color,
-    required bool isDark,
-    required VoidCallback? onTap,
-  }) {
-    final bool isDisabled = onTap == null;
-    return Opacity(
-      opacity: isDisabled ? 0.5 : 1.0,
-      child: Container(
-        decoration: BoxDecoration(
-          color: isDark ? Colors.white.withValues(alpha: 0.05) : Colors.white,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: isDark ? Colors.white10 : Colors.grey.shade200),
-        ),
-        child: ListTile(
-          onTap: onTap,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          leading: Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(icon, color: color),
-          ),
-          title: Text(
-            title,
-            style: GoogleFonts.plusJakartaSans(
-              fontSize: 15,
-              fontWeight: FontWeight.w600,
-              color: isDark ? Colors.white : Colors.black87,
-            ),
-          ),
-
-          trailing: const Icon(Icons.chevron_right_rounded),
-        ),
-      ),
-    );
   }
 
   // Implementation logic (copied from QuickMenuPage mostly)
@@ -1111,20 +1454,22 @@ class _BackupRestorePageState extends State<BackupRestorePage> {
     if (result == null || result.files.single.path == null) return;
     final path = result.files.single.path!;
 
+    if (!context.mounted) return;
     final confirm = await showDialog<bool>(
       context: context,
-      builder: (context) => KasirDialog(
+      builder: (c) => KasirDialog(
         title: "Konfirmasi Pemulihan",
         message: "Tindakan ini akan MENGGANTI SEMUA DATA yang ada. Aplikasi akan otomatis MULAI ULANG setelah selesai.",
         primaryActionLabel: "PULIHKAN",
         isDestructive: true,
-        onPrimaryAction: () => Navigator.pop(context, true),
+        onPrimaryAction: () => Navigator.pop(c, true),
         secondaryActionLabel: "Batal",
-        onSecondaryAction: () => Navigator.pop(context, false),
+        onSecondaryAction: () => Navigator.pop(c, false),
       ),
     );
 
     if (confirm != true) return;
+    if (!context.mounted) return;
 
     try {
       final db = context.read<AppDatabase>();
@@ -1133,116 +1478,6 @@ class _BackupRestorePageState extends State<BackupRestorePage> {
       await _handleRestoreSuccess();
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Gagal pemulihan: $e"), backgroundColor: Colors.red),
-        );
-      }
-    }
-  }
-
-  Future<void> _restoreFromGdrive(BuildContext context) async {
-     if (!context.mounted) return;
-     showDialog(
-      context: context, 
-      barrierDismissible: false,
-      builder: (c) => const Center(child: CircularProgressIndicator())
-    );
-    
-    try {
-      final files = await _driveService.listBackups();
-      if (!context.mounted) return;
-      Navigator.pop(context); // close loading
-      
-      if (files.isEmpty) {
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Tidak ada file cadangan ditemukan di Google Drive"))
-          );
-        }
-        return;
-      }
-      
-      final selectedFile = await showDialog<drive.File>(
-        context: context,
-        builder: (c) => KasirDialog(
-          title: "Pilih Cadangan Google Drive",
-          icon: Icons.cloud_download_outlined,
-          content: Container(
-            constraints: const BoxConstraints(maxHeight: 400),
-            width: double.maxFinite,
-            child: ListView.separated(
-              shrinkWrap: true,
-              itemCount: files.length,
-              separatorBuilder: (ctx, idx) => Divider(
-                height: 1, 
-                color: Theme.of(context).dividerColor.withValues(alpha: 0.5),
-              ),
-              itemBuilder: (ctx, idx) {
-                final file = files[idx];
-                final date = file.modifiedTime ?? file.createdTime;
-                final dateStr = date != null 
-                    ? DateFormat('EEEE, dd MMM yyyy • HH:mm', 'id_ID').format(date.toLocal())
-                    : '-';
-                
-                return ListTile(
-                  onTap: () => Navigator.pop(c, file),
-                  title: Text(
-                    file.name == 'pos_backup_latest.zip' ? 'Cadangan Terbaru (pos_backup_latest.zip)' : (file.name ?? 'Cadangan'), 
-                    style: GoogleFonts.openSans(fontWeight: FontWeight.w600, fontSize: 14),
-                  ),
-                  subtitle: Text(dateStr, style: GoogleFonts.openSans(fontSize: 12, color: Colors.grey)),
-                  trailing: const Icon(Icons.chevron_right_rounded, size: 20),
-                );
-              },
-            ),
-          ),
-          primaryActionLabel: "Tutup",
-          onPrimaryAction: () => Navigator.pop(c),
-        ),
-      );
-      
-      if (selectedFile == null) return;
-      if (!context.mounted) return;
-      
-      final confirm = await showDialog<bool>(
-        context: context,
-        builder: (context) => KasirDialog(
-          title: "Konfirmasi Pemulihan",
-          message: "Tindakan ini akan MENGGANTI SEMUA DATA yang ada.",
-          primaryActionLabel: "PULIHKAN",
-          isDestructive: true,
-          onPrimaryAction: () => Navigator.pop(context, true),
-          secondaryActionLabel: "Batal",
-          onSecondaryAction: () => Navigator.pop(context, false),
-        ),
-      );
-
-      if (confirm != true) return;
-      
-      if (!context.mounted) return;
-      showDialog(
-        context: context, 
-        barrierDismissible: false,
-        builder: (c) => const Center(child: CircularProgressIndicator())
-      );
-      
-      final downloadedPath = await _driveService.downloadBackup(selectedFile.id!, selectedFile.name!);
-      if (downloadedPath == null && context.mounted) {
-        Navigator.pop(context);
-        throw "Gagal mengunduh file cadangan";
-      }
-      
-      if (!context.mounted) return;
-      final db = context.read<AppDatabase>();
-      await BackupService(db).restoreFullBackup(downloadedPath!);
-      
-      if (!context.mounted) return;
-      Navigator.pop(context); // close loading
-      
-      await _handleRestoreSuccess();
-    } catch (e) {
-      if (context.mounted) {
-        if (Navigator.of(context).canPop()) Navigator.pop(context); 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text("Gagal pemulihan: $e"), backgroundColor: Colors.red),
         );

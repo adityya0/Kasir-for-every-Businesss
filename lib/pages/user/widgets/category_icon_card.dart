@@ -18,7 +18,7 @@ class CategoryIconCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    const primaryColor = Color(0xFFC0392B);
+    const primaryColor = Color(0xFF00BF63);
 
     // Smart mapping for common categories if icon is null
     String displayIcon = icon ?? _getSmartIcon(label);

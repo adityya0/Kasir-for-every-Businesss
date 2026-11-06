@@ -1,4 +1,4 @@
-import 'dart:typed_data';
+﻿import 'dart:typed_data';
 import 'package:flutter/widgets.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:http/http.dart' as http;
@@ -45,7 +45,11 @@ class FileManager {
     return "Downloaded $filename";
   }
 
-  Future<String?> saveBytes(String filename, Uint8List bytes) async {
-    return await saveAndShareBytes(filename, bytes);
+  Future<String?> saveBytes(String filename, Uint8List bytes, {String? mimeType}) async {
+    return await saveAndShareBytes(filename, bytes, mimeType: mimeType);
+  }
+
+  Future<dynamic> openFile(String path) async {
+    return null;
   }
 }

@@ -27,6 +27,7 @@ class OrderService {
     String? customerName,
     double? subtotal,
     double? pajakAmount,
+    List<Map<String, dynamic>>? splitPayments,
   }) async {
     debugPrint(
       "OrderService.createOrder: storeId=$storeId, userId=$userId, amount=$totalAmount, customerId=$customerId, table=$tableNumber, discount=$discount, discountLabel=$discountLabel, customerName=$customerName",
@@ -48,6 +49,9 @@ class OrderService {
     }
     if (subtotal != null && subtotal > 0) notesMeta['subtotal'] = subtotal;
     if (pajakAmount != null && pajakAmount > 0) notesMeta['tax'] = pajakAmount;
+    if (splitPayments != null && splitPayments.isNotEmpty) {
+      notesMeta['split_payments'] = splitPayments;
+    }
     final String? notesJson = notesMeta.isNotEmpty ? jsonEncode(notesMeta) : notes;
 
     await db.transaction(() async {

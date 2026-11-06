@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../services/app_database.dart';
+import '../services/sample_product_service.dart';
 import 'package:drift/drift.dart';
 import '../services/promotion_service.dart';
 import '../services/payment_method_service.dart';
@@ -164,7 +165,7 @@ class AdminController extends ChangeNotifier {
           await _db.into(_db.stores).insert(
             StoresCompanion.insert(
               id: initialStoreId,
-              name: const Value('Warkop Alam POS'),
+              name: const Value('Kakilima Pos'),
               adminName: const Value('Owner'),
               createdAt: Value(DateTime.now()),
             ),
@@ -194,6 +195,7 @@ class AdminController extends ChangeNotifier {
       }
 
       if (_storeId != null) {
+        await SampleProductService.seedSampleProducts(_db, _storeId!);
         _initStatsStreams();
         _categories = await (_db.select(_db.categories)..where((t) => t.storeId.equals(_storeId!))).get();
         _products = await (_db.select(_db.products)
@@ -287,24 +289,103 @@ class AdminController extends ChangeNotifier {
     await loadInitialData();
   }
 
-  Future<void> resetStore({bool deleteProducts = false}) async {
+  Future<void> resetStore({bool deleteProducts = true}) async {
     if (_storeId == null) return;
+    final storeId = _storeId!;
     try {
       await _db.transaction(() async {
-        final txs = await (_db.select(_db.transactions)..where((t) => t.storeId.equals(_storeId!))).get();
+        // 1. Riwayat Transaksi & Item Penjualan
+        final txs = await (_db.select(_db.transactions)..where((t) => t.storeId.equals(storeId))).get();
         final txIds = txs.map((t) => t.id).toList();
         if (txIds.isNotEmpty) {
-          await (_db.delete(_db.transactionItems)..where((t) => t.transactionId.isIn(txIds))).go();
+          const chunkSize = 200;
+          for (var i = 0; i < txIds.length; i += chunkSize) {
+            final chunk = txIds.sublist(i, i + chunkSize > txIds.length ? txIds.length : i + chunkSize);
+            await (_db.delete(_db.transactionItems)..where((t) => t.transactionId.isIn(chunk))).go();
+          }
         }
-        await (_db.delete(_db.transactions)..where((t) => t.storeId.equals(_storeId!))).go();
+        await (_db.delete(_db.transactions)..where((t) => t.storeId.equals(storeId))).go();
+
+        // 2. Pengeluaran / Biaya Operasional / Kas Keluar
+        await (_db.delete(_db.expenses)..where((t) => t.storeId.equals(storeId))).go();
+
+        // 3. Transaksi Supplier, Pelunasan, & Data Supplier
+        try {
+          await _db.customStatement('DELETE FROM supplier_transactions WHERE store_id = ?;', [storeId]);
+        } catch (e) {
+          debugPrint("resetStore: delete supplier_transactions error: $e");
+        }
+        try {
+          await _db.customStatement('DELETE FROM supplier_settlements WHERE store_id = ?;', [storeId]);
+        } catch (e) {
+          debugPrint("resetStore: delete supplier_settlements error: $e");
+        }
+        try {
+          await _db.customStatement('DELETE FROM suppliers WHERE store_id = ?;', [storeId]);
+        } catch (e) {
+          debugPrint("resetStore: delete suppliers error: $e");
+        }
+
+        // 4. Data Pelanggan & Riwayat Piutang
+        await (_db.delete(_db.customers)..where((t) => t.storeId.equals(storeId))).go();
+
+        // 5. Produk, Kategori, Satuan, Opsi/Varian Produk
         if (deleteProducts) {
-          await (_db.delete(_db.products)..where((t) => t.storeId.equals(_storeId!))).go();
-          await (_db.delete(_db.categories)..where((t) => t.storeId.equals(_storeId!))).go();
+          final prods = await (_db.select(_db.products)..where((t) => t.storeId.equals(storeId))).get();
+          final prodIds = prods.map((p) => p.id).toList();
+          if (prodIds.isNotEmpty) {
+            final options = await (_db.select(_db.productOptions)..where((o) => o.productId.isIn(prodIds))).get();
+            final optIds = options.map((o) => o.id).toList();
+            if (optIds.isNotEmpty) {
+              await (_db.delete(_db.productOptionValues)..where((v) => v.optionId.isIn(optIds))).go();
+            }
+            await (_db.delete(_db.productOptions)..where((o) => o.productId.isIn(prodIds))).go();
+          }
+          await (_db.delete(_db.products)..where((t) => t.storeId.equals(storeId))).go();
+          await (_db.delete(_db.categories)..where((t) => t.storeId.equals(storeId))).go();
+          await (_db.delete(_db.units)..where((t) => t.storeId.equals(storeId))).go();
         } else {
-          await (_db.update(_db.products)..where((t) => t.storeId.equals(_storeId!)))
+          await (_db.update(_db.products)..where((t) => t.storeId.equals(storeId)))
               .write(const ProductsCompanion(stockQuantity: Value(0)));
         }
+
+        // 6. Promo & Diskon
+        final promos = await (_db.select(_db.promotions)..where((t) => t.storeId.equals(storeId))).get();
+        final promoIds = promos.map((p) => p.id).toList();
+        if (promoIds.isNotEmpty) {
+          await (_db.delete(_db.promotionItems)..where((t) => t.promotionId.isIn(promoIds))).go();
+        }
+        await (_db.delete(_db.promotions)..where((t) => t.storeId.equals(storeId))).go();
+
+        // 7. Absensi Karyawan
+        await (_db.delete(_db.attendanceLogs)..where((t) => t.storeId.equals(storeId))).go();
+
+        // 8. Meja Toko
+        await (_db.delete(_db.storeTables)..where((t) => t.storeId.equals(storeId))).go();
+
+        // 9. Metode Pembayaran (Hapus akun kustom & reset saldo ke 0)
+        await (_db.delete(_db.paymentMethods)..where((t) => t.storeId.equals(storeId))).go();
       });
+
+      // 10. Tandai sample products agar tidak otomatis mengisi produk bawaan kembali
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('sample_products_seeded_$storeId', true);
+
+      // 11. Buat ulang akun default (Kas & QRIS saldo 0)
+      await prefs.remove('default_payment_methods_initialized_$storeId');
+      await _paymentMethodService.ensureDefaultPaymentMethods(storeId);
+
+      // 12. Bersihkan cache shift kasir & preferensi finansial
+      final keysToRemove = prefs.getKeys().where((k) =>
+        k.startsWith('cash_drawer_') ||
+        k.startsWith('shift_') ||
+        k.contains('financial_') ||
+        k == 'owner_wa_phone'
+      ).toList();
+      for (final k in keysToRemove) {
+        await prefs.remove(k);
+      }
+
       await loadInitialData();
     } catch (e) {
       debugPrint("AdminController: Error resetting store: $e");

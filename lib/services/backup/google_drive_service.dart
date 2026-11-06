@@ -43,6 +43,7 @@ class GoogleDriveService {
   static gsi.GoogleSignInAccount? _mobileAccount;
   static auth.AccessCredentials? _desktopCredentials;
   bool _initialized = false;
+  String? lastError;
   static const String _credentialKey = 'gdrive_desktop_credentials';
 
   static String _d(List<int> b) => String.fromCharCodes(b.map((x) => x ^ 42));
@@ -98,6 +99,7 @@ class GoogleDriveService {
       return null;
     } catch (e) {
       debugPrint("Google Sign-In Error: $e");
+      lastError = e.toString();
       return null;
     }
   }
@@ -210,6 +212,7 @@ class GoogleDriveService {
       return drive.DriveApi(authClient);
     } catch (e) {
       debugPrint("Google Drive Service Error: $e");
+      lastError = e.toString();
       return null;
     }
   }

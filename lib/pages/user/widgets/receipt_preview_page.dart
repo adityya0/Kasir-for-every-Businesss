@@ -1,4 +1,4 @@
-import 'dart:typed_data';
+﻿import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:printing/printing.dart';
@@ -69,7 +69,7 @@ class ReceiptPreviewPage extends StatelessWidget {
               final adminCtrl = context.read<AdminController>();
               if (printerService.isConnected) {
                 await printerService.printReceipt(
-                  storeName: storeName ?? adminCtrl.storeName ?? "Warkop Alam POS",
+                  storeName: storeName ?? adminCtrl.storeName ?? "Kakilima Pos",
                   transactionId: transactionId ?? "TXN",
                   createdAt: createdAt ?? DateTime.now(),
                   items: items ?? [],
@@ -164,7 +164,7 @@ class ReceiptPreviewPage extends StatelessWidget {
                   ),
                 ),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFC0392B),
+                  backgroundColor: const Color(0xFF00BF63),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(16),
                   ),

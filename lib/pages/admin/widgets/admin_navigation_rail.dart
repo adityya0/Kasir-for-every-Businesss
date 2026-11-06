@@ -34,7 +34,7 @@ class AdminNavigationRail extends StatelessWidget {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final bgColor = isDark ? const Color(0xFF1A1C1E) : Colors.white;
-    const accentColor = Color(0xFFC0392B); // Brand sage green
+    const accentColor = Color(0xFF00BF63); // Brand sage green
     final settings = SettingsController.instance;
 
     return ValueListenableBuilder<bool>(
@@ -111,9 +111,9 @@ class AdminNavigationRail extends StatelessWidget {
                       _buildRailItem(
                         context: context,
                         index: 3,
-                        icon: selectedIndex == 3 ? Icons.calculate : Icons.calculate_outlined,
+                        icon: (selectedIndex == 3 || selectedIndex == 0) ? Icons.calculate : Icons.calculate_outlined,
                         label: "Kasir",
-                        isActive: selectedIndex == 3,
+                        isActive: selectedIndex == 3 || selectedIndex == 0,
                         activeColor: accentColor,
                         isExpanded: isExpanded,
                       ),
@@ -128,23 +128,31 @@ class AdminNavigationRail extends StatelessWidget {
                       ),
                       _buildRailItem(
                         context: context,
-                        index: 6,
-                        icon: Icons.trending_up,
-                        label: "Tren",
-                        isActive: selectedIndex == 6,
+                        index: 26,
+                        icon: selectedIndex == 26 ? Icons.payments : Icons.payments_outlined,
+                        label: "Keuangan",
+                        isActive: selectedIndex == 26,
                         activeColor: accentColor,
                         isExpanded: isExpanded,
                       ),
                       _buildRailItem(
                         context: context,
-                        index: 9,
-                        icon: selectedIndex == 9 ? Icons.bolt : Icons.bolt_outlined,
-                        label: "Aksi",
-                        isActive: selectedIndex == 9,
+                        index: 12,
+                        icon: (selectedIndex == 12 || selectedIndex == 13) ? Icons.people_rounded : Icons.people_outline_rounded,
+                        label: "Kontak",
+                        isActive: selectedIndex == 12 || selectedIndex == 13,
                         activeColor: accentColor,
                         isExpanded: isExpanded,
                       ),
-
+                      _buildRailItem(
+                        context: context,
+                        index: 1,
+                        icon: (selectedIndex == 1 || selectedIndex == 2 || selectedIndex == 6) ? Icons.inventory_2 : Icons.inventory_2_outlined,
+                        label: "Produk",
+                        isActive: selectedIndex == 1 || selectedIndex == 2 || selectedIndex == 6,
+                        activeColor: accentColor,
+                        isExpanded: isExpanded,
+                      ),
                       _buildRailItem(
                         context: context,
                         index: 15,
@@ -267,24 +275,24 @@ class AdminNavigationRail extends StatelessWidget {
         imageWidget = Image.network(
           storeLogo,
           fit: BoxFit.cover,
-          errorBuilder: (_, __, ___) => Image.asset('assets/logo/logo.png', fit: BoxFit.cover),
+          errorBuilder: (_, __, ___) => Image.asset('assets/logo/logo_icon.png', fit: BoxFit.cover),
         );
       } else if (storeLogo.startsWith('assets/')) {
         imageWidget = Image.asset(
           storeLogo,
           fit: BoxFit.cover,
-          errorBuilder: (_, __, ___) => Image.asset('assets/logo/logo.png', fit: BoxFit.cover),
+          errorBuilder: (_, __, ___) => Image.asset('assets/logo/logo_icon.png', fit: BoxFit.cover),
         );
       } else {
         imageWidget = Image(
           image: FileManager().getImageProvider(storeLogo),
           fit: BoxFit.cover,
-          errorBuilder: (_, __, ___) => Image.asset('assets/logo/logo.png', fit: BoxFit.cover),
+          errorBuilder: (_, __, ___) => Image.asset('assets/logo/logo_icon.png', fit: BoxFit.cover),
         );
       }
     } else {
       imageWidget = Image.asset(
-        'assets/logo/logo.png',
+        'assets/logo/logo_icon.png',
         fit: BoxFit.cover,
       );
     }

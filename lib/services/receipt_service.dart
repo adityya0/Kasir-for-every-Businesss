@@ -165,7 +165,7 @@ class ReceiptService {
         }
       }
 
-      // Default fallback to Warkop Alam POS app logo
+      // Default fallback to Kakilima Pos app logo
       if (logoImage == null) {
         try {
           final byteData = await rootBundle.load('assets/logo/logo.png');

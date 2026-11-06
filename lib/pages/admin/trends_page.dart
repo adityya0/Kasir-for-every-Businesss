@@ -2,12 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'dart:io';
-import 'package:flutter/foundation.dart';
+import '../../services/platform/file_manager.dart';
 import 'package:intl/intl.dart';
 import '../../controllers/analytics_controller.dart';
 import '../../controllers/settings_controller.dart';
 import 'widgets/pinterest_card.dart';
+import 'widgets/green_date_picker_dialog.dart';
 import 'table_management_page.dart';
 import '../../controllers/admin_controller.dart';
 import '../../widgets/reset_transactions_dialog.dart';
@@ -16,10 +16,12 @@ import '../../widgets/kasir_dialog.dart';
 class TrendsPage extends StatefulWidget {
   final String storeId;
   final Function(int) onNavigateToIndex;
+  final bool embedded;
   const TrendsPage({
     super.key,
     required this.storeId,
     required this.onNavigateToIndex,
+    this.embedded = false,
   });
 
   @override
@@ -27,14 +29,16 @@ class TrendsPage extends StatefulWidget {
 }
 
 class _TrendsPageState extends State<TrendsPage>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   late AnimationController _barAnimController;
   late Animation<double> _barAnimation;
+  late TabController _tabController;
   String _viewMode = 'all'; // 'all', 'products', 'tables'
 
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: 2, vsync: this);
     _barAnimController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 900),
@@ -51,6 +55,7 @@ class _TrendsPageState extends State<TrendsPage>
 
   @override
   void dispose() {
+    _tabController.dispose();
     _barAnimController.dispose();
     super.dispose();
   }
@@ -64,460 +69,675 @@ class _TrendsPageState extends State<TrendsPage>
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
+    final bodyContent = Consumer<AnalyticsController>(
+      builder: (context, controller, child) {
+        if (controller.isLoading) {
+          return const Center(child: CupertinoActivityIndicator());
+        }
+
+        final showProducts = _viewMode == 'all' || _viewMode == 'products';
+        final showTables = _viewMode == 'all' || _viewMode == 'tables';
+
+        return TabBarView(
+          controller: _tabController,
+          children: [
+            // ── Tab 1: Tren Penjualan ─────────────────────────────────
+            RefreshIndicator(
+              onRefresh: () async {
+                await controller.refreshData();
+                _restartAnimation();
+              },
+              color: const Color(0xFF00BF63),
+              child: SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (_viewMode != 'all') ...[
+                      _buildFilterActiveBanner(isDark),
+                    ],
+                    if (controller.lowStockProducts.isNotEmpty)
+                      _buildLowStockAlertCard(controller, isDark),
+                    _buildPeriodSelector(controller, isDark),
+                    const SizedBox(height: 24),
+                    if (showProducts) ...[
+                      _buildTopSellingSection(controller, isDark),
+                      const SizedBox(height: 28),
+                    ],
+                    if (showTables) ...[
+                      ValueListenableBuilder<bool>(
+                        valueListenable: SettingsController.instance.featureMejaEnabled,
+                        builder: (context, mejaEnabled, _) {
+                          if (!mejaEnabled) return const SizedBox.shrink();
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _buildTopTablesSection(controller, isDark),
+                              const SizedBox(height: 28),
+                            ],
+                          );
+                        },
+                      ),
+                    ],
+                    const SizedBox(height: 40),
+                  ],
+                ),
+              ),
+            ),
+
+            // ── Tab 2: Produk Stok Rendah (Dedicated Page) ───────────
+            RefreshIndicator(
+              onRefresh: () async {
+                await controller.refreshData();
+                _restartAnimation();
+              },
+              color: const Color(0xFF00BF63),
+              child: _buildDedicatedLowStockPage(controller, isDark),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (widget.embedded) {
+      return Column(
+        children: [
+          Container(
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+              border: Border(
+                bottom: BorderSide(
+                  color: isDark ? const Color(0xFF374151) : const Color(0xFFE2E8F0),
+                  width: 1,
+                ),
+              ),
+            ),
+            child: Consumer<AnalyticsController>(
+              builder: (context, controller, _) {
+                final lowStockCount = controller.lowStockProducts.length;
+                return TabBar(
+                  controller: _tabController,
+                  indicatorColor: const Color(0xFF00BF63),
+                  indicatorWeight: 3,
+                  labelColor: const Color(0xFF00BF63),
+                  unselectedLabelColor: isDark ? Colors.white60 : const Color(0xFF64748B),
+                  labelStyle: GoogleFonts.plusJakartaSans(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13.5,
+                  ),
+                  unselectedLabelStyle: GoogleFonts.plusJakartaSans(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13.5,
+                  ),
+                  tabs: [
+                    const Tab(text: "Tren Penjualan"),
+                    Tab(
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Text("Stok Rendah"),
+                          if (lowStockCount > 0) ...[
+                            const SizedBox(width: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFEF4444),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Text(
+                                "$lowStockCount",
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
+          Expanded(child: bodyContent),
+        ],
+      );
+    }
+
     return Scaffold(
       backgroundColor: isDark ? const Color(0xFF000000) : Colors.white,
       appBar: AppBar(
-        title: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Image.asset(
-                'assets/logo/logo.png',
-                height: 24,
-                fit: BoxFit.contain,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Text(
-              "Tren Produk",
-              style: GoogleFonts.plusJakartaSans(
-                fontWeight: FontWeight.w700,
-                color: isDark ? Colors.white : Colors.black,
-                fontSize: 18,
-              ),
-            ),
-          ],
+        title: Text(
+          "Tren Produk",
+          style: GoogleFonts.plusJakartaSans(
+            fontWeight: FontWeight.w700,
+            color: isDark ? Colors.white : Colors.black,
+            fontSize: 18,
+          ),
         ),
         centerTitle: false,
         backgroundColor: isDark ? const Color(0xFF1A1C1E) : Colors.white,
         elevation: 0,
         automaticallyImplyLeading: false,
         bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(1),
+          preferredSize: const Size.fromHeight(48),
           child: Container(
-            color: isDark ? const Color(0xFF374151) : const Color(0xFFE2E8F0),
-            height: 1,
-          ),
-        ),
-        actions: [
-          Consumer<AdminController>(
-            builder: (context, adminCtrl, _) {
-              final isAdmin = adminCtrl.role == 'admin' || adminCtrl.role == 'owner';
-              return PopupMenuButton<String>(
-                icon: Icon(
-                  Icons.more_vert_rounded,
-                  color: isDark ? Colors.white : Colors.black87,
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF1A1C1E) : Colors.white,
+              border: Border(
+                bottom: BorderSide(
+                  color: isDark ? const Color(0xFF374151) : const Color(0xFFE2E8F0),
+                  width: 1,
                 ),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                color: isDark ? const Color(0xFF1E293B) : Colors.white,
-                elevation: 8,
-                tooltip: "Opsi & Pengaturan Tren",
-                onSelected: (val) {
-                  if (val == 'view_all') {
-                    setState(() => _viewMode = 'all');
-                  } else if (val == 'view_products') {
-                    setState(() => _viewMode = 'products');
-                  } else if (val == 'view_tables') {
-                    setState(() => _viewMode = 'tables');
-                  } else if (val == 'refresh') {
-                    context.read<AnalyticsController>().refreshData();
-                    _restartAnimation();
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text("✓ Data tren berhasil disegarkan"),
-                        duration: Duration(seconds: 2),
-                      ),
-                    );
-                  } else if (val == 'reset_tables') {
-                    _showResetTableTrendsDialog(context, context.read<AnalyticsController>());
-                  } else if (val == 'reset_products') {
-                    ResetTransactionsDialog.show(
-                      context,
-                      storeId: widget.storeId,
-                      onResetSuccess: () {
-                        context.read<AnalyticsController>().refreshData();
-                        _restartAnimation();
-                      },
-                    );
-                  }
-                },
-                itemBuilder: (ctx) => [
-                  PopupMenuItem<String>(
-                    enabled: false,
-                    height: 28,
-                    child: Text(
-                      "FILTER TAMPILAN",
-                      style: GoogleFonts.plusJakartaSans(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                        color: isDark ? Colors.white38 : Colors.grey.shade500,
-                        letterSpacing: 0.8,
-                      ),
-                    ),
+              ),
+            ),
+            child: Consumer<AnalyticsController>(
+              builder: (context, controller, _) {
+                final lowStockCount = controller.lowStockProducts.length;
+                return TabBar(
+                  controller: _tabController,
+                  indicatorColor: const Color(0xFF00BF63),
+                  indicatorWeight: 3,
+                  labelColor: const Color(0xFF00BF63),
+                  unselectedLabelColor: isDark ? Colors.white60 : const Color(0xFF64748B),
+                  labelStyle: GoogleFonts.plusJakartaSans(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 14,
                   ),
-                  PopupMenuItem<String>(
-                    value: 'view_all',
-                    height: 40,
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.dashboard_outlined,
-                          size: 18,
-                          color: _viewMode == 'all' ? const Color(0xFF059669) : (isDark ? Colors.white70 : Colors.black87),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            "Tampilkan Semua",
-                            style: GoogleFonts.plusJakartaSans(
-                              fontSize: 13,
-                              fontWeight: _viewMode == 'all' ? FontWeight.w700 : FontWeight.w500,
-                              color: _viewMode == 'all' ? const Color(0xFF059669) : (isDark ? Colors.white : Colors.black87),
-                            ),
-                          ),
-                        ),
-                        if (_viewMode == 'all')
-                          const Icon(Icons.check_rounded, size: 18, color: Color(0xFF059669)),
-                      ],
-                    ),
+                  unselectedLabelStyle: GoogleFonts.plusJakartaSans(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 14,
                   ),
-                  PopupMenuItem<String>(
-                    value: 'view_products',
-                    height: 40,
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.shopping_bag_outlined,
-                          size: 18,
-                          color: _viewMode == 'products' ? const Color(0xFF059669) : (isDark ? Colors.white70 : Colors.black87),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            "Hanya Tren Produk",
-                            style: GoogleFonts.plusJakartaSans(
-                              fontSize: 13,
-                              fontWeight: _viewMode == 'products' ? FontWeight.w700 : FontWeight.w500,
-                              color: _viewMode == 'products' ? const Color(0xFF059669) : (isDark ? Colors.white : Colors.black87),
-                            ),
-                          ),
-                        ),
-                        if (_viewMode == 'products')
-                          const Icon(Icons.check_rounded, size: 18, color: Color(0xFF059669)),
-                      ],
-                    ),
-                  ),
-                  PopupMenuItem<String>(
-                    value: 'view_tables',
-                    height: 40,
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.table_restaurant_outlined,
-                          size: 18,
-                          color: _viewMode == 'tables' ? const Color(0xFF059669) : (isDark ? Colors.white70 : Colors.black87),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            "Hanya Tren Meja",
-                            style: GoogleFonts.plusJakartaSans(
-                              fontSize: 13,
-                              fontWeight: _viewMode == 'tables' ? FontWeight.w700 : FontWeight.w500,
-                              color: _viewMode == 'tables' ? const Color(0xFF059669) : (isDark ? Colors.white : Colors.black87),
-                            ),
-                          ),
-                        ),
-                        if (_viewMode == 'tables')
-                          const Icon(Icons.check_rounded, size: 18, color: Color(0xFF059669)),
-                      ],
-                    ),
-                  ),
-                  const PopupMenuDivider(height: 12),
-                  PopupMenuItem<String>(
-                    enabled: false,
-                    height: 28,
-                    child: Text(
-                      "AKSI & PEMBERSIHAN",
-                      style: GoogleFonts.plusJakartaSans(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                        color: isDark ? Colors.white38 : Colors.grey.shade500,
-                        letterSpacing: 0.8,
-                      ),
-                    ),
-                  ),
-                  PopupMenuItem<String>(
-                    value: 'refresh',
-                    height: 40,
-                    child: Row(
-                      children: [
-                        Icon(Icons.refresh_rounded, size: 18, color: isDark ? Colors.white70 : Colors.black87),
-                        const SizedBox(width: 10),
-                        Text(
-                          "Segarkan Data",
-                          style: GoogleFonts.plusJakartaSans(fontSize: 13, fontWeight: FontWeight.w500),
-                        ),
-                      ],
-                    ),
-                  ),
-                  if (isAdmin) ...[
-                    const PopupMenuItem<String>(
-                      value: 'reset_tables',
-                      height: 40,
+                  tabs: [
+                    const Tab(text: "Tren Penjualan"),
+                    Tab(
                       child: Row(
+                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.restart_alt_rounded, size: 18, color: Color(0xFFF59E0B)),
-                          SizedBox(width: 10),
-                          Text(
-                            "Reset Tren Meja",
-                            style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                              color: Color(0xFFF59E0B),
+                          const Text("Stok Rendah"),
+                          if (lowStockCount > 0) ...[
+                            const SizedBox(width: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFEF4444),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Text(
+                                "$lowStockCount",
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                ),
+                              ),
                             ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const PopupMenuItem<String>(
-                      value: 'reset_products',
-                      height: 40,
-                      child: Row(
-                        children: [
-                          Icon(Icons.delete_sweep_rounded, size: 18, color: Color(0xFFEF4444)),
-                          SizedBox(width: 10),
-                          Text(
-                            "Reset Tren Produk / Transaksi",
-                            style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                              color: Color(0xFFEF4444),
-                            ),
-                          ),
+                          ],
                         ],
                       ),
                     ),
                   ],
-                ],
-              );
-            },
+                );
+              },
+            ),
           ),
-          const SizedBox(width: 6),
+        ),
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 12, top: 6, bottom: 6),
+            child: Container(
+              decoration: BoxDecoration(
+                color: isDark ? Colors.white10 : Colors.white,
+                borderRadius: BorderRadius.circular(15),
+                border: Border.all(
+                  color: isDark ? const Color(0xFF374151) : const Color(0xFFCBD5E1),
+                  width: 1.2,
+                ),
+              ),
+              child: IconButton(
+                icon: const Icon(
+                  Icons.bolt_rounded,
+                  color: Color(0xFF00BF63),
+                  size: 24,
+                ),
+                tooltip: "Pintasan Cepat",
+                onPressed: () => _showTrendsQuickShortcutsSheet(context, isDark),
+              ),
+            ),
+          ),
         ],
       ),
-      body: Consumer<AnalyticsController>(
-        builder: (context, controller, child) {
-          if (controller.isLoading) {
-            return const Center(child: CupertinoActivityIndicator());
-          }
+      body: bodyContent,
+    );
+  }
 
-          final showProducts = _viewMode == 'all' || _viewMode == 'products';
-          final showTables = _viewMode == 'all' || _viewMode == 'tables';
-
-          return SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (_viewMode != 'all') ...[
-                  Container(
-                    margin: const EdgeInsets.only(bottom: 16),
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF059669).withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: const Color(0xFF059669).withValues(alpha: 0.3)),
+  // ─── Filter Active Banner ───────────────────────────────────────────────
+  Widget _buildFilterActiveBanner(bool isDark) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFF059669).withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFF059669).withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.filter_alt_rounded, size: 16, color: Color(0xFF059669)),
+              const SizedBox(width: 8),
+              Text(
+                _viewMode == 'products'
+                    ? "Menampilkan: Hanya Tren Produk"
+                    : "Menampilkan: Hanya Tren Meja",
+                style: GoogleFonts.plusJakartaSans(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                  color: const Color(0xFF059669),
+                ),
+              ),
+            ],
+          ),
+          InkWell(
+            onTap: () => setState(() => _viewMode = 'all'),
+            borderRadius: BorderRadius.circular(6),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              child: Row(
+                children: [
+                  Text(
+                    "Reset Filter",
+                    style: GoogleFonts.plusJakartaSans(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w600,
+                      color: isDark ? Colors.white70 : Colors.black54,
                     ),
-                    child: Row(
+                  ),
+                  const SizedBox(width: 4),
+                  const Icon(Icons.close_rounded, size: 14),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ─── Low Stock Alert Card in Tab 1 ──────────────────────────────────────
+  Widget _buildLowStockAlertCard(AnalyticsController controller, bool isDark) {
+    final count = controller.lowStockProducts.length;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 20),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () => _tabController.animateTo(1),
+          borderRadius: BorderRadius.circular(12),
+          child: Ink(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+              color: const Color(0xFFEF4444).withValues(alpha: isDark ? 0.15 : 0.08),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: const Color(0xFFEF4444).withValues(alpha: 0.3),
+                width: 1.2,
+              ),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(7),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEF4444).withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(
+                    Icons.warning_amber_rounded,
+                    color: Color(0xFFEF4444),
+                    size: 18,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        "$count Produk Stok Rendah / Menipis",
+                        style: GoogleFonts.plusJakartaSans(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: const Color(0xFFEF4444),
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        "Geser ke kanan atau ketuk untuk cek & restock",
+                        style: GoogleFonts.openSans(
+                          fontSize: 11.5,
+                          color: isDark ? Colors.white70 : const Color(0xFF64748B),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const Icon(
+                  Icons.arrow_forward_ios_rounded,
+                  color: Color(0xFFEF4444),
+                  size: 14,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ─── Trends Quick Shortcuts Bottom Sheet ────────────────────────────────
+  void _showTrendsQuickShortcutsSheet(BuildContext context, bool isDark) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) {
+        return Align(
+          alignment: Alignment.bottomCenter,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: 580,
+              maxHeight: MediaQuery.of(ctx).size.height * 0.85,
+            ),
+            child: Container(
+              decoration: BoxDecoration(
+                color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+                border: Border.all(
+                  color: isDark ? const Color(0xFF374151) : const Color(0xFFCBD5E1),
+                  width: 1.2,
+                ),
+              ),
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Top drag handle
+                    Center(
+                      child: Container(
+                        width: 40,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: isDark ? Colors.white24 : Colors.grey.shade300,
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Header
+                    Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Row(
                           children: [
-                            const Icon(Icons.filter_alt_rounded, size: 16, color: Color(0xFF059669)),
-                            const SizedBox(width: 8),
-                            Text(
-                              _viewMode == 'products'
-                                  ? "Menampilkan: Hanya Tren Produk"
-                                  : "Menampilkan: Hanya Tren Meja",
-                              style: GoogleFonts.plusJakartaSans(
-                                fontSize: 12.5,
-                                fontWeight: FontWeight.w700,
-                                color: const Color(0xFF059669),
+                            Container(
+                              padding: const EdgeInsets.all(6),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF00BF63).withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(8),
                               ),
+                              child: const Icon(
+                                Icons.bolt_rounded,
+                                color: Color(0xFF00BF63),
+                                size: 20,
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  "Pintasan Cepat Tren",
+                                  style: GoogleFonts.plusJakartaSans(
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 16,
+                                    color: isDark ? Colors.white : const Color(0xFF0F172A),
+                                  ),
+                                ),
+                                Text(
+                                  "Buka menu langsung tanpa keluar dari Tren",
+                                  style: GoogleFonts.openSans(
+                                    fontSize: 12,
+                                    color: isDark ? Colors.white60 : const Color(0xFF64748B),
+                                  ),
+                                ),
+                              ],
                             ),
                           ],
                         ),
-                        InkWell(
-                          onTap: () => setState(() => _viewMode = 'all'),
-                          borderRadius: BorderRadius.circular(6),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                            child: Row(
-                              children: [
-                                Text(
-                                  "Reset Filter",
-                                  style: GoogleFonts.plusJakartaSans(
-                                    fontSize: 11.5,
-                                    fontWeight: FontWeight.w600,
-                                    color: isDark ? Colors.white70 : Colors.black54,
-                                  ),
-                                ),
-                                const SizedBox(width: 4),
-                                const Icon(Icons.close_rounded, size: 14),
-                              ],
-                            ),
-                          ),
+                        IconButton(
+                          icon: const Icon(Icons.close_rounded),
+                          onPressed: () => Navigator.pop(ctx),
                         ),
                       ],
                     ),
-                  ),
-                ],
-                _buildQuickShortcutsSection(isDark),
-                const SizedBox(height: 24),
-                _buildPeriodSelector(controller, isDark),
-                const SizedBox(height: 32),
-                if (showProducts) ...[
-                  _buildTopSellingSection(controller, isDark),
-                  const SizedBox(height: 32),
-                ],
-                if (showTables) ...[
-                  ValueListenableBuilder<bool>(
-                    valueListenable: SettingsController.instance.featureMejaEnabled,
-                    builder: (context, mejaEnabled, _) {
-                      if (!mejaEnabled) return const SizedBox.shrink();
-                      return Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          _buildTopTablesSection(controller, isDark),
-                          const SizedBox(height: 32),
-                        ],
-                      );
-                    },
-                  ),
-                ],
-                if (showProducts) ...[
-                  _buildLowStockSection(controller, isDark),
-                  const SizedBox(height: 40),
-                ],
-              ],
-            ),
-          );
-        },
-      ),
-    );
-  }
+                    const SizedBox(height: 20),
 
-  // ─── Quick Shortcuts ────────────────────────────────────────────────────
-  Widget _buildQuickShortcutsSection(bool isDark) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(4),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFC0392B).withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: const Icon(
-                    Icons.bolt_rounded,
-                    size: 16,
-                    color: Color(0xFFC0392B),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  "Pintasan Cepat",
-                  style: GoogleFonts.plusJakartaSans(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                    color: isDark ? Colors.white : const Color(0xFF0F172A),
-                  ),
-                ),
-              ],
-            ),
-            Text(
-              "Akses Cepat Menu",
-              style: GoogleFonts.openSans(
-                fontSize: 11,
-                fontWeight: FontWeight.w500,
-                color: isDark ? Colors.white38 : const Color(0xFF94A3B8),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          physics: const BouncingScrollPhysics(),
-          child: Row(
-            children: [
-              ValueListenableBuilder<bool>(
-                valueListenable: SettingsController.instance.featureMejaEnabled,
-                builder: (context, enabled, _) {
-                  if (!enabled) return const SizedBox.shrink();
-                  return Padding(
-                    padding: const EdgeInsets.only(right: 10),
-                    child: _buildShortcutCard(
-                      icon: Icons.table_restaurant_outlined,
-                      label: "Meja",
-                      badgeColor: const Color(0xFF059669),
-                      isDark: isDark,
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => TableManagementPage(storeId: widget.storeId),
+                    // Shortcut Tiles
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        return Center(
+                          child: Wrap(
+                            spacing: 12,
+                            runSpacing: 12,
+                            children: [
+                              _buildTrendShortcutTile(
+                                icon: Icons.inventory_2_outlined,
+                                label: "Kelola Produk",
+                                subtitle: "Katalog & stok barang",
+                                color: const Color(0xFF2563EB),
+                                isDark: isDark,
+                                onTap: () {
+                                  Navigator.pop(ctx);
+                                  widget.onNavigateToIndex(1);
+                                },
+                              ),
+                              _buildTrendShortcutTile(
+                                icon: Icons.discount_outlined,
+                                label: "Promosi & Diskon",
+                                subtitle: "Voucher & promo toko",
+                                color: const Color(0xFFEA580C),
+                                isDark: isDark,
+                                onTap: () {
+                                  Navigator.pop(ctx);
+                                  widget.onNavigateToIndex(17);
+                                },
+                              ),
+                              _buildTrendShortcutTile(
+                                icon: Icons.receipt_long_outlined,
+                                label: "Riwayat Transaksi",
+                                subtitle: "Daftar struk / order",
+                                color: const Color(0xFF7C3AED),
+                                isDark: isDark,
+                                onTap: () {
+                                  Navigator.pop(ctx);
+                                  widget.onNavigateToIndex(4);
+                                },
+                              ),
+                              ValueListenableBuilder<bool>(
+                                valueListenable: SettingsController.instance.featureMejaEnabled,
+                                builder: (context, mejaEnabled, _) {
+                                  if (!mejaEnabled) return const SizedBox.shrink();
+                                  return _buildTrendShortcutTile(
+                                    icon: Icons.table_restaurant_outlined,
+                                    label: "Manajemen Meja",
+                                    subtitle: "Denah & status meja",
+                                    color: const Color(0xFF059669),
+                                    isDark: isDark,
+                                    onTap: () {
+                                      Navigator.pop(ctx);
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (_) => TableManagementPage(storeId: widget.storeId),
+                                        ),
+                                      );
+                                    },
+                                  );
+                                },
+                              ),
+                            ],
                           ),
                         );
                       },
                     ),
-                  );
-                },
+
+                    const SizedBox(height: 20),
+                    Divider(color: isDark ? Colors.white12 : Colors.grey.shade200, height: 1),
+                    const SizedBox(height: 16),
+
+                    // Filter Tampilan Tren
+                    Text(
+                      "FILTER TAMPILAN GRAFIK",
+                      style: GoogleFonts.plusJakartaSans(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: isDark ? Colors.white38 : Colors.grey.shade500,
+                        letterSpacing: 0.8,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        _buildFilterPill(
+                          label: "Semua",
+                          isSelected: _viewMode == 'all',
+                          isDark: isDark,
+                          onTap: () {
+                            setState(() => _viewMode = 'all');
+                            Navigator.pop(ctx);
+                          },
+                        ),
+                        const SizedBox(width: 8),
+                        _buildFilterPill(
+                          label: "Hanya Produk",
+                          isSelected: _viewMode == 'products',
+                          isDark: isDark,
+                          onTap: () {
+                            setState(() => _viewMode = 'products');
+                            Navigator.pop(ctx);
+                          },
+                        ),
+                        const SizedBox(width: 8),
+                        _buildFilterPill(
+                          label: "Hanya Meja",
+                          isSelected: _viewMode == 'tables',
+                          isDark: isDark,
+                          onTap: () {
+                            setState(() => _viewMode = 'tables');
+                            Navigator.pop(ctx);
+                          },
+                        ),
+                      ],
+                    ),
+
+                    // Admin Actions
+                    Consumer<AdminController>(
+                      builder: (context, adminCtrl, _) {
+                        final isAdmin = adminCtrl.role == 'admin' || adminCtrl.role == 'owner';
+                        if (!isAdmin) return const SizedBox.shrink();
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const SizedBox(height: 20),
+                            Divider(color: isDark ? Colors.white12 : Colors.grey.shade200, height: 1),
+                            const SizedBox(height: 14),
+                            Text(
+                              "AKSI PENGATURAN DATA",
+                              style: GoogleFonts.plusJakartaSans(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                color: isDark ? Colors.white38 : Colors.grey.shade500,
+                                letterSpacing: 0.8,
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: OutlinedButton.icon(
+                                    onPressed: () {
+                                      Navigator.pop(ctx);
+                                      _showResetTableTrendsDialog(context, context.read<AnalyticsController>());
+                                    },
+                                    icon: const Icon(Icons.restart_alt_rounded, size: 16, color: Color(0xFFF59E0B)),
+                                    label: const Text(
+                                      "Reset Meja",
+                                      style: TextStyle(color: Color(0xFFF59E0B), fontSize: 12, fontWeight: FontWeight.w700),
+                                    ),
+                                    style: OutlinedButton.styleFrom(
+                                      side: const BorderSide(color: Color(0xFFF59E0B)),
+                                      padding: const EdgeInsets.symmetric(vertical: 8),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: OutlinedButton.icon(
+                                    onPressed: () {
+                                      Navigator.pop(ctx);
+                                      ResetTransactionsDialog.show(
+                                        context,
+                                        storeId: widget.storeId,
+                                        onResetSuccess: () {
+                                          context.read<AnalyticsController>().refreshData();
+                                          _restartAnimation();
+                                        },
+                                      );
+                                    },
+                                    icon: const Icon(Icons.delete_sweep_rounded, size: 16, color: Color(0xFFEF4444)),
+                                    label: const Text(
+                                      "Reset Produk",
+                                      style: TextStyle(color: Color(0xFFEF4444), fontSize: 12, fontWeight: FontWeight.w700),
+                                    ),
+                                    style: OutlinedButton.styleFrom(
+                                      side: const BorderSide(color: Color(0xFFEF4444)),
+                                      padding: const EdgeInsets.symmetric(vertical: 8),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        );
+                      },
+                    ),
+                  ],
+                ),
               ),
-              _buildShortcutCard(
-                icon: Icons.inventory_2_outlined,
-                label: "Produk",
-                badgeColor: const Color(0xFF2563EB),
-                isDark: isDark,
-                onTap: () => widget.onNavigateToIndex(1),
-              ),
-              const SizedBox(width: 10),
-              _buildShortcutCard(
-                icon: Icons.discount_outlined,
-                label: "Promosi",
-                badgeColor: const Color(0xFFEA580C),
-                isDark: isDark,
-                onTap: () => widget.onNavigateToIndex(17),
-              ),
-              const SizedBox(width: 10),
-              _buildShortcutCard(
-                icon: Icons.receipt_long_outlined,
-                label: "Riwayat",
-                badgeColor: const Color(0xFF7C3AED),
-                isDark: isDark,
-                onTap: () => widget.onNavigateToIndex(4),
-              ),
-            ],
+            ),
           ),
-        ),
-      ],
+        );
+      },
     );
   }
 
-  Widget _buildShortcutCard({
+  Widget _buildTrendShortcutTile({
     required IconData icon,
     required String label,
-    required Color badgeColor,
+    required String subtitle,
+    required Color color,
     required bool isDark,
     required VoidCallback onTap,
   }) {
@@ -525,42 +745,87 @@ class _TrendsPageState extends State<TrendsPage>
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(10),
         child: Container(
-          width: 96,
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+          width: 155,
+          padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
-            borderRadius: BorderRadius.circular(8),
+            color: isDark ? const Color(0xFF27272A) : const Color(0xFFF8FAFC),
+            borderRadius: BorderRadius.circular(10),
             border: Border.all(
-              color: isDark ? const Color(0xFF374151) : const Color(0xFFCBD5E1),
+              color: isDark ? const Color(0xFF3F3F46) : const Color(0xFFE2E8F0),
               width: 1.2,
             ),
           ),
           child: Column(
-            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: badgeColor.withValues(alpha: 0.1),
+                  color: color.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: Icon(icon, color: badgeColor, size: 20),
+                child: Icon(icon, color: color, size: 20),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 10),
               Text(
                 label,
                 style: GoogleFonts.plusJakartaSans(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: isDark ? Colors.white : const Color(0xFF1E293B),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: isDark ? Colors.white : const Color(0xFF0F172A),
                 ),
-                textAlign: TextAlign.center,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              const SizedBox(height: 2),
+              Text(
+                subtitle,
+                style: GoogleFonts.openSans(
+                  fontSize: 11,
+                  color: isDark ? Colors.white60 : const Color(0xFF64748B),
+                ),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFilterPill({
+    required String label,
+    required bool isSelected,
+    required bool isDark,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? const Color(0xFF00BF63)
+              : (isDark ? const Color(0xFF27272A) : const Color(0xFFF1F5F9)),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: isSelected
+                ? const Color(0xFF00BF63)
+                : (isDark ? const Color(0xFF3F3F46) : const Color(0xFFE2E8F0)),
+          ),
+        ),
+        child: Text(
+          label,
+          style: GoogleFonts.plusJakartaSans(
+            fontSize: 12,
+            fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+            color: isSelected
+                ? Colors.white
+                : (isDark ? Colors.white70 : const Color(0xFF475569)),
           ),
         ),
       ),
@@ -622,7 +887,7 @@ class _TrendsPageState extends State<TrendsPage>
   }) {
     final isSelected = controller.selectedRange == range;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    const primaryColor = Color(0xFFC0392B);
+    const primaryColor = Color(0xFF00BF63);
 
     return GestureDetector(
       onTap: () {
@@ -663,33 +928,18 @@ class _TrendsPageState extends State<TrendsPage>
   }
 
   void _showCustomRangePicker(AnalyticsController controller) async {
-    final DateTimeRange? picked = await showDateRangePicker(
+    final now = DateTime.now();
+    final initialStart = controller.customStartDate ?? now.subtract(const Duration(days: 7));
+    final initialEnd = controller.customEndDate ?? now;
+
+    final picked = await showDialog<DateTimeRange>(
       context: context,
-      firstDate: DateTime(2020),
-      lastDate: DateTime.now(),
-      initialDateRange:
-          controller.customStartDate != null &&
-              controller.customEndDate != null
-          ? DateTimeRange(
-              start: controller.customStartDate!,
-              end: controller.customEndDate!,
-            )
-          : DateTimeRange(
-              start: DateTime.now().subtract(const Duration(days: 7)),
-              end: DateTime.now(),
-            ),
-      builder: (context, child) {
-        return Theme(
-          data: ThemeData.light().copyWith(
-            colorScheme: const ColorScheme.light(
-              primary: Color(0xFFC0392B),
-              onPrimary: Colors.white,
-              onSurface: Colors.black,
-            ),
-          ),
-          child: child!,
-        );
-      },
+      builder: (ctx) => GreenDateRangePickerDialog(
+        initialStartDate: initialStart,
+        initialEndDate: initialEnd,
+        firstDate: DateTime(2020),
+        lastDate: now,
+      ),
     );
 
     if (picked != null) {
@@ -739,7 +989,7 @@ class _TrendsPageState extends State<TrendsPage>
                   const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
               decoration: BoxDecoration(
                 color:
-                    const Color(0xFFC0392B).withValues(alpha: 0.1),
+                    const Color(0xFF00BF63).withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Row(
@@ -747,7 +997,7 @@ class _TrendsPageState extends State<TrendsPage>
                   const Icon(
                     Icons.trending_up_rounded,
                     size: 14,
-                    color: Color(0xFFC0392B),
+                    color: Color(0xFF00BF63),
                   ),
                   const SizedBox(width: 4),
                   Text(
@@ -755,7 +1005,7 @@ class _TrendsPageState extends State<TrendsPage>
                     style: GoogleFonts.openSans(
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
-                      color: const Color(0xFFC0392B),
+                      color: const Color(0xFF00BF63),
                     ),
                   ),
                 ],
@@ -806,7 +1056,7 @@ class _TrendsPageState extends State<TrendsPage>
     );
 
     final barColors = [
-      const Color(0xFFC0392B),
+      const Color(0xFF00BF63),
       const Color(0xFF7C3AED),
       const Color(0xFF0D9488),
       const Color(0xFF2563EB),
@@ -994,23 +1244,12 @@ class _TrendsPageState extends State<TrendsPage>
                 ),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(8),
-                  child: p['imageUrl'] != null &&
-                          (p['imageUrl'] as String).isNotEmpty
-                      ? (p['imageUrl'].toString().startsWith('http')
-                            ? Image.network(
-                                p['imageUrl'] as String,
-                                fit: BoxFit.cover,
-                                errorBuilder: (_, __, ___) =>
-                                    _buildRankFallback(index),
-                              )
-                            : (!kIsWeb 
-                                 ? Image.file(
-                                     File(p['imageUrl'] as String),
-                                     fit: BoxFit.cover,
-                                     errorBuilder: (_, __, ___) =>
-                                         _buildRankFallback(index),
-                                   )
-                                 : _buildRankFallback(index)))
+                  child: (p['imageUrl'] != null && (p['imageUrl'] as String).isNotEmpty)
+                      ? Image(
+                          image: FileManager().getImageProvider(p['imageUrl'] as String),
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => _buildRankFallback(index),
+                        )
                       : _buildRankFallback(index),
                 ),
               ),
@@ -1093,161 +1332,274 @@ class _TrendsPageState extends State<TrendsPage>
         style: GoogleFonts.plusJakartaSans(
           fontWeight: FontWeight.w700,
           fontSize: 16,
-          color: index < 3 ? const Color(0xFFC0392B) : Colors.grey,
+          color: index < 3 ? const Color(0xFF00BF63) : Colors.grey,
         ),
       ),
     );
   }
 
-  // ─── Low stock section ──────────────────────────────────────────────────
-  Widget _buildLowStockSection(
+  // ─── Dedicated Low Stock Page (Tab 2) ──────────────────────────────────
+  Widget _buildDedicatedLowStockPage(
       AnalyticsController controller, bool isDark) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              "Produk Stok Rendah",
-              style: GoogleFonts.plusJakartaSans(
-                fontSize: 18,
-                fontWeight: FontWeight.w600,
-                color: isDark ? Colors.white : const Color(0xFF2D3436),
+    final lowStockList = controller.lowStockProducts;
+
+    return SingleChildScrollView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header Card with Quick Link to Products
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF1E293B) : const Color(0xFFF8FAFC),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0),
+                width: 1.2,
               ),
             ),
-            TextButton(
-              onPressed: () => widget.onNavigateToIndex(1),
-              child: Text(
-                "Lihat Semua",
-                style: GoogleFonts.openSans(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: const Color(0xFFC0392B),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEF4444).withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(
+                    Icons.inventory_2_outlined,
+                    color: Color(0xFFEF4444),
+                    size: 24,
+                  ),
                 ),
-              ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Text(
+                            "Produk Stok Rendah",
+                            style: GoogleFonts.plusJakartaSans(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                              color: isDark ? Colors.white : const Color(0xFF0F172A),
+                            ),
+                          ),
+                          if (lowStockList.isNotEmpty) ...[
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFEF4444),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Text(
+                                "${lowStockList.length} item",
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        "Produk dengan sisa stok menipis yang perlu segera di-restock.",
+                        style: GoogleFonts.openSans(
+                          fontSize: 12,
+                          color: isDark ? Colors.white60 : const Color(0xFF64748B),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        if (controller.lowStockProducts.isEmpty)
-          const PinterestCard(
-            borderRadius: 8,
-            padding: EdgeInsets.symmetric(vertical: 40),
-            child: Center(child: Text("Semua stok aman ✅")),
-          )
-        else
-          ListView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: controller.lowStockProducts.length > 5
-                ? 5
-                : controller.lowStockProducts.length,
-            itemBuilder: (context, index) {
-              final p = controller.lowStockProducts[index];
-              return PinterestCard(
-                borderRadius: 8,
-                onTap: () => widget.onNavigateToIndex(1),
-                margin: const EdgeInsets.only(bottom: 12),
-                padding: const EdgeInsets.all(16),
-                child: Row(
+          ),
+          const SizedBox(height: 16),
+
+
+
+          if (lowStockList.isEmpty)
+            PinterestCard(
+              borderRadius: 14,
+              padding: const EdgeInsets.symmetric(vertical: 48, horizontal: 20),
+              child: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     Container(
-                      width: 64,
-                      height: 64,
+                      padding: const EdgeInsets.all(14),
                       decoration: BoxDecoration(
-                        color: isDark
-                            ? Colors.white10
-                            : Colors.grey.shade50,
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(
-                          color: isDark
-                              ? Colors.white10
-                              : Colors.grey.shade200,
-                        ),
+                        color: const Color(0xFF00BF63).withValues(alpha: 0.12),
+                        shape: BoxShape.circle,
                       ),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(8),
-                        child: p['imageUrl'] != null &&
-                                p['imageUrl'].toString().isNotEmpty
-                            ? (p['imageUrl'].toString().startsWith('http')
-                                  ? Image.network(
-                                      p['imageUrl'] as String,
-                                      fit: BoxFit.cover,
-                                    )
-                                  : Image.file(
-                                      File(p['imageUrl'] as String),
-                                      fit: BoxFit.cover,
-                                    ))
-                            : Icon(
-                                Icons.photo,
-                                color: isDark
-                                    ? Colors.white24
-                                    : Colors.grey.shade300,
-                              ),
+                      child: const Icon(
+                        Icons.check_circle_rounded,
+                        color: Color(0xFF00BF63),
+                        size: 40,
                       ),
                     ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            p['name'] as String,
-                            style: GoogleFonts.plusJakartaSans(
-                              fontWeight: FontWeight.w600,
-                              fontSize: 15,
-                              color: isDark
-                                  ? Colors.white
-                                  : const Color(0xFF2D3436),
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            "Sisa ${p['stock']} unit",
-                            style: GoogleFonts.openSans(
-                              fontSize: 13,
-                              color: const Color(0xFFEF4444),
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ],
+                    const SizedBox(height: 14),
+                    Text(
+                      "Semua Stok Aman ✅",
+                      style: GoogleFonts.plusJakartaSans(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        color: isDark ? Colors.white : const Color(0xFF0F172A),
                       ),
                     ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFEF4444).withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(
-                          color: const Color(0xFFEF4444).withValues(alpha: 0.3),
-                        ),
-                      ),
-                      child: Row(
-                        children: [
-                          Text(
-                            "Restock",
-                            style: GoogleFonts.plusJakartaSans(
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                              color: const Color(0xFFEF4444),
-                            ),
-                          ),
-                          const SizedBox(width: 4),
-                          const Icon(
-                            Icons.chevron_right,
-                            color: Color(0xFFEF4444),
-                            size: 16,
-                          ),
-                        ],
+                    const SizedBox(height: 6),
+                    Text(
+                      "Tidak ada produk dengan stok menipis saat ini.",
+                      style: GoogleFonts.openSans(
+                        fontSize: 13,
+                        color: isDark ? Colors.white60 : const Color(0xFF64748B),
                       ),
                     ),
                   ],
                 ),
-              );
-            },
-          ),
-      ],
+              ),
+            )
+          else ...[
+            ListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: lowStockList.length,
+              itemBuilder: (context, index) {
+                final p = lowStockList[index];
+                return PinterestCard(
+                  borderRadius: 12,
+                  onTap: () => widget.onNavigateToIndex(1),
+                  margin: const EdgeInsets.only(bottom: 12),
+                  padding: const EdgeInsets.all(14),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 58,
+                        height: 58,
+                        decoration: BoxDecoration(
+                          color: isDark ? Colors.white10 : Colors.grey.shade100,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: isDark ? Colors.white10 : Colors.grey.shade200,
+                          ),
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(10),
+                          child: (p['imageUrl'] != null && p['imageUrl'].toString().isNotEmpty)
+                              ? Image(
+                                  image: FileManager().getImageProvider(p['imageUrl'].toString()),
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (_, __, ___) => Icon(
+                                    Icons.fastfood_rounded,
+                                    color: isDark ? Colors.white24 : Colors.grey.shade400,
+                                  ),
+                                )
+                              : Icon(
+                                  Icons.fastfood_rounded,
+                                  color: isDark ? Colors.white24 : Colors.grey.shade400,
+                                ),
+                        ),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              p['name'] as String,
+                              style: GoogleFonts.plusJakartaSans(
+                                fontWeight: FontWeight.w700,
+                                fontSize: 14.5,
+                                color: isDark ? Colors.white : const Color(0xFF1E293B),
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            const SizedBox(height: 4),
+                            Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFEF4444).withValues(alpha: 0.1),
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: Builder(
+                                    builder: (context) {
+                                      final sVal = p['stock'];
+                                      final sText = (sVal is num)
+                                          ? (sVal % 1 == 0 ? sVal.toInt().toString() : sVal.toString())
+                                          : sVal.toString();
+                                      return Text(
+                                        "Sisa $sText unit",
+                                        style: GoogleFonts.openSans(
+                                          fontSize: 12,
+                                          color: const Color(0xFFEF4444),
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      );
+                                    }
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                      Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          onTap: () => widget.onNavigateToIndex(1),
+                          borderRadius: BorderRadius.circular(8),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFEF4444).withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: const Color(0xFFEF4444).withValues(alpha: 0.3),
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  "Restock",
+                                  style: GoogleFonts.plusJakartaSans(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                    color: const Color(0xFFEF4444),
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                                const Icon(
+                                  Icons.chevron_right_rounded,
+                                  color: Color(0xFFEF4444),
+                                  size: 16,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ],
+          const SizedBox(height: 40),
+        ],
+      ),
     );
   }
 

@@ -1,4 +1,4 @@
-import 'dart:io';
+﻿import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -20,7 +20,7 @@ class TransactionSettingsPage extends StatefulWidget {
 }
 
 class _TransactionSettingsPageState extends State<TransactionSettingsPage> {
-  static const primaryColor = Color(0xFFC0392B); // Steak Asri Red
+  static const primaryColor = Color(0xFF00BF63); // Steak Asri Red
 
   late TextEditingController _nameController;
   late TextEditingController _rateController;
@@ -109,7 +109,7 @@ class _TransactionSettingsPageState extends State<TransactionSettingsPage> {
             _buildSectionHeader("Metode Pembayaran", Icons.account_balance_wallet_outlined, isDark),
             const SizedBox(height: 10),
             _buildActionCard(
-              title: "Kelola Metode Pembayaran",
+              title: "Kelola Keuangan & Akun Kas",
               subtitle: "Atur QRIS, Transfer Bank, dan Tunai",
               icon: Icons.credit_card_rounded,
               color: primaryColor,
@@ -698,7 +698,7 @@ class _TransactionSettingsPageState extends State<TransactionSettingsPage> {
 
     try {
       final pdfBytes = await receiptService.generateReceiptPdf(
-        storeName: adminCtrl.storeName ?? "Warkop Alam POS",
+        storeName: adminCtrl.storeName ?? "Kakilima Pos",
         storeLogoUrl: adminCtrl.storeLogo ?? 'assets/logo/logo.png',
         transactionId: "TX-88912",
         createdAt: DateTime(2026, 3, 19, 14, 20),
@@ -740,7 +740,7 @@ class _TransactionSettingsPageState extends State<TransactionSettingsPage> {
           builder: (_) => ReceiptPreviewPage(
             pdfData: pdfBytes,
             fileName: 'Uji_Coba_Struk_TX-88912.pdf',
-            storeName: adminCtrl.storeName ?? "Warkop Alam POS",
+            storeName: adminCtrl.storeName ?? "Kakilima Pos",
             transactionId: "TX-88912",
             createdAt: DateTime(2026, 3, 19, 14, 20),
             items: items,

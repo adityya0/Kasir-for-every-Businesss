@@ -29,7 +29,7 @@ class OrderNumpad extends StatelessWidget {
     final defaultBtnColor = isDark
         ? Colors.white.withValues(alpha: 0.05)
         : Colors.grey[100]!;
-    const activeBtnColor = Color(0xFFC0392B);
+    const activeBtnColor = Color(0xFF00BF63);
     final defaultTextColor = isDark ? Colors.white : Colors.black87;
 
     return LayoutBuilder(

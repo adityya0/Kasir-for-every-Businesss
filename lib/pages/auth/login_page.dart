@@ -1,16 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:drift/drift.dart' hide Column;
-import 'package:uuid/uuid.dart';
-import '../../services/app_database.dart';
-
 import 'package:provider/provider.dart';
-import '../../controllers/admin_controller.dart';
-import '../../services/activation_service.dart';
-import '../../widgets/kasir_dialog.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-
-const colorbase = Color(0xFFC0392B);
+import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../controllers/admin_controller.dart';
+import '../../core/supabase_config.dart';
+import '../../services/activation_service.dart';
+import '../../services/app_database.dart';
+import '../../services/supabase_auth_service.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -19,396 +16,187 @@ class LoginPage extends StatefulWidget {
   State<LoginPage> createState() => _LoginPageState();
 }
 
-class _LoginPageState extends State<LoginPage> with SingleTickerProviderStateMixin {
+class _LoginPageState extends State<LoginPage> {
+  static const Color primaryColor = Color(0xFFBD1B19); // Kakilima Pos Red
   late AppDatabase _db;
+
+  bool _isRegisterMode = false;
   bool _isLoading = false;
-  bool _isRegisterMode = false; // false = Login, true = Register
 
-  // Form Controllers
-  final _loginUsernameController = TextEditingController();
-  final _loginPasswordController = TextEditingController();
-
+  // Controllers
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
   final _regFullNameController = TextEditingController();
-  final _regUsernameController = TextEditingController();
+  final _regEmailController = TextEditingController();
   final _regPasswordController = TextEditingController();
-  final _regConfirmPasswordController = TextEditingController();
-  String _selectedRole = 'admin';
 
-  // Obscure password toggles
   bool _obscureLoginPass = true;
   bool _obscureRegPass = true;
-  bool _obscureRegConfirmPass = true;
-
-  // Status Admin Offline & Afiliasi Toko
-  Profile? _existingAdmin;
-  Store? _existingStore;
-
-  final ActivationService _activationService = ActivationService();
-  
-  late AnimationController _animController;
-  late Animation<double> _fadeAnimation;
-  late Animation<Offset> _slideAnimation;
 
   @override
   void initState() {
     super.initState();
-    _animController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1000),
-    );
-
-    _fadeAnimation = CurvedAnimation(
-      parent: _animController,
-      curve: const Interval(0.0, 0.65, curve: Curves.easeOut),
-    );
-
-    _slideAnimation = Tween<Offset>(
-      begin: const Offset(0, 0.2),
-      end: Offset.zero,
-    ).animate(CurvedAnimation(
-      parent: _animController,
-      curve: const Interval(0.0, 0.65, curve: Curves.easeOutQuint),
-    ));
-
-    _animController.forward();
+    _db = context.read<AppDatabase>();
   }
 
   @override
   void dispose() {
-    _animController.dispose();
-    _loginUsernameController.dispose();
-    _loginPasswordController.dispose();
+    _emailController.dispose();
+    _passwordController.dispose();
     _regFullNameController.dispose();
-    _regUsernameController.dispose();
+    _regEmailController.dispose();
     _regPasswordController.dispose();
-    _regConfirmPasswordController.dispose();
     super.dispose();
   }
 
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    _db = Provider.of<AppDatabase>(context);
-    _checkOfflineAdminStatus();
-  }
-
-  /// Memeriksa apakah Admin Toko sudah terdaftar di sistem offline ini
-  Future<void> _checkOfflineAdminStatus() async {
-    try {
-      final admin = await (_db.select(_db.profiles)
-            ..where((t) => t.role.equals('admin') | t.role.equals('owner'))
-            ..limit(1))
-          .getSingleOrNull();
-      Store? store;
-      if (admin != null && admin.storeId != null) {
-        store = await (_db.select(_db.stores)..where((t) => t.id.equals(admin.storeId!))).getSingleOrNull();
-      }
-      if (mounted) {
-        setState(() {
-          _existingAdmin = admin;
-          _existingStore = store;
-          _selectedRole = 'admin';
-        });
-      }
-    } catch (e) {
-      debugPrint("Error checking offline admin status: $e");
-    }
-  }
-
-  // --- MANUAL LOGIN ---
-  Future<void> _handleManualLogin() async {
-    final usernameOrEmail = _loginUsernameController.text.trim();
-    final password = _loginPasswordController.text;
-
-    if (usernameOrEmail.isEmpty || password.isEmpty) {
-      _showSnackbar("Harap isi Username/Email dan Password.");
-      return;
-    }
-
-    setState(() => _isLoading = true);
-    try {
-      final profiles = await (_db.select(_db.profiles)
-            ..where((t) {
-              final List<Expression<bool>> matchExprs = [
-                t.email.equals(usernameOrEmail),
-                t.fullName.equals(usernameOrEmail),
-              ];
-              return Expression.or(matchExprs);
-            }))
-          .get();
-
-      if (profiles.isEmpty) {
-        _showError("Akun tidak ditemukan. Silakan periksa kembali atau gunakan bantuan Pemulihan Akun.");
-        return;
-      }
-
-      final profile = profiles.first;
-      if (profile.password != password) {
-        _showError("Password yang Anda masukkan salah.");
-        return;
-      }
-
-      // Successful manual login
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('current_user_id', profile.id);
-      await _activationService.activateLocally(
-        profile.email ?? profile.fullName ?? usernameOrEmail,
-        displayName: profile.fullName,
-      );
-
-      if (!mounted) return;
-      final adminCtrl = Provider.of<AdminController>(context, listen: false);
-      await adminCtrl.loadInitialData(userId: profile.id);
-
-      if (!mounted) return;
-      _showSuccessDialog("Berhasil Masuk!", "Selamat datang kembali,\n${profile.fullName ?? usernameOrEmail}");
-
-      await Future.delayed(const Duration(milliseconds: 1300));
-      if (!mounted) return;
-      Navigator.pop(context); // Close dialog
-
-      Navigator.pushReplacementNamed(context, '/admin');
-    } catch (e) {
-      debugPrint("Manual Login Error: $e");
-      _showError("Terjadi kesalahan sistem: $e");
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
-    }
-  }
-
-  // --- MANUAL REGISTER ---
-  Future<void> _handleManualRegister() async {
-    final fullName = _regFullNameController.text.trim();
-    final emailOrUsername = _regUsernameController.text.trim();
-    final password = _regPasswordController.text;
-    final confirmPassword = _regConfirmPasswordController.text;
-
-    if (fullName.isEmpty || emailOrUsername.isEmpty || password.isEmpty) {
-      _showSnackbar("Harap isi semua kolom pendaftaran.");
-      return;
-    }
-
-    if (password.length < 4) {
-      _showSnackbar("Password minimal 4 karakter.");
-      return;
-    }
-
-    if (password != confirmPassword) {
-      _showSnackbar("Konfirmasi password tidak cocok.");
-      return;
-    }
-
-    setState(() => _isLoading = true);
-    try {
-      final existing = await (_db.select(_db.profiles)
-            ..where((t) => Expression.or([t.email.equals(emailOrUsername), t.fullName.equals(fullName)])))
-          .get();
-
-      if (existing.isNotEmpty) {
-        _showError("Email / Username sudah terdaftar. Silakan pindah ke tab Masuk.");
-        return;
-      }
-
-      final userId = const Uuid().v4();
-      String effectiveStoreId;
-
-      final existingStores = await (_db.select(_db.stores)..limit(1)).get();
-      if (existingStores.isNotEmpty) {
-        effectiveStoreId = existingStores.first.id;
-      } else {
-        // Ini adalah Admin Toko Pertama, buat Toko Baru
-        effectiveStoreId = 'store_${DateTime.now().millisecondsSinceEpoch}';
-        await _db.into(_db.stores).insert(
-          StoresCompanion.insert(
-            id: effectiveStoreId,
-            name: Value('Toko $fullName'),
-            adminName: Value(fullName),
-            createdAt: Value(DateTime.now()),
-          ),
-        );
-      }
-
-      await _db.into(_db.profiles).insert(
-        ProfilesCompanion.insert(
-          id: userId,
-          fullName: Value(fullName),
-          email: Value(emailOrUsername),
-          password: Value(password),
-          role: const Value('admin'),
-          storeId: Value(effectiveStoreId),
-          createdAt: Value(DateTime.now()),
-        ),
-      );
-
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('current_user_id', userId);
-      await _activationService.activateLocally(
-        emailOrUsername,
-        displayName: fullName,
-      );
-
-      if (!mounted) return;
-      final adminCtrl = Provider.of<AdminController>(context, listen: false);
-      await adminCtrl.loadInitialData(userId: userId);
-
-      // Refresh status admin offline
-      await _checkOfflineAdminStatus();
-
-      if (!mounted) return;
-      _showSuccessDialog("Pendaftaran Berhasil!", "Akun berhasil dibuat.\nSelamat datang, $fullName!");
-
-      await Future.delayed(const Duration(milliseconds: 1300));
-      if (!mounted) return;
-      Navigator.pop(context); // Close dialog
-
-      Navigator.pushReplacementNamed(context, '/admin');
-    } catch (e) {
-      debugPrint("Manual Register Error: $e");
-      _showError("Gagal mendaftar: $e");
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
-    }
-  }
-
-
-
-  void _showSnackbar(String msg) {
+  void _showSnackbar(String message, {bool isError = false}) {
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(msg),
-        backgroundColor: colorbase,
+        content: Text(message, style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w600)),
+        backgroundColor: isError ? Colors.red.shade700 : primaryColor,
         behavior: SnackBarBehavior.floating,
       ),
     );
   }
 
-  void _showError(String message) {
-    showDialog(
-      context: context,
-      builder: (context) => KasirDialog(
-        title: "Perhatian",
-        message: message,
-        icon: Icons.error_outline_rounded,
-        iconColor: Colors.redAccent,
-        primaryActionLabel: "Mengerti",
-        onPrimaryAction: () => Navigator.pop(context),
-      ),
-    );
-  }
+  // --- LOGIN ONLINE (EMAIL / PASSWORD) ---
+  Future<void> _handleLogin() async {
+    final email = _emailController.text.trim();
+    final password = _passwordController.text;
 
-  void _showSuccessDialog(String title, String message) {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      barrierColor: Colors.black.withValues(alpha: 0.6),
-      builder: (context) => KasirDialog(
-        title: title,
-        message: message,
-        icon: Icons.check_circle_rounded,
-        iconColor: Colors.green,
-      ),
-    );
-  }
+    if (email.isEmpty || password.isEmpty) {
+      _showSnackbar("Harap isi Email dan Password.", isError: true);
+      return;
+    }
 
-  // --- ACCOUNT RECOVERY & QUICK LOGIN ---
-  Future<void> _quickLoginAsProfile(Profile profile) async {
-    Navigator.of(context, rootNavigator: true).pop(); // Close bottom sheet
     setState(() => _isLoading = true);
     try {
-      await _activationService.activateLocally(
-        profile.email ?? profile.fullName ?? 'User',
-        displayName: profile.fullName,
+      final profile = await SupabaseAuthService().signInWithPassword(
+        email: email,
+        password: password,
+        localDb: _db,
       );
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('current_user_id', profile.id);
 
       if (!mounted) return;
       final adminCtrl = Provider.of<AdminController>(context, listen: false);
       await adminCtrl.loadInitialData(userId: profile.id);
 
       if (!mounted) return;
-      _showSuccessDialog("Berhasil Masuk!", "Selamat datang kembali,\n${profile.fullName ?? profile.email}");
 
-      await Future.delayed(const Duration(milliseconds: 1000));
+      // Cek apakah perangkat sudah pernah diverifikasi PIN sebelumnya
+      final isVerified = await ActivationService().isVerified();
       if (!mounted) return;
-      Navigator.pop(context); // Close success dialog
-
-      if (profile.role == 'admin' || profile.role == 'owner') {
-        Navigator.pushReplacementNamed(context, '/admin');
+      if (!isVerified) {
+        // TAHAP 2: Arahkan ke Verifikasi PIN Keamanan Toko
+        Navigator.pushReplacementNamed(context, '/pin-verification');
       } else {
-        Navigator.pushReplacementNamed(context, '/kasir');
+        // Sudah terverifikasi -> Masuk Dashboard
+        Navigator.pushReplacementNamed(context, '/admin');
       }
     } catch (e) {
-      _showError("Gagal masuk cepat: $e");
+      debugPrint("Login error: $e");
+      final err = e.toString().replaceAll('Exception: ', '');
+      _showSnackbar("Gagal Masuk: $err", isError: true);
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  Future<void> _resetPasswordForProfile(Profile profile, String newPassword) async {
+  // --- LOGIN DENGAN GOOGLE ---
+  Future<void> _handleGoogleLogin() async {
+    setState(() => _isLoading = true);
     try {
-      await (_db.update(_db.profiles)..where((t) => t.id.equals(profile.id))).write(
-        ProfilesCompanion(password: Value(newPassword)),
-      );
-      _showSnackbar("Password untuk ${profile.fullName ?? profile.email} berhasil diperbarui!");
+      final success = await SupabaseAuthService().signInWithGoogle();
+      if (success) {
+        final isVerified = await ActivationService().isVerified();
+        if (!mounted) return;
+        if (!isVerified) {
+          Navigator.pushReplacementNamed(context, '/pin-verification');
+        } else {
+          Navigator.pushReplacementNamed(context, '/admin');
+        }
+      }
     } catch (e) {
-      _showError("Gagal mereset password: $e");
+      _showSnackbar("Gagal masuk dengan Google: $e", isError: true);
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  void _showResetPasswordDialog(Profile profile) {
-    final newPassCtrl = TextEditingController();
-    showDialog(
-      context: context,
-      builder: (ctx) => KasirDialog(
-        title: "Setel Password Baru",
-        message: "Masukkan kata sandi baru untuk akun ${profile.fullName ?? profile.email}:",
-        icon: Icons.key_rounded,
-        iconColor: colorbase,
-        content: Padding(
-          padding: const EdgeInsets.only(top: 12),
-          child: TextField(
-            controller: newPassCtrl,
-            obscureText: false,
-            decoration: InputDecoration(
-              hintText: "Kata sandi baru...",
-              filled: true,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(10),
-                borderSide: const BorderSide(color: Color(0xFFCBD5E1)),
-              ),
-              contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            ),
-          ),
-        ),
-        primaryActionLabel: "Simpan Password",
-        onPrimaryAction: () async {
-          Navigator.pop(ctx);
-          final pass = newPassCtrl.text.trim();
-          if (pass.isEmpty) {
-            _showSnackbar("Password tidak boleh kosong.");
-            return;
-          }
-          await _resetPasswordForProfile(profile, pass);
+  // --- DAFTAR AKUN BARU (SUPABASE) ---
+  Future<void> _handleRegister() async {
+    final fullName = _regFullNameController.text.trim();
+    final email = _regEmailController.text.trim();
+    final password = _regPasswordController.text;
+
+    if (fullName.isEmpty || email.isEmpty || password.isEmpty) {
+      _showSnackbar("Harap lengkapi semua kolom pendaftaran.", isError: true);
+      return;
+    }
+
+    if (password.length < 6) {
+      _showSnackbar("Password minimal 6 karakter.", isError: true);
+      return;
+    }
+
+    setState(() => _isLoading = true);
+    try {
+      final supabase = Supabase.instance.client;
+      final res = await supabase.auth.signUp(
+        email: email,
+        password: password,
+        data: {
+          'full_name': fullName,
+          'store_name': 'Kakilima Pos ($fullName)',
+          'pin_code': '123456', // Default PIN sesuai aturan database
         },
-        secondaryActionLabel: "Batal",
-        onSecondaryAction: () => Navigator.pop(ctx),
-      ),
-    );
+      );
+
+      final user = res.user;
+      if (user != null) {
+        // Pastikan baris di profiles terbuat dengan default PIN 123456
+        try {
+          await supabase.from('profiles').upsert({
+            'id': user.id,
+            'email': email,
+            'full_name': fullName,
+            'store_name': 'Kakilima Pos ($fullName)',
+            'pin_code': '123456',
+            'role': 'admin',
+            'is_active': true,
+          });
+        } catch (_) {}
+
+        _emailController.text = email;
+        _passwordController.text = password;
+
+        setState(() => _isRegisterMode = false);
+
+        _showSnackbar("Pendaftaran Berhasil! PIN default Anda: 123456. Silakan klik Masuk.");
+      } else {
+        _showSnackbar("Pendaftaran dikirim. Silakan periksa verifikasi email Anda jika diaktifkan.");
+      }
+    } catch (e) {
+      debugPrint("Register error: $e");
+      _showSnackbar("Pendaftaran Gagal: ${e.toString().replaceAll('Exception: ', '')}", isError: true);
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
 
-  Future<void> _showAccountRecoveryModal() async {
-    final profiles = await (_db.select(_db.profiles)
-          ..orderBy([
-            (t) => OrderingTerm(
-                  expression: const CustomExpression<int>(
-                    "CASE WHEN role IN ('admin', 'owner') THEN 0 ELSE 1 END",
-                  ),
-                  mode: OrderingMode.asc,
-                ),
-            (t) => OrderingTerm.asc(t.fullName),
-          ]))
-        .get();
-
-    if (!mounted) return;
+  // --- LUPA PASSWORD AMAN (OTP GMAIL 3 LANGKAH) ---
+  void _showForgotPasswordModal() {
+    int step = 1;
+    final emailCtrl = TextEditingController(text: _emailController.text.trim());
+    final otpCtrl = TextEditingController();
+    final newPassCtrl = TextEditingController();
+    final confirmPassCtrl = TextEditingController();
+    bool isSubmitting = false;
+    String? stepError;
 
     showModalBottomSheet(
       context: context,
@@ -417,340 +205,300 @@ class _LoginPageState extends State<LoginPage> with SingleTickerProviderStateMix
       builder: (sheetCtx) {
         return StatefulBuilder(
           builder: (context, setModalState) {
-            final Map<String, bool> showPassMap = {};
-
+            final bottomInset = MediaQuery.of(sheetCtx).viewInsets.bottom;
             return Container(
-              constraints: BoxConstraints(
-                maxHeight: MediaQuery.of(sheetCtx).size.height * 0.88,
-              ),
+              margin: EdgeInsets.only(bottom: bottomInset),
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
               decoration: const BoxDecoration(
                 color: Colors.white,
-                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
               ),
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Center(
-                    child: Container(
-                      width: 40,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: Colors.grey.shade300,
-                        borderRadius: BorderRadius.circular(2),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 44,
+                        height: 5,
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade300,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Row(
-                        children: [
-                          const Icon(Icons.shield_outlined, color: colorbase, size: 24),
-                          const SizedBox(width: 8),
-                          Text(
-                            "Pemulihan Akun Tersimpan",
-                            style: GoogleFonts.plusJakartaSans(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w700,
-                              color: const Color(0xFF1E293B),
-                            ),
-                          ),
-                        ],
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.close),
-                        onPressed: () => Navigator.pop(sheetCtx),
-                      ),
-                    ],
-                  ),
-                  Text(
-                    "Pilih akun terdaftar di perangkat ini untuk melihat kredensial, reset password, atau langsung masuk:",
-                    style: GoogleFonts.plusJakartaSans(
-                      fontSize: 13,
-                      color: Colors.grey.shade600,
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-
-                  // Emergency Master Super Admin Card
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFEEF2FF),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: const Color(0xFFC7D2FE), width: 1.2),
-                    ),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    const SizedBox(height: 16),
+                    Row(
                       children: [
                         Container(
-                          padding: const EdgeInsets.all(7),
+                          padding: const EdgeInsets.all(10),
                           decoration: BoxDecoration(
-                            color: const Color(0xFF6366F1).withValues(alpha: 0.15),
-                            shape: BoxShape.circle,
+                            color: primaryColor.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(12),
                           ),
-                          child: const Icon(Icons.shield_rounded, color: Color(0xFF6366F1), size: 20),
+                          child: Icon(
+                            step == 1 ? Icons.mail_outline_rounded : (step == 2 ? Icons.pin_outlined : Icons.lock_reset_rounded),
+                            color: primaryColor,
+                            size: 24,
+                          ),
                         ),
-                        const SizedBox(width: 10),
+                        const SizedBox(width: 14),
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Row(
-                                children: [
-                                  Text(
-                                    "Akun Super Admin (Permanen)",
-                                    style: GoogleFonts.plusJakartaSans(
-                                      fontWeight: FontWeight.w700,
-                                      fontSize: 13,
-                                      color: const Color(0xFF312E81),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFF6366F1),
-                                      borderRadius: BorderRadius.circular(4),
-                                    ),
-                                    child: Text(
-                                      "MASTER",
-                                      style: GoogleFonts.plusJakartaSans(
-                                        fontSize: 9,
-                                        fontWeight: FontWeight.w800,
-                                        color: Colors.white,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 2),
                               Text(
-                                "Email: superadmin@pos.com | Sandi: superadmin123\nDapat melihat semua akun & reset sandi tanpa hapus data toko.",
+                                "Pemulihan Akun Aman",
                                 style: GoogleFonts.plusJakartaSans(
-                                  fontSize: 11,
-                                  color: const Color(0xFF4338CA),
-                                  height: 1.3,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w700,
+                                  color: const Color(0xFF1E293B),
+                                ),
+                              ),
+                              Text(
+                                "Langkah $step dari 3: ${step == 1 ? 'Minta Kode OTP' : (step == 2 ? 'Verifikasi OTP' : 'Password Baru')}",
+                                style: GoogleFonts.plusJakartaSans(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: primaryColor,
                                 ),
                               ),
                             ],
                           ),
                         ),
+                        IconButton(
+                          icon: const Icon(Icons.close_rounded, color: Colors.grey),
+                          onPressed: () => Navigator.pop(sheetCtx),
+                        ),
                       ],
                     ),
-                  ),
-                  const SizedBox(height: 14),
-                  if (profiles.isEmpty)
-                    Container(
-                      padding: const EdgeInsets.all(24),
-                      alignment: Alignment.center,
-                      child: Column(
-                        children: [
-                          Icon(Icons.person_off_outlined, size: 48, color: Colors.grey.shade400),
-                          const SizedBox(height: 12),
-                          Text(
-                            "Belum ada akun tersimpan di database perangkat ini.\nSilakan gunakan tab Daftar Baru.",
-                            textAlign: TextAlign.center,
-                            style: GoogleFonts.plusJakartaSans(fontSize: 13, color: Colors.grey.shade600),
-                          ),
-                        ],
-                      ),
-                    )
-                  else
-                    Expanded(
-                      child: ListView.separated(
-                        itemCount: profiles.length,
-                        separatorBuilder: (_, __) => const SizedBox(height: 12),
-                        itemBuilder: (context, index) {
-                          final p = profiles[index];
-                          final bool isAdmin = p.role == 'admin' || p.role == 'owner';
-                          final roleLabel = isAdmin ? 'Admin Toko' : 'Karyawan / Kasir';
-                          final roleColor = isAdmin ? const Color(0xFFC0392B) : const Color(0xFF0D9488);
-                          final passVisible = showPassMap[p.id] ?? false;
+                    const SizedBox(height: 16),
+                    Divider(height: 1, color: Colors.grey.shade200),
+                    const SizedBox(height: 16),
 
-                          return Container(
-                            padding: const EdgeInsets.all(14),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(
-                                color: const Color(0xFFCBD5E1),
-                                width: 1.2,
-                              ),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  children: [
-                                    CircleAvatar(
-                                      radius: 20,
-                                      backgroundColor: roleColor.withValues(alpha: 0.12),
-                                      child: Text(
-                                        (p.fullName != null && p.fullName!.isNotEmpty)
-                                            ? p.fullName![0].toUpperCase()
-                                            : '?',
-                                        style: GoogleFonts.plusJakartaSans(
-                                          fontWeight: FontWeight.w700,
-                                          color: roleColor,
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 12),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Row(
-                                            children: [
-                                              Flexible(
-                                                child: Text(
-                                                  p.fullName ?? 'Nama Akun',
-                                                  style: GoogleFonts.plusJakartaSans(
-                                                    fontWeight: FontWeight.w700,
-                                                    fontSize: 14,
-                                                    color: const Color(0xFF1E293B),
-                                                  ),
-                                                  maxLines: 1,
-                                                  overflow: TextOverflow.ellipsis,
-                                                ),
-                                              ),
-                                              const SizedBox(width: 6),
-                                              Container(
-                                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                                decoration: BoxDecoration(
-                                                  color: roleColor.withValues(alpha: 0.12),
-                                                  borderRadius: BorderRadius.circular(4),
-                                                ),
-                                                child: Text(
-                                                  roleLabel,
-                                                  style: GoogleFonts.plusJakartaSans(
-                                                    fontSize: 10,
-                                                    fontWeight: FontWeight.w700,
-                                                    color: roleColor,
-                                                  ),
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                          const SizedBox(height: 2),
-                                          Text(
-                                            "Username/Email: ${p.email ?? p.fullName ?? '-'}",
-                                            style: GoogleFonts.plusJakartaSans(
-                                              fontSize: 12,
-                                              color: Colors.grey.shade600,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 10),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                  decoration: BoxDecoration(
-                                    color: Colors.grey.shade100,
-                                    borderRadius: BorderRadius.circular(6),
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      const Icon(Icons.key, size: 14, color: Colors.grey),
-                                      const SizedBox(width: 6),
-                                      Text(
-                                        "Kata Sandi: ",
-                                        style: GoogleFonts.plusJakartaSans(
-                                          fontSize: 12,
-                                          color: Colors.grey.shade700,
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                      ),
-                                      Expanded(
-                                        child: Text(
-                                          passVisible ? (p.password ?? '(kosong)') : "••••••••",
-                                          style: GoogleFonts.plusJakartaSans(
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.w700,
-                                            color: const Color(0xFF1E293B),
-                                          ),
-                                        ),
-                                      ),
-                                      GestureDetector(
-                                        onTap: () {
-                                          setModalState(() {
-                                            showPassMap[p.id] = !passVisible;
-                                          });
-                                        },
-                                        child: Icon(
-                                          passVisible ? Icons.visibility_off : Icons.visibility,
-                                          size: 16,
-                                          color: Colors.grey.shade700,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                const SizedBox(height: 12),
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: SizedBox(
-                                        height: 38,
-                                        child: ElevatedButton.icon(
-                                          onPressed: () => _quickLoginAsProfile(p),
-                                          style: ElevatedButton.styleFrom(
-                                            backgroundColor: colorbase,
-                                            foregroundColor: Colors.white,
-                                            elevation: 0,
-                                            shape: RoundedRectangleBorder(
-                                              borderRadius: BorderRadius.circular(8),
-                                            ),
-                                          ),
-                                          icon: const Icon(Icons.login_rounded, size: 16),
-                                          label: Text(
-                                            "Masuk Cepat",
-                                            style: GoogleFonts.plusJakartaSans(
-                                              fontWeight: FontWeight.w700,
-                                              fontSize: 12,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    SizedBox(
-                                      height: 38,
-                                      child: OutlinedButton.icon(
-                                        onPressed: () => _showResetPasswordDialog(p),
-                                        style: OutlinedButton.styleFrom(
-                                          foregroundColor: const Color(0xFF1E293B),
-                                          side: const BorderSide(color: Color(0xFFCBD5E1), width: 1.2),
-                                          shape: RoundedRectangleBorder(
-                                            borderRadius: BorderRadius.circular(8),
-                                          ),
-                                        ),
-                                        icon: const Icon(Icons.edit_outlined, size: 16),
-                                        label: Text(
-                                          "Ganti Password",
-                                          style: GoogleFonts.plusJakartaSans(
-                                            fontWeight: FontWeight.w600,
-                                            fontSize: 12,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                          );
-                        },
+                    if (stepError != null) ...[
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.red.shade50,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: Colors.red.shade200),
+                        ),
+                        child: Text(
+                          stepError!,
+                          style: GoogleFonts.plusJakartaSans(fontSize: 12, color: Colors.red.shade800, fontWeight: FontWeight.w500),
+                        ),
                       ),
-                    ),
-                ],
+                      const SizedBox(height: 14),
+                    ],
+
+                    if (step == 1) ...[
+                      Text(
+                        "Masukkan email akun Supabase Anda. Kode verifikasi 6 digit akan dikirimkan ke email Anda.",
+                        style: GoogleFonts.plusJakartaSans(fontSize: 13, color: const Color(0xFF64748B), height: 1.4),
+                      ),
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: emailCtrl,
+                        cursorColor: primaryColor,
+                        keyboardType: TextInputType.emailAddress,
+                        decoration: InputDecoration(
+                          labelText: "Alamat Email",
+                          prefixIcon: const Icon(Icons.email_outlined, color: primaryColor),
+                          filled: true,
+                          fillColor: const Color(0xFFF8FAFC),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFFCBD5E1))),
+                          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: primaryColor, width: 2)),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      SizedBox(
+                        width: double.infinity,
+                        height: 48,
+                        child: ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: primaryColor,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
+                          onPressed: isSubmitting
+                              ? null
+                              : () async {
+                                  final email = emailCtrl.text.trim();
+                                  if (email.isEmpty) {
+                                    setModalState(() => stepError = "Email tidak boleh kosong.");
+                                    return;
+                                  }
+                                  setModalState(() {
+                                    isSubmitting = true;
+                                    stepError = null;
+                                  });
+                                  try {
+                                    await SupabaseAuthService().sendPasswordResetEmail(email);
+                                    setModalState(() {
+                                      isSubmitting = false;
+                                      step = 2;
+                                    });
+                                  } catch (e) {
+                                    setModalState(() {
+                                      isSubmitting = false;
+                                      stepError = e.toString().replaceAll('Exception: ', '');
+                                    });
+                                  }
+                                },
+                          child: isSubmitting
+                              ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                              : Text("Kirim Kode OTP (Email)", style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w700)),
+                        ),
+                      ),
+                    ],
+
+                    if (step == 2) ...[
+                      Text(
+                        "Masukkan 6 digit token recovery yang baru saja dikirimkan ke ${emailCtrl.text}:",
+                        style: GoogleFonts.plusJakartaSans(fontSize: 13, color: const Color(0xFF64748B), height: 1.4),
+                      ),
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: otpCtrl,
+                        cursorColor: primaryColor,
+                        keyboardType: TextInputType.number,
+                        maxLength: 6,
+                        textAlign: TextAlign.center,
+                        style: GoogleFonts.plusJakartaSans(fontSize: 24, fontWeight: FontWeight.w700, letterSpacing: 10),
+                        decoration: InputDecoration(
+                          hintText: "123456",
+                          counterText: "",
+                          filled: true,
+                          fillColor: const Color(0xFFF8FAFC),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFFCBD5E1))),
+                          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: primaryColor, width: 2)),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      SizedBox(
+                        width: double.infinity,
+                        height: 48,
+                        child: ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: primaryColor,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
+                          onPressed: isSubmitting
+                              ? null
+                              : () async {
+                                  final token = otpCtrl.text.trim();
+                                  if (token.length < 6) {
+                                    setModalState(() => stepError = "Masukkan 6 digit kode OTP secara lengkap.");
+                                    return;
+                                  }
+                                  setModalState(() {
+                                    isSubmitting = true;
+                                    stepError = null;
+                                  });
+                                  try {
+                                    await SupabaseAuthService().verifyRecoveryOtp(email: emailCtrl.text.trim(), token: token);
+                                    setModalState(() {
+                                      isSubmitting = false;
+                                      step = 3;
+                                    });
+                                  } catch (e) {
+                                    setModalState(() {
+                                      isSubmitting = false;
+                                      stepError = "Kode OTP tidak valid atau kedaluwarsa.";
+                                    });
+                                  }
+                                },
+                          child: isSubmitting
+                              ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                              : Text("Verifikasi Kode OTP", style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w700)),
+                        ),
+                      ),
+                    ],
+
+                    if (step == 3) ...[
+                      Text(
+                        "Token terverifikasi! Silakan tentukan kata sandi baru:",
+                        style: GoogleFonts.plusJakartaSans(fontSize: 13, color: const Color(0xFF64748B), height: 1.4),
+                      ),
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: newPassCtrl,
+                        cursorColor: primaryColor,
+                        obscureText: true,
+                        decoration: InputDecoration(
+                          labelText: "Password Baru",
+                          prefixIcon: const Icon(Icons.lock_outline_rounded, color: primaryColor),
+                          filled: true,
+                          fillColor: const Color(0xFFF8FAFC),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFFCBD5E1))),
+                          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: primaryColor, width: 2)),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: confirmPassCtrl,
+                        cursorColor: primaryColor,
+                        obscureText: true,
+                        decoration: InputDecoration(
+                          labelText: "Konfirmasi Password Baru",
+                          prefixIcon: const Icon(Icons.lock_reset_rounded, color: primaryColor),
+                          filled: true,
+                          fillColor: const Color(0xFFF8FAFC),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFFCBD5E1))),
+                          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: primaryColor, width: 2)),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      SizedBox(
+                        width: double.infinity,
+                        height: 48,
+                        child: ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: primaryColor,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
+                          onPressed: isSubmitting
+                              ? null
+                              : () async {
+                                  final newPass = newPassCtrl.text;
+                                  if (newPass.length < 6) {
+                                    setModalState(() => stepError = "Password minimal 6 karakter.");
+                                    return;
+                                  }
+                                  if (newPass != confirmPassCtrl.text) {
+                                    setModalState(() => stepError = "Konfirmasi password tidak cocok.");
+                                    return;
+                                  }
+                                  setModalState(() {
+                                    isSubmitting = true;
+                                    stepError = null;
+                                  });
+                                  try {
+                                    await SupabaseAuthService().updateUserPassword(newPass);
+                                    if (sheetCtx.mounted) Navigator.pop(sheetCtx);
+                                    _emailController.text = emailCtrl.text.trim();
+                                    _passwordController.clear();
+                                    _showSnackbar("Password berhasil diubah! Silakan masuk.");
+                                  } catch (e) {
+                                    setModalState(() {
+                                      isSubmitting = false;
+                                      stepError = e.toString().replaceAll('Exception: ', '');
+                                    });
+                                  }
+                                },
+                          child: isSubmitting
+                              ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                              : Text("Simpan Password Baru", style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w700)),
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 12),
+                  ],
+                ),
               ),
             );
           },
@@ -762,675 +510,289 @@ class _LoginPageState extends State<LoginPage> with SingleTickerProviderStateMix
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
-      body: LayoutBuilder(
-        builder: (context, constraints) {
-          if (constraints.maxWidth > 900) {
-            return _buildWideLayout();
-          }
-          return _buildMobileLayout();
-        },
-      ),
-    );
-  }
-
-  Widget _buildWideLayout() {
-    return Row(
-      children: [
-        // Left Side: Branding
-        Expanded(
-          flex: 5,
-          child: Container(
-            color: colorbase,
-            child: FadeTransition(
-              opacity: _fadeAnimation,
-              child: SlideTransition(
-                position: _slideAnimation,
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(24),
-                      child: Image.asset(
-                        'assets/logo/logo.png',
-                        width: 200,
-                        height: 200,
-                        fit: BoxFit.contain,
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                    Text(
-                      "Sistem Manajemen Kasir & Restoran Modern",
-                      textAlign: TextAlign.center,
-                      style: GoogleFonts.openSans(
-                        fontSize: 16,
-                        color: Colors.white70,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-        // Right Side: Form Container
-        Expanded(
-          flex: 6,
-          child: Center(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(40),
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 480),
-                child: _buildFormCard(),
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildMobileLayout() {
-    return SafeArea(
-      child: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 24.0),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 480),
-            child: FadeTransition(
-              opacity: _fadeAnimation,
-              child: SlideTransition(
-                position: _slideAnimation,
-                child: Column(
-                  children: [
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(20),
-                      child: Image.asset(
-                        'assets/logo/logo.png',
-                        width: 130,
-                        height: 130,
-                        fit: BoxFit.contain,
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                    _buildFormCard(),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildFormCard() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        // Tab Segment Switcher
-        Container(
-          height: 52,
-          padding: const EdgeInsets.all(4),
-          decoration: BoxDecoration(
-            color: Colors.grey[100],
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: Colors.grey[300]!),
-          ),
-          child: Row(
-            children: [
-              Expanded(
-                child: GestureDetector(
-                  onTap: () {
-                    if (_isRegisterMode) {
-                      setState(() => _isRegisterMode = false);
-                    }
-                  },
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 250),
-                    decoration: BoxDecoration(
-                      color: !_isRegisterMode ? colorbase : Colors.transparent,
-                      borderRadius: BorderRadius.circular(12),
-                      boxShadow: !_isRegisterMode
-                          ? [
-                              BoxShadow(
-                                color: colorbase.withValues(alpha: 0.3),
-                                blurRadius: 8,
-                                offset: const Offset(0, 3),
-                              ),
-                            ]
-                          : [],
-                    ),
-                    child: Center(
-                      child: Text(
-                        "Masuk",
-                        style: GoogleFonts.plusJakartaSans(
-                          fontWeight: FontWeight.w600,
-                          fontSize: 15,
-                          color: !_isRegisterMode ? Colors.white : Colors.grey[700],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              Expanded(
-                child: GestureDetector(
-                  onTap: () {
-                    if (!_isRegisterMode) {
-                      setState(() => _isRegisterMode = true);
-                      _checkOfflineAdminStatus();
-                    }
-                  },
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 250),
-                    decoration: BoxDecoration(
-                      color: _isRegisterMode ? colorbase : Colors.transparent,
-                      borderRadius: BorderRadius.circular(12),
-                      boxShadow: _isRegisterMode
-                          ? [
-                              BoxShadow(
-                                color: colorbase.withValues(alpha: 0.3),
-                                blurRadius: 8,
-                                offset: const Offset(0, 3),
-                              ),
-                            ]
-                          : [],
-                    ),
-                    child: Center(
-                      child: Text(
-                        "Daftar Baru",
-                        style: GoogleFonts.plusJakartaSans(
-                          fontWeight: FontWeight.w600,
-                          fontSize: 15,
-                          color: _isRegisterMode ? Colors.white : Colors.grey[700],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-
-        const SizedBox(height: 28),
-
-        // Animated Form View
-        AnimatedCrossFade(
-          duration: const Duration(milliseconds: 300),
-          crossFadeState: !_isRegisterMode
-              ? CrossFadeState.showFirst
-              : CrossFadeState.showSecond,
-          firstChild: _buildLoginForm(),
-          secondChild: _buildRegisterForm(),
-        ),
-      ],
-    );
-  }
-
-  // --- LOGIN FORM WIDGET ---
-  Widget _buildLoginForm() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          "Selamat Datang Kembali!",
-          style: GoogleFonts.plusJakartaSans(
-            fontSize: 22,
-            fontWeight: FontWeight.w700,
-            color: const Color(0xFF2D3436),
-          ),
-        ),
-        const SizedBox(height: 6),
-        Text(
-          "Masukkan username/email dan password Anda",
-          style: GoogleFonts.openSans(fontSize: 14, color: Colors.grey[600]),
-        ),
-        const SizedBox(height: 24),
-
-        // Input Username / Email
-        _buildTextField(
-          controller: _loginUsernameController,
-          label: "Username / Email",
-          hint: "Masukkan username atau email",
-          icon: Icons.person_outline_rounded,
-        ),
-        const SizedBox(height: 16),
-
-        // Input Password
-        _buildTextField(
-          controller: _loginPasswordController,
-          label: "Password",
-          hint: "Masukkan password",
-          icon: Icons.lock_outline_rounded,
-          isPassword: true,
-          obscureText: _obscureLoginPass,
-          onTogglePassword: () {
-            setState(() => _obscureLoginPass = !_obscureLoginPass);
-          },
-        ),
-        // Forgot Password / Account Recovery Link
-        Align(
-          alignment: Alignment.centerRight,
-          child: TextButton.icon(
-            onPressed: _showAccountRecoveryModal,
-            icon: const Icon(Icons.help_outline_rounded, size: 16, color: colorbase),
-            label: Text(
-              "Lupa Password / Pemulihan Akun",
-              style: GoogleFonts.plusJakartaSans(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: colorbase,
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(height: 12),
-
-        // Submit Button
-        SizedBox(
-          width: double.infinity,
-          height: 54,
-          child: ElevatedButton(
-            onPressed: _isLoading ? null : _handleManualLogin,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: colorbase,
-              foregroundColor: Colors.white,
-              elevation: 3,
-              shadowColor: colorbase.withValues(alpha: 0.4),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(14),
-              ),
-            ),
-            child: _isLoading
-                ? const CircularProgressIndicator(color: Colors.white)
-                : Text(
-                    "MASUK",
-                    style: GoogleFonts.plusJakartaSans(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 1.2,
-                    ),
-                  ),
-          ),
-        ),
-        const SizedBox(height: 12),
-
-        // Quick Account Switcher Button
-        SizedBox(
-          width: double.infinity,
-          height: 48,
-          child: OutlinedButton.icon(
-            onPressed: _showAccountRecoveryModal,
-            style: OutlinedButton.styleFrom(
-              foregroundColor: const Color(0xFF1E293B),
-              side: const BorderSide(color: Color(0xFFCBD5E1), width: 1.2),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-            icon: const Icon(Icons.switch_account_outlined, size: 20, color: colorbase),
-            label: Text(
-              "Pilih Akun Tersimpan di Perangkat Ini",
-              style: GoogleFonts.plusJakartaSans(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  // --- REGISTER FORM WIDGET ---
-  Widget _buildRegisterForm() {
-    final bool hasAdmin = _existingAdmin != null;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          hasAdmin ? "Buat Akun Kasir / Karyawan" : "Pendaftaran Admin Toko",
-          style: GoogleFonts.plusJakartaSans(
-            fontSize: 22,
-            fontWeight: FontWeight.w700,
-            color: const Color(0xFF2D3436),
-          ),
-        ),
-        const SizedBox(height: 6),
-        Text(
-          hasAdmin
-              ? "Akun baru akan otomatis terafiliasi dengan Admin Toko aktif"
-              : "Daftarkan akun Admin Utama untuk mengelola toko di perangkat ini",
-          style: GoogleFonts.openSans(fontSize: 14, color: Colors.grey[600]),
-        ),
-        const SizedBox(height: 16),
-
-        // Banner Afiliasi Toko (Offline Single Admin)
-        if (hasAdmin)
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: const Color(0xFFF0FDF4),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFFBBF7D0), width: 1.2),
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(7),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF16A34A).withValues(alpha: 0.15),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(Icons.storefront_rounded, color: Color(0xFF16A34A), size: 18),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
+      backgroundColor: const Color(0xFFF8FAFC),
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 440),
+              child: Card(
+                elevation: 4,
+                shadowColor: Colors.black.withValues(alpha: 0.08),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+                color: Colors.white,
+                child: Padding(
+                  padding: const EdgeInsets.all(28),
                   child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      Row(
-                        children: [
-                          Text(
-                            "Terafiliasi dengan Admin Toko",
-                            style: GoogleFonts.plusJakartaSans(
-                              fontWeight: FontWeight.w700,
-                              fontSize: 13,
-                              color: const Color(0xFF14532D),
+                      // Logo
+                      Image.asset(
+                        'assets/logo/logo.png',
+                        width: 72,
+                        height: 72,
+                        fit: BoxFit.contain,
+                      ),
+                      const SizedBox(height: 14),
+
+                      // Title
+                      Text(
+                        "Kakilima Pos",
+                        style: GoogleFonts.plusJakartaSans(
+                          fontSize: 22,
+                          fontWeight: FontWeight.w800,
+                          color: const Color(0xFF0F172A),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        _isRegisterMode ? "Pendaftaran Akun Toko Baru" : "Masuk ke Akun POS Toko",
+                        style: GoogleFonts.plusJakartaSans(
+                          fontSize: 13,
+                          color: const Color(0xFF64748B),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+
+                      // Mode Switcher (Masuk / Daftar)
+                      Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF1F5F9),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: GestureDetector(
+                                onTap: () => setState(() => _isRegisterMode = false),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(vertical: 10),
+                                  decoration: BoxDecoration(
+                                    color: !_isRegisterMode ? Colors.white : Colors.transparent,
+                                    borderRadius: BorderRadius.circular(10),
+                                    boxShadow: !_isRegisterMode
+                                        ? [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 4, offset: const Offset(0, 2))]
+                                        : null,
+                                  ),
+                                  child: Center(
+                                    child: Text(
+                                      "Masuk",
+                                      style: GoogleFonts.plusJakartaSans(
+                                        fontSize: 13,
+                                        fontWeight: !_isRegisterMode ? FontWeight.w700 : FontWeight.w600,
+                                        color: !_isRegisterMode ? primaryColor : const Color(0xFF64748B),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            Expanded(
+                              child: GestureDetector(
+                                onTap: () => setState(() => _isRegisterMode = true),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(vertical: 10),
+                                  decoration: BoxDecoration(
+                                    color: _isRegisterMode ? Colors.white : Colors.transparent,
+                                    borderRadius: BorderRadius.circular(10),
+                                    boxShadow: _isRegisterMode
+                                        ? [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 4, offset: const Offset(0, 2))]
+                                        : null,
+                                  ),
+                                  child: Center(
+                                    child: Text(
+                                      "Daftar Akun",
+                                      style: GoogleFonts.plusJakartaSans(
+                                        fontSize: 13,
+                                        fontWeight: _isRegisterMode ? FontWeight.w700 : FontWeight.w600,
+                                        color: _isRegisterMode ? primaryColor : const Color(0xFF64748B),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+
+                      // FORM MASUK
+                      if (!_isRegisterMode) ...[
+                        TextField(
+                          controller: _emailController,
+                          cursorColor: primaryColor,
+                          keyboardType: TextInputType.emailAddress,
+                          decoration: InputDecoration(
+                            labelText: "Email",
+                            prefixIcon: const Icon(Icons.email_outlined, color: primaryColor),
+                            filled: true,
+                            fillColor: const Color(0xFFF8FAFC),
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: Color(0xFFCBD5E1))),
+                            focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: primaryColor, width: 2)),
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        TextField(
+                          controller: _passwordController,
+                          cursorColor: primaryColor,
+                          obscureText: _obscureLoginPass,
+                          decoration: InputDecoration(
+                            labelText: "Password",
+                            prefixIcon: const Icon(Icons.lock_outline_rounded, color: primaryColor),
+                            suffixIcon: IconButton(
+                              icon: Icon(_obscureLoginPass ? Icons.visibility_off_rounded : Icons.visibility_rounded, color: Colors.grey),
+                              onPressed: () => setState(() => _obscureLoginPass = !_obscureLoginPass),
+                            ),
+                            filled: true,
+                            fillColor: const Color(0xFFF8FAFC),
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: Color(0xFFCBD5E1))),
+                            focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: primaryColor, width: 2)),
+                          ),
+                        ),
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: TextButton(
+                            onPressed: _showForgotPasswordModal,
+                            child: Text(
+                              "Lupa Password?",
+                              style: GoogleFonts.plusJakartaSans(fontSize: 12, fontWeight: FontWeight.w600, color: primaryColor),
                             ),
                           ),
-                          const SizedBox(width: 6),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF16A34A),
-                              borderRadius: BorderRadius.circular(4),
+                        ),
+                        const SizedBox(height: 12),
+                        SizedBox(
+                          width: double.infinity,
+                          height: 50,
+                          child: ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: primaryColor,
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                              elevation: 2,
                             ),
-                            child: Text(
-                              "TERHUBUNG",
-                              style: GoogleFonts.plusJakartaSans(
-                                fontSize: 9,
-                                fontWeight: FontWeight.w800,
-                                color: Colors.white,
+                            onPressed: _isLoading ? null : _handleLogin,
+                            child: _isLoading
+                                ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.2))
+                                : Text("MASUK", style: GoogleFonts.plusJakartaSans(fontSize: 15, fontWeight: FontWeight.w700, letterSpacing: 0.8)),
+                          ),
+                        ),
+                        if (SupabaseConfig.enableGoogleAuth) ...[
+                          const SizedBox(height: 14),
+                          SizedBox(
+                            width: double.infinity,
+                            height: 48,
+                            child: OutlinedButton.icon(
+                              onPressed: _isLoading ? null : _handleGoogleLogin,
+                              style: OutlinedButton.styleFrom(
+                                side: const BorderSide(color: Color(0xFFCBD5E1)),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                              ),
+                              icon: const Icon(Icons.g_mobiledata_rounded, size: 28, color: Color(0xFFEA4335)),
+                              label: Text(
+                                "Masuk dengan Google",
+                                style: GoogleFonts.plusJakartaSans(fontSize: 13, fontWeight: FontWeight.w600, color: const Color(0xFF1E293B)),
                               ),
                             ),
                           ),
                         ],
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        "Toko: ${_existingStore?.name ?? 'Toko POS'} • Admin: ${_existingAdmin?.fullName ?? _existingAdmin?.email ?? 'Admin'}",
-                        style: GoogleFonts.plusJakartaSans(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: const Color(0xFF15803D),
+                      ],
+
+                      // FORM DAFTAR AKUN BARU
+                      if (_isRegisterMode) ...[
+                        TextField(
+                          controller: _regFullNameController,
+                          cursorColor: primaryColor,
+                          decoration: InputDecoration(
+                            labelText: "Nama Pemilik / Toko",
+                            prefixIcon: const Icon(Icons.storefront_outlined, color: primaryColor),
+                            filled: true,
+                            fillColor: const Color(0xFFF8FAFC),
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: Color(0xFFCBD5E1))),
+                            focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: primaryColor, width: 2)),
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        "Karena sistem offline, 1 Admin Utama menaungi banyak akun kasir dan seluruh karyawan toko.",
-                        style: GoogleFonts.openSans(
-                          fontSize: 11,
-                          color: const Color(0xFF166534),
+                        const SizedBox(height: 14),
+                        TextField(
+                          controller: _regEmailController,
+                          cursorColor: primaryColor,
+                          keyboardType: TextInputType.emailAddress,
+                          decoration: InputDecoration(
+                            labelText: "Email Akun",
+                            prefixIcon: const Icon(Icons.email_outlined, color: primaryColor),
+                            filled: true,
+                            fillColor: const Color(0xFFF8FAFC),
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: Color(0xFFCBD5E1))),
+                            focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: primaryColor, width: 2)),
+                          ),
                         ),
-                      ),
+                        const SizedBox(height: 14),
+                        TextField(
+                          controller: _regPasswordController,
+                          cursorColor: primaryColor,
+                          obscureText: _obscureRegPass,
+                          decoration: InputDecoration(
+                            labelText: "Password (Min. 6 Karakter)",
+                            prefixIcon: const Icon(Icons.lock_outline_rounded, color: primaryColor),
+                            suffixIcon: IconButton(
+                              icon: Icon(_obscureRegPass ? Icons.visibility_off_rounded : Icons.visibility_rounded, color: Colors.grey),
+                              onPressed: () => setState(() => _obscureRegPass = !_obscureRegPass),
+                            ),
+                            filled: true,
+                            fillColor: const Color(0xFFF8FAFC),
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: Color(0xFFCBD5E1))),
+                            focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: primaryColor, width: 2)),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: primaryColor.withValues(alpha: 0.08),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: primaryColor.withValues(alpha: 0.25)),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.info_outline_rounded, color: primaryColor, size: 16),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  "PIN Keamanan otomatis diatur ke '123456'.",
+                                  style: GoogleFonts.plusJakartaSans(fontSize: 11, color: primaryColor, fontWeight: FontWeight.w600),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 18),
+                        SizedBox(
+                          width: double.infinity,
+                          height: 50,
+                          child: ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: primaryColor,
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                              elevation: 2,
+                            ),
+                            onPressed: _isLoading ? null : _handleRegister,
+                            child: _isLoading
+                                ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.2))
+                                : Text("DAFTAR AKUN BARU", style: GoogleFonts.plusJakartaSans(fontSize: 15, fontWeight: FontWeight.w700, letterSpacing: 0.8)),
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ),
-              ],
-            ),
-          )
-        else
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: const Color(0xFFFFF7ED),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFFFED7AA), width: 1.2),
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(7),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFEA580C).withValues(alpha: 0.15),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(Icons.admin_panel_settings_rounded, color: Color(0xFFEA580C), size: 18),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        "Admin Toko Belum Ada",
-                        style: GoogleFonts.plusJakartaSans(
-                          fontWeight: FontWeight.w700,
-                          fontSize: 13,
-                          color: const Color(0xFF7C2D12),
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        "Anda harus mendaftar sebagai Admin Utama terlebih dahulu. Karyawan hanya dapat dibuat setelah Admin Toko terdaftar.",
-                        style: GoogleFonts.openSans(
-                          fontSize: 11,
-                          color: const Color(0xFF9A3412),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        const SizedBox(height: 16),
-
-        // Full Name
-        _buildTextField(
-          controller: _regFullNameController,
-          label: "Nama Lengkap",
-          hint: hasAdmin ? "Contoh: Kasir Pagi / Budi" : "Contoh: Pemilik Toko",
-          icon: Icons.badge_outlined,
-        ),
-        const SizedBox(height: 14),
-
-        // Username / Email
-        _buildTextField(
-          controller: _regUsernameController,
-          label: "Username / Email",
-          hint: "Masukkan username atau email unik",
-          icon: Icons.email_outlined,
-        ),
-        const SizedBox(height: 14),
-
-        // Password
-        _buildTextField(
-          controller: _regPasswordController,
-          label: "Password",
-          hint: "Minimal 4 karakter",
-          icon: Icons.lock_outline_rounded,
-          isPassword: true,
-          obscureText: _obscureRegPass,
-          onTogglePassword: () {
-            setState(() => _obscureRegPass = !_obscureRegPass);
-          },
-        ),
-        const SizedBox(height: 14),
-
-        // Confirm Password
-        _buildTextField(
-          controller: _regConfirmPasswordController,
-          label: "Konfirmasi Password",
-          hint: "Ulangi password di atas",
-          icon: Icons.lock_clock_outlined,
-          isPassword: true,
-          obscureText: _obscureRegConfirmPass,
-          onTogglePassword: () {
-            setState(() => _obscureRegConfirmPass = !_obscureRegConfirmPass);
-          },
-        ),
-        const SizedBox(height: 14),
-
-        // Role Indicator (Terkunci otomatis sesuai ketersediaan Admin)
-        Text(
-          "Peran Akun",
-          style: GoogleFonts.plusJakartaSans(
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-            color: const Color(0xFF2D3436),
-          ),
-        ),
-        const SizedBox(height: 6),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          decoration: BoxDecoration(
-            color: Colors.grey[50],
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.grey[300]!),
-          ),
-          child: Row(
-            children: [
-              Icon(
-                hasAdmin ? Icons.point_of_sale_outlined : Icons.admin_panel_settings_outlined,
-                size: 20,
-                color: hasAdmin ? Colors.blueAccent : colorbase,
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      hasAdmin ? "Kasir / Akun Karyawan Toko" : "Admin / Pemilik Toko Utama",
-                      style: GoogleFonts.plusJakartaSans(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                        color: const Color(0xFF1E293B),
-                      ),
-                    ),
-                    Text(
-                      hasAdmin
-                          ? "Terafiliasi langsung dengan ${_existingStore?.name ?? 'Toko POS'}"
-                          : "Membuat toko baru dan mengelola seluruh sistem",
-                      style: GoogleFonts.openSans(fontSize: 11, color: Colors.grey[600]),
-                    ),
-                  ],
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-                decoration: BoxDecoration(
-                  color: (hasAdmin ? Colors.blueAccent : colorbase).withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Text(
-                  hasAdmin ? "KASIR" : "ADMIN",
-                  style: GoogleFonts.plusJakartaSans(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w800,
-                    color: hasAdmin ? Colors.blueAccent : colorbase,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 24),
-
-        // Submit Register Button
-        SizedBox(
-          width: double.infinity,
-          height: 54,
-          child: ElevatedButton(
-            onPressed: _isLoading ? null : _handleManualRegister,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: colorbase,
-              foregroundColor: Colors.white,
-              elevation: 3,
-              shadowColor: colorbase.withValues(alpha: 0.4),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(14),
               ),
             ),
-            child: _isLoading
-                ? const CircularProgressIndicator(color: Colors.white)
-                : Text(
-                    hasAdmin ? "DAFTAR SEBAGAI KASIR" : "DAFTAR SEBAGAI ADMIN UTAMA",
-                    style: GoogleFonts.plusJakartaSans(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 1.1,
-                    ),
-                  ),
           ),
         ),
-      ],
+      ),
     );
   }
-
-  // --- REUSABLE TEXT FIELD WIDGET ---
-  Widget _buildTextField({
-    required TextEditingController controller,
-    required String label,
-    required String hint,
-    required IconData icon,
-    bool isPassword = false,
-    bool obscureText = false,
-    VoidCallback? onTogglePassword,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: GoogleFonts.plusJakartaSans(
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-            color: const Color(0xFF2D3436),
-          ),
-        ),
-        const SizedBox(height: 6),
-        TextField(
-          controller: controller,
-          obscureText: isPassword ? obscureText : false,
-          style: GoogleFonts.openSans(fontSize: 15, color: const Color(0xFF2D3436)),
-          decoration: InputDecoration(
-            hintText: hint,
-            hintStyle: GoogleFonts.openSans(fontSize: 14, color: Colors.grey[400]),
-            prefixIcon: Icon(icon, color: Colors.grey[500], size: 20),
-            suffixIcon: isPassword
-                ? IconButton(
-                    icon: Icon(
-                      obscureText ? Icons.visibility_off_outlined : Icons.visibility_outlined,
-                      color: Colors.grey[500],
-                      size: 20,
-                    ),
-                    onPressed: onTogglePassword,
-                  )
-                : null,
-            filled: true,
-            fillColor: Colors.grey[50],
-            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(color: Colors.grey[300]!),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(color: colorbase, width: 2),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-
 }

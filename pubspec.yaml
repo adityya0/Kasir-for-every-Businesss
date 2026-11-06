@@ -1,5 +1,5 @@
 name: kasir_bersama
-description: "Point of Sale system for Warkop Alam POS"
+description: "Point of Sale system for Kakilima Pos"
 publish_to: 'none'
 
 version: 1.0.0+1
@@ -79,14 +79,15 @@ flutter:
   assets:
     - assets/logo/
     - assets/svg/
+    - assets/products/
 
 flutter_native_splash:
-  color: "#414b3b"
-  image: "assets/logo/logo.png"
+  color: "#BD1B19"
+  image: "assets/logo/splash_logo.png"
   
   android_12:
-    image: "assets/logo/logo.png"
-    color: "#414b3b"
+    image: "assets/logo/splash_logo.png"
+    color: "#BD1B19"
 
   android: true
   ios: true

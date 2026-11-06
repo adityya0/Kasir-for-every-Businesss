@@ -1,3 +1,4 @@
+﻿import 'package:open_filex/open_filex.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -59,28 +60,48 @@ class _LaporanPageState extends State<LaporanPage> {
 
       if (type == 'pdf') {
         bytes = await _exportService.generateTransactionsPdf(
-          "Warkop Alam POS",
+          "Kakilima Pos",
           _transactions,
         );
         filename =
-            "Laporan_Transaksi_${DateFormat('yyyyMMdd').format(DateTime.now())}.pdf";
+            "Laporan_Transaksi_${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.pdf";
         mimeType = "application/pdf";
       } else {
         bytes = await _exportService.generateTransactionsExcel(
-          "Warkop Alam POS",
+          "Kakilima Pos",
           _transactions,
         );
         filename =
-            "Laporan_Transaksi_${DateFormat('yyyyMMdd').format(DateTime.now())}.xlsx";
+            "Laporan_Transaksi_${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.xlsx";
         mimeType =
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
       }
 
-      await FileManager().saveAndShareBytes(
+      final savedPath = await FileManager().saveAndShareBytes(
         filename,
         bytes,
         mimeType: mimeType,
       );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Laporan berhasil disimpan di folder Download\n($filename)',
+              style: GoogleFonts.openSans(fontSize: 13, color: Colors.white),
+            ),
+            backgroundColor: const Color(0xFF00BF63),
+            duration: const Duration(seconds: 6),
+            action: (savedPath != null)
+                ? SnackBarAction(
+                    label: 'Buka',
+                    textColor: Colors.white,
+                    onPressed: () => OpenFilex.open(savedPath),
+                  )
+                : null,
+          ),
+        );
+      }
     } catch (e) {
       debugPrint("Export Error: $e");
       if (mounted) {

@@ -9,8 +9,8 @@ import 'package:intl/intl.dart';
 import 'dart:typed_data';
 import 'report/expense_management_page.dart';
 import 'feature_settings_page.dart';
-import 'debt/debt_management_page.dart';
 import 'table_management_page.dart';
+import 'unit_page.dart';
 import '../attendance/attendance_page.dart';
 import '../../../controllers/settings_controller.dart';
 
@@ -30,30 +30,13 @@ class ActionMenuPage extends StatelessWidget {
     return Scaffold(
       backgroundColor: isDark ? const Color(0xFF000000) : const Color(0xFFF2F2F7),
       appBar: AppBar(
-        title: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Image.asset(
-                'assets/logo/logo.png',
-                height: 24,
-                fit: BoxFit.contain,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Text(
-              "Menu Aksi",
-              style: GoogleFonts.plusJakartaSans(
-                fontWeight: FontWeight.w700,
-                color: isDark ? Colors.white : Colors.black87,
-                fontSize: 18,
-              ),
-            ),
-          ],
+        title: Text(
+          "Menu Aksi",
+          style: GoogleFonts.plusJakartaSans(
+            fontWeight: FontWeight.w700,
+            color: isDark ? Colors.white : Colors.black87,
+            fontSize: 18,
+          ),
         ),
         centerTitle: false,
         backgroundColor: isDark ? const Color(0xFF1A1A1A) : Colors.white,
@@ -104,6 +87,27 @@ class ActionMenuPage extends StatelessWidget {
                       icon: Icons.grid_view_rounded,
                       color: Colors.teal,
                       onTap: () => onIndexSelected(2),
+                      isDark: isDark,
+                    ),
+                    _buildSettingsActionItem(
+                      label: "Pelanggan & Supplier",
+                      icon: Icons.people_outline_rounded,
+                      color: const Color(0xFF0D9488),
+                      onTap: () => onIndexSelected(12),
+                      isDark: isDark,
+                    ),
+                    _buildSettingsActionItem(
+                      label: "Kelola Satuan",
+                      icon: Icons.straighten_rounded,
+                      color: const Color(0xFFD97706),
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const UnitManagementPage(),
+                          ),
+                        );
+                      },
                       isDark: isDark,
                     ),
                   ],
@@ -169,61 +173,54 @@ class ActionMenuPage extends StatelessWidget {
                       isDark: isDark,
                     ),
                     _buildSettingsActionItem(
-                      label: "Manajemen Hutang",
-                      icon: Icons.credit_card_outlined,
-                      color: Colors.orange.shade700,
-                      onTap: () {
-                        final storeId = context.read<AdminController>().storeId;
-                        if (storeId != null) {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => DebtManagementPage(storeId: storeId),
-                            ),
-                          );
-                        }
-                      },
-                      isDark: isDark,
-                    ),
-                    _buildSettingsActionItem(
                       label: "Export Keuangan All-Time",
                       icon: Icons.note_add_outlined,
-                      color: const Color(0xFFC0392B),
+                      color: const Color(0xFF00BF63),
                       onTap: () => _handleComprehensiveExport(context),
                       isDark: isDark,
                     ),
                   ],
                 ),
                 const SizedBox(height: 24),
-                // ── Karyawan & Penggajian ────────────────────────────────
-                _buildSectionTitle("Karyawan & Penggajian", isDark),
-                _buildGroupedSection(
-                  isDark: isDark,
-                  items: [
-                    _buildSettingsActionItem(
-                      label: "Kelola Pegawai & Gaji",
-                      icon: Icons.badge_outlined,
-                      color: const Color(0xFF0D9488),
-                      onTap: () => onIndexSelected(5),
-                      isDark: isDark,
-                    ),
-                    _buildSettingsActionItem(
-                      label: "Absensi Pegawai",
-                      icon: Icons.fingerprint_rounded,
-                      color: const Color(0xFFE11D48),
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => const AttendancePage(showSidebar: false),
-                          ),
-                        );
-                      },
-                      isDark: isDark,
-                    ),
-                  ],
+                ValueListenableBuilder<bool>(
+                  valueListenable: SettingsController.instance.featureKaryawanEnabled,
+                  builder: (context, karyawanEnabled, _) {
+                    if (!karyawanEnabled) return const SizedBox.shrink();
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _buildSectionTitle("Karyawan & Penggajian", isDark),
+                        _buildGroupedSection(
+                          isDark: isDark,
+                          items: [
+                            _buildSettingsActionItem(
+                              label: "Kelola Pegawai & Gaji",
+                              icon: Icons.badge_outlined,
+                              color: const Color(0xFF0D9488),
+                              onTap: () => onIndexSelected(5),
+                              isDark: isDark,
+                            ),
+                            _buildSettingsActionItem(
+                              label: "Absensi Pegawai",
+                              icon: Icons.fingerprint_rounded,
+                              color: const Color(0xFFE11D48),
+                              onTap: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => const AttendancePage(showSidebar: false),
+                                  ),
+                                );
+                              },
+                              isDark: isDark,
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 24),
+                      ],
+                    );
+                  },
                 ),
-                const SizedBox(height: 24),
                     ValueListenableBuilder<bool>(
                       valueListenable: SettingsController.instance.featureMejaEnabled,
                       builder: (context, enabled, _) {

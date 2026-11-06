@@ -441,7 +441,30 @@ class AnalyticsController extends ChangeNotifier {
     for (var exp in exps) {
       final date = exp.date!;
       final amount = exp.amount ?? 0;
-      final cat = exp.category.toLowerCase();
+      final cat = exp.category.toLowerCase().trim();
+      final notes = (exp.notes ?? '').toLowerCase().trim();
+
+      // Penyesuaian stok, stok awal, modal, dan restock supplier adalah MODAL ASET STOK / BUKAN OPERASIONAL:
+      final isNonOperational = cat.contains('supplier') ||
+          cat.contains('restock') ||
+          cat.contains('kulakan') ||
+          cat.contains('pasokan') ||
+          cat.contains('pembelian stok') ||
+          cat.contains('beli stok') ||
+          cat.contains('penyesuaian') ||
+          cat.contains('stok awal') ||
+          cat.contains('stok') ||
+          cat.contains('modal') ||
+          cat.contains('setor modal') ||
+          cat.contains('prive') ||
+          cat.contains('tarik') ||
+          cat.contains('transfer') ||
+          notes.contains('stok awal') ||
+          notes.contains('penyesuaian stok') ||
+          notes.contains('modal awal');
+
+      if (isNonOperational) continue;
+
       final isSalary = cat == 'gaji' || cat == 'gaji & upah' || cat.contains('gaji');
 
       _allTimeExpenses += amount;

@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
@@ -25,7 +25,7 @@ class EmployeeManagementPage extends StatefulWidget {
 }
 
 class _EmployeeManagementPageState extends State<EmployeeManagementPage> {
-  static const primaryColor = Color(0xFFC0392B);
+  static const primaryColor = Color(0xFF00BF63);
   late EmployeeService _employeeService;
   bool _isLoading = true;
   List<Map<String, dynamic>> _employees = [];
@@ -88,34 +88,15 @@ class _EmployeeManagementPageState extends State<EmployeeManagementPage> {
     return Scaffold(
       backgroundColor: isDark ? const Color(0xFF121212) : const Color(0xFFF8FAFC),
       appBar: AppBar(
-        title: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Image.asset(
-                'assets/logo/logo.png',
-                height: 24,
-                fit: BoxFit.contain,
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                "Kelola Pegawai & Gaji",
-                style: GoogleFonts.plusJakartaSans(
-                  fontWeight: FontWeight.w700,
-                  color: isDark ? Colors.white : Colors.black87,
-                  fontSize: 17,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-          ],
+        title: Text(
+          "Kelola Pegawai & Gaji",
+          style: GoogleFonts.plusJakartaSans(
+            fontWeight: FontWeight.w700,
+            color: isDark ? Colors.white : Colors.black87,
+            fontSize: 17,
+          ),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
         ),
         backgroundColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
         elevation: 0,
@@ -615,29 +596,27 @@ class _EmployeeManagementPageState extends State<EmployeeManagementPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    Text(
+                      name,
+                      style: GoogleFonts.plusJakartaSans(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 15,
+                        color: isDark ? Colors.white : const Color(0xFF0F172A),
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 4),
+                    // Role Title Badge & Subtitle diletakkan rapi di bawah nama
                     Row(
                       children: [
-                        Flexible(
-                          child: Text(
-                            name,
-                            style: GoogleFonts.plusJakartaSans(
-                              fontWeight: FontWeight.w700,
-                              fontSize: 15,
-                              color: isDark ? Colors.white : const Color(0xFF0F172A),
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        // Role Title Badge
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
+                          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
                           decoration: BoxDecoration(
-                            color: isDark ? Colors.white10 : const Color(0xFFEFF6FF),
+                            color: isDark ? const Color(0xFF1E3A8A).withValues(alpha: 0.3) : const Color(0xFFEFF6FF),
                             borderRadius: BorderRadius.circular(5),
                             border: Border.all(
-                              color: const Color(0xFF3B82F6).withValues(alpha: 0.2),
+                              color: const Color(0xFF3B82F6).withValues(alpha: 0.25),
                               width: 0.8,
                             ),
                           ),
@@ -645,32 +624,25 @@ class _EmployeeManagementPageState extends State<EmployeeManagementPage> {
                             roleTitle,
                             style: GoogleFonts.plusJakartaSans(
                               fontSize: 10.5,
-                              fontWeight: FontWeight.w600,
+                              fontWeight: FontWeight.w700,
                               color: const Color(0xFF2563EB),
                             ),
                           ),
                         ),
-                      ],
-                    ),
-                    const SizedBox(height: 2),
-                    // Subtitle / Account indicator
-                    Row(
-                      children: [
-                        Icon(
-                          hasLoginAccount ? Icons.account_circle_outlined : Icons.person_outline_rounded,
-                          size: 13,
-                          color: isDark ? Colors.white38 : const Color(0xFF94A3B8),
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          hasLoginAccount
-                              ? (email.isNotEmpty ? email : "Akun Kasir Aktif")
-                              : "Pengelolaan Data Karyawan",
-                          style: GoogleFonts.openSans(
-                            fontSize: 11.5,
-                            color: isDark ? Colors.white60 : const Color(0xFF64748B),
+                        if (hasLoginAccount && email.isNotEmpty && email != '-') ...[
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              email,
+                              style: GoogleFonts.openSans(
+                                fontSize: 11,
+                                color: isDark ? Colors.white54 : const Color(0xFF64748B),
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
-                        ),
+                        ],
                       ],
                     ),
                   ],
@@ -2300,7 +2272,7 @@ class _EmployeeManagementPageState extends State<EmployeeManagementPage> {
     bool isDark,
   ) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
         color: const Color(0xFF10B981).withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(8),
@@ -2310,7 +2282,6 @@ class _EmployeeManagementPageState extends State<EmployeeManagementPage> {
         ),
       ),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Expanded(
             child: InkWell(
@@ -2330,19 +2301,24 @@ class _EmployeeManagementPageState extends State<EmployeeManagementPage> {
                       color: Colors.white,
                     ),
                   ),
-                  const SizedBox(width: 10),
+                  const SizedBox(width: 8),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
                       children: [
                         Row(
                           children: [
-                            Text(
-                              "Gaji Bulan Ini Sudah Lunas (Diceklis)",
-                              style: GoogleFonts.plusJakartaSans(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w700,
-                                color: const Color(0xFF059669),
+                            Flexible(
+                              child: Text(
+                                "Gaji Sudah Lunas",
+                                style: GoogleFonts.plusJakartaSans(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                  color: const Color(0xFF059669),
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                               ),
                             ),
                             const SizedBox(width: 6),
@@ -2353,7 +2329,7 @@ class _EmployeeManagementPageState extends State<EmployeeManagementPage> {
                                 borderRadius: BorderRadius.circular(3),
                               ),
                               child: Text(
-                                "Lunas",
+                                "Diceklis",
                                 style: GoogleFonts.plusJakartaSans(
                                   fontSize: 9.5,
                                   fontWeight: FontWeight.bold,
@@ -2363,12 +2339,15 @@ class _EmployeeManagementPageState extends State<EmployeeManagementPage> {
                             ),
                           ],
                         ),
+                        const SizedBox(height: 2),
                         Text(
-                          "Periode $monthName • Ketuk untuk lihat detail atau batalkan",
+                          "Periode $monthName • Ketuk untuk kelola",
                           style: GoogleFonts.openSans(
                             fontSize: 10.5,
                             color: isDark ? Colors.white54 : const Color(0xFF64748B),
                           ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ],
                     ),
@@ -2377,6 +2356,7 @@ class _EmployeeManagementPageState extends State<EmployeeManagementPage> {
               ),
             ),
           ),
+          const SizedBox(width: 8),
           InkWell(
             onTap: () => _showEmployeeSalaryHistoryDialog(emp, isDark),
             borderRadius: BorderRadius.circular(6),
@@ -2568,38 +2548,46 @@ class _EmployeeManagementPageState extends State<EmployeeManagementPage> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Row(
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.all(8),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFF2563EB).withValues(alpha: 0.1),
-                                  borderRadius: BorderRadius.circular(8),
+                          Expanded(
+                            child: Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(8),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF2563EB).withValues(alpha: 0.1),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: const Icon(Icons.receipt_long_rounded, color: Color(0xFF2563EB), size: 22),
                                 ),
-                                child: const Icon(Icons.receipt_long_rounded, color: Color(0xFF2563EB), size: 22),
-                              ),
-                              const SizedBox(width: 12),
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    "Riwayat Bayar Gaji",
-                                    style: GoogleFonts.plusJakartaSans(
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.bold,
-                                      color: isDark ? Colors.white : const Color(0xFF0F172A),
-                                    ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        "Riwayat Bayar Gaji",
+                                        style: GoogleFonts.plusJakartaSans(
+                                          fontSize: 17,
+                                          fontWeight: FontWeight.bold,
+                                          color: isDark ? Colors.white : const Color(0xFF0F172A),
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                      Text(
+                                        "Bukti dan pencatatan penggajian karyawan",
+                                        style: GoogleFonts.openSans(
+                                          fontSize: 11.5,
+                                          color: isDark ? Colors.white60 : const Color(0xFF64748B),
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ],
                                   ),
-                                  Text(
-                                    "Bukti dan pencatatan penggajian karyawan",
-                                    style: GoogleFonts.openSans(
-                                      fontSize: 12,
-                                      color: isDark ? Colors.white60 : const Color(0xFF64748B),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
+                                ),
+                              ],
+                            ),
                           ),
                           IconButton(
                             icon: const Icon(Icons.close_rounded, size: 20),
@@ -2610,7 +2598,9 @@ class _EmployeeManagementPageState extends State<EmployeeManagementPage> {
                       const SizedBox(height: 16),
 
                       // Filter chips
-                      Row(
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
                         children: [
                           FilterChip(
                             label: const Text("Semua Riwayat"),
@@ -2624,7 +2614,6 @@ class _EmployeeManagementPageState extends State<EmployeeManagementPage> {
                               color: !filterThisMonth ? const Color(0xFF2563EB) : (isDark ? Colors.white70 : Colors.black87),
                             ),
                           ),
-                          const SizedBox(width: 8),
                           FilterChip(
                             label: Text("Periode: $monthName"),
                             selected: filterThisMonth,
@@ -2778,14 +2767,19 @@ class _EmployeeManagementPageState extends State<EmployeeManagementPage> {
                                                   Row(
                                                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                                     children: [
-                                                      Text(
+                                                    Expanded(
+                                                      child: Text(
                                                         empName,
                                                         style: GoogleFonts.plusJakartaSans(
                                                           fontSize: 13.5,
                                                           fontWeight: FontWeight.w700,
                                                           color: isDark ? Colors.white : const Color(0xFF0F172A),
                                                         ),
+                                                        maxLines: 1,
+                                                        overflow: TextOverflow.ellipsis,
                                                       ),
+                                                    ),
+                                                    const SizedBox(width: 8),
                                                       Text(
                                                         _currencyFormat.format(amount),
                                                         style: GoogleFonts.plusJakartaSans(
@@ -2928,38 +2922,46 @@ class _EmployeeManagementPageState extends State<EmployeeManagementPage> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(8),
-                              decoration: BoxDecoration(
-                                color: primaryColor.withValues(alpha: 0.1),
-                                borderRadius: BorderRadius.circular(8),
+                        Expanded(
+                          child: Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: primaryColor.withValues(alpha: 0.1),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: const Icon(Icons.badge_outlined, color: primaryColor, size: 20),
                               ),
-                              child: const Icon(Icons.badge_outlined, color: primaryColor, size: 20),
-                            ),
-                            const SizedBox(width: 10),
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  "Riwayat Gaji: $name",
-                                  style: GoogleFonts.plusJakartaSans(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.bold,
-                                    color: isDark ? Colors.white : const Color(0xFF0F172A),
-                                  ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      "Riwayat Gaji: $name",
+                                      style: GoogleFonts.plusJakartaSans(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold,
+                                        color: isDark ? Colors.white : const Color(0xFF0F172A),
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    Text(
+                                      "Catatan slip gaji terbayar",
+                                      style: GoogleFonts.openSans(
+                                        fontSize: 11.5,
+                                        color: isDark ? Colors.white60 : const Color(0xFF64748B),
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ],
                                 ),
-                                Text(
-                                  "Catatan slip gaji terbayar",
-                                  style: GoogleFonts.openSans(
-                                    fontSize: 11.5,
-                                    color: isDark ? Colors.white60 : const Color(0xFF64748B),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
+                              ),
+                            ],
+                          ),
                         ),
                         IconButton(
                           icon: const Icon(Icons.close_rounded, size: 20),
@@ -3024,14 +3026,19 @@ class _EmployeeManagementPageState extends State<EmployeeManagementPage> {
                                   Row(
                                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                     children: [
-                                      Text(
-                                        periodNote,
-                                        style: GoogleFonts.plusJakartaSans(
-                                          fontSize: 13,
-                                          fontWeight: FontWeight.bold,
-                                          color: isDark ? Colors.white : const Color(0xFF0F172A),
+                                      Expanded(
+                                        child: Text(
+                                          periodNote,
+                                          style: GoogleFonts.plusJakartaSans(
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.bold,
+                                            color: isDark ? Colors.white : const Color(0xFF0F172A),
+                                          ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
                                         ),
                                       ),
+                                      const SizedBox(width: 8),
                                       Text(
                                         _currencyFormat.format(amount),
                                         style: GoogleFonts.plusJakartaSans(

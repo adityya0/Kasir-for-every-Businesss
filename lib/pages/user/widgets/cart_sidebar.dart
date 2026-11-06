@@ -70,6 +70,7 @@ class _CartSidebarState extends State<CartSidebar> {
   double _cashReceived = 0;
   String _selectedPaymentMethod = "Tunai";
   bool _isPaymentMode = false; // Toggle between Cart Review and Payment
+  bool _isFirstCashInput = true;
   int _selectedItemIndex = -1; // Added for Odoo selection
   OrderNumpadMode _numpadMode = OrderNumpadMode.qty;
   String _numpadBuffer = "";
@@ -114,6 +115,13 @@ class _CartSidebarState extends State<CartSidebar> {
   void _handleNumpadTap(String val) {
     // Strip dots (thousands separator in 'id' locale)
     String rawValue = _cashController.text.replaceAll('.', '');
+
+    if (_isFirstCashInput) {
+      _isFirstCashInput = false;
+      if (val != "C" && val != "backspace") {
+        rawValue = "";
+      }
+    }
 
     if (val == "C") {
       rawValue = "";
@@ -289,7 +297,7 @@ class _CartSidebarState extends State<CartSidebar> {
 
           CustomToast.show(
             context,
-            "Stok tidak mencukupi! Maksimal tersedia ${p.stockQuantity} item.",
+            "Stok tidak mencukupi! Maksimal tersedia ${(p.stockQuantity ?? 0) % 1 == 0 ? (p.stockQuantity ?? 0).toInt() : p.stockQuantity} item.",
             isError: true,
           );
         }
@@ -341,7 +349,7 @@ class _CartSidebarState extends State<CartSidebar> {
         if (totalInCart >= (p.stockQuantity ?? 0)) {
           CustomToast.show(
             context,
-            "Stok tidak mencukupi! Hanya tersedia ${p.stockQuantity} item.",
+            "Stok tidak mencukupi! Hanya tersedia ${(p.stockQuantity ?? 0) % 1 == 0 ? (p.stockQuantity ?? 0).toInt() : p.stockQuantity} item.",
             isError: true,
           );
           return;
@@ -656,29 +664,35 @@ class _CartSidebarState extends State<CartSidebar> {
                   ),
                 )
               else if (_isPaymentMode && widget.cartItems.isNotEmpty)
-                Container(
-                  decoration: BoxDecoration(
-                    color: isDark ? Colors.white10 : Colors.white,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: isDark ? Colors.white10 : Colors.grey[200]!,
-                    ),
-                  ),
-                  child: IconButton(
-                    icon: Icon(
-                      Icons.view_list,
-                      color: isDark ? Colors.white : Colors.black87,
-                      size: 22,
-                    ),
-                    onPressed: () {
-                      setState(() => _isPaymentMode = false);
-                      widget.onModeChanged?.call(false);
-                      widget.onHoldCart();
-                    },
-                    tooltip: "Simpan Pesanan",
-                    padding: const EdgeInsets.all(8),
-                    constraints: const BoxConstraints(),
-                  ),
+                ValueListenableBuilder<bool>(
+                  valueListenable: SettingsController.instance.featureAntreanPesananEnabled,
+                  builder: (context, antreanEnabled, _) {
+                    if (!antreanEnabled) return const SizedBox.shrink();
+                    return Container(
+                      decoration: BoxDecoration(
+                        color: isDark ? Colors.white10 : Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: isDark ? Colors.white10 : Colors.grey[200]!,
+                        ),
+                      ),
+                      child: IconButton(
+                        icon: Icon(
+                          Icons.view_list,
+                          color: isDark ? Colors.white : Colors.black87,
+                          size: 22,
+                        ),
+                        onPressed: () {
+                          setState(() => _isPaymentMode = false);
+                          widget.onModeChanged?.call(false);
+                          widget.onHoldCart();
+                        },
+                        tooltip: "Simpan Pesanan",
+                        padding: const EdgeInsets.all(8),
+                        constraints: const BoxConstraints(),
+                      ),
+                    );
+                  },
                 )
               else if (widget.cartItems.isNotEmpty)
                 Container(
@@ -1099,6 +1113,10 @@ class _CartSidebarState extends State<CartSidebar> {
                   ? () => setState(() {
                       _isPaymentMode = true;
                       _selectedPaymentMethod = "Tunai"; // Default for mobile
+                      final finalDue = total > 0 ? total : 0.0;
+                      _cashReceived = finalDue;
+                      _cashController.text = NumberFormat.decimalPattern('id').format(finalDue.toInt());
+                      _isFirstCashInput = true;
                       widget.onModeChanged?.call(true);
                       WidgetsBinding.instance.addPostFrameCallback((_) {
                         if (mounted) _cashFocusNode.requestFocus();
@@ -1649,31 +1667,7 @@ class _CartSidebarState extends State<CartSidebar> {
 
         const Divider(height: 1),
 
-        // Numpad remains dynamically rendered if enabled
-        ValueListenableBuilder<bool>(
-          valueListenable: SettingsController.instance.showNumpad,
-          builder: (context, showNumpad, child) {
-            if (!showNumpad) return const SizedBox();
-            return SizedBox(
-              height: 200,
-              child: Opacity(
-                opacity: _selectedPaymentMethod == "Tunai" ? 1.0 : 0.5,
-                child: IgnorePointer(
-                  ignoring: _selectedPaymentMethod != "Tunai",
-                  child: OrderNumpad(
-                    mode: _numpadMode,
-                    onModeChanged: (_) {}, 
-                    onTap: _handleNumpadTap,
-                    onBackspace: () => _handleNumpadTap("backspace"),
-                    onToggleSign: () {},
-                  ),
-                ),
-              ),
-            );
-          }
-        ),
-
-        // Bottom Controls Panel: Quick Cash -> Cash Input -> Compact 3x2 Grid -> Total & Checkout
+        // Bottom Controls Panel: Quick Cash & Form Input Harga DI ATAS -> Numpad DI BAWAH
         Container(
           padding: EdgeInsets.fromLTRB(16, 12, 16, isDesktop ? 16 : 12),
           decoration: BoxDecoration(
@@ -1711,7 +1705,7 @@ class _CartSidebarState extends State<CartSidebar> {
                 ),
                 const SizedBox(height: 10),
 
-                // 2. Input Uang Diterima & Kembalian Field
+                // 2. Form Input Harga / Uang Diterima & Kembalian (DI ATAS NUMPAD)
                 ValueListenableBuilder<bool>(
                   valueListenable: SettingsController.instance.showNumpad,
                   builder: (context, showNumpad, child) {
@@ -1816,6 +1810,33 @@ class _CartSidebarState extends State<CartSidebar> {
 
                 const SizedBox(height: 10),
 
+                // 3. Numpad diposisikan DI BAWAH form input harga
+                ValueListenableBuilder<bool>(
+                  valueListenable: SettingsController.instance.showNumpad,
+                  builder: (context, showNumpad, child) {
+                    if (!showNumpad) return const SizedBox();
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: SizedBox(
+                        height: 200,
+                        child: Opacity(
+                          opacity: _selectedPaymentMethod == "Tunai" ? 1.0 : 0.5,
+                          child: IgnorePointer(
+                            ignoring: _selectedPaymentMethod != "Tunai",
+                            child: OrderNumpad(
+                              mode: _numpadMode,
+                              onModeChanged: (_) {}, 
+                              onTap: _handleNumpadTap,
+                              onBackspace: () => _handleNumpadTap("backspace"),
+                              onToggleSign: () {},
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  }
+                ),
+
                 // 3. Compact 3x2 Square Grid for Payment Methods & Action Controls
                 FutureBuilder<List<PaymentMethod>>(
                   future: context.read<AdminController>().paymentMethodService.getPaymentMethods(context.read<AdminController>().storeId ?? "").then((list) => list.where((m) => m.isActive).toList()),
@@ -1828,106 +1849,132 @@ class _CartSidebarState extends State<CartSidebar> {
                      }
                      return Column(
                        children: [
-                         // Row 1: [ Tunai ] [ QRIS / Non-Tunai ] [ Pelanggan ]
-                         ValueListenableBuilder<bool>(
-                           valueListenable: SettingsController.instance.featureLoyaltyEnabled,
-                           builder: (context, loyaltyEnabled, _) {
-                             return Row(
-                               children: [
-                                 Expanded(
-                                   child: _buildActionCard(
-                                     icon: Icons.money,
-                                     label: "Tunai",
-                                     primaryColor: primaryColor,
-                                     isDark: isDark,
-                                     isSelected: _selectedPaymentMethod == "Tunai",
-                                     onTap: () {
-                                       setState(() { _selectedPaymentMethod = "Tunai"; });
-                                       _cashFocusNode.requestFocus();
-                                     },
-                                   ),
-                                 ),
-                                 const SizedBox(width: 6),
-                                 Expanded(
-                                   child: _buildActionCard(
-                                     icon: Icons.qr_code_scanner,
-                                     label: _selectedPaymentMethod != "Tunai" && _selectedPaymentMethod.isNotEmpty ? _selectedPaymentMethod : "QRIS",
-                                     primaryColor: primaryColor,
-                                     isDark: isDark,
-                                     isSelected: _selectedPaymentMethod != "Tunai",
-                                     onTap: () => _showPaymentMethodPicker(customMethods, total, primaryColor, isDark),
-                                   ),
-                                 ),
-                                 if (loyaltyEnabled) ...[
-                                   const SizedBox(width: 6),
-                                   Expanded(
-                                     child: _buildActionCard(
-                                       icon: Icons.person_outline,
-                                       label: widget.selectedCustomer?.name ?? "Pelanggan",
-                                       primaryColor: primaryColor,
-                                       isDark: isDark,
-                                       isSelected: widget.selectedCustomer != null,
-                                       customColor: widget.selectedCustomer != null && widget.discountData?['is_member_discount'] == true
-                                           ? const Color(0xFF10B981)
-                                           : null,
-                                       onTap: () => _showCustomerSearchDialog(isDark),
-                                     ),
-                                   ),
-                                 ],
-                               ],
-                             );
-                           },
-                         ),
-                         const SizedBox(width: 6, height: 6),
-                         // Row 2: [ Diskon ] [ Pisah Bill ] [ Split Pay ]
-                         Row(
-                           children: [
-                             Expanded(
-                               child: _buildActionCard(
-                                 icon: _manualDiscount > 0 ? Icons.discount_rounded : Icons.discount_outlined,
-                                 label: _manualDiscount > 0
-                                     ? (_manualDiscountIsPercent
-                                         ? "Diskon ${_manualDiscount.toStringAsFixed(0)}%"
-                                         : "Diskon ${_currencyFormat.format(_manualDiscount)}")
-                                     : "Diskon",
-                                 primaryColor: primaryColor,
-                                 isDark: isDark,
-                                 customColor: _manualDiscount > 0 ? Colors.green : primaryColor,
-                                 isSelected: _manualDiscount > 0,
-                                 onTap: () => _showDiscountSheet(isDark, primaryColor, subTotal),
-                               ),
-                             ),
-                             const SizedBox(width: 6),
-                             Expanded(
-                               child: _buildActionCard(
-                                 icon: Icons.call_split_rounded,
-                                 label: "Pisah Bill",
-                                 primaryColor: primaryColor,
-                                 isDark: isDark,
-                                 customColor: Colors.deepPurple,
-                                 onTap: widget.cartItems.length < 2
-                                     ? null
-                                     : () => _showSplitItemDialog(isDark),
-                               ),
-                             ),
-                             const SizedBox(width: 6),
-                             Expanded(
-                               child: _buildActionCard(
-                                 icon: Icons.payment_rounded,
-                                 label: _splitPayments != null ? "${_splitPayments!.length} Metode" : "Split Pay",
-                                 primaryColor: primaryColor,
-                                 isDark: isDark,
-                                 customColor: _splitPayments != null ? Colors.green : Colors.teal,
-                                 isSelected: _splitPayments != null,
-                                 onTap: () => _showSplitPaymentSheet(isDark, total, _cachedPaymentMethods),
-                               ),
-                             ),
-                           ],
-                         ),
-                       ],
-                     );
-                  }
-                ),
+                          // Row 1: [ Tunai ] [ QRIS / Non-Tunai ] [ Pelanggan (Jika Aktif) ]
+                          ValueListenableBuilder<bool>(
+                            valueListenable: SettingsController.instance.featurePelangganEnabled,
+                            builder: (context, pelangganEnabled, _) {
+                              return Row(
+                                children: [
+                                  Expanded(
+                                    child: _buildActionCard(
+                                      icon: Icons.money,
+                                      label: "Tunai",
+                                      primaryColor: primaryColor,
+                                      isDark: isDark,
+                                      isSelected: _selectedPaymentMethod == "Tunai",
+                                      onTap: () {
+                                        setState(() {
+                                          _selectedPaymentMethod = "Tunai";
+                                          if (_cashReceived <= 0) {
+                                            _cashReceived = total;
+                                            _cashController.text = NumberFormat.decimalPattern('id').format(total.toInt());
+                                            _isFirstCashInput = true;
+                                          }
+                                        });
+                                        _cashFocusNode.requestFocus();
+                                      },
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Expanded(
+                                    child: _buildActionCard(
+                                      icon: Icons.qr_code_scanner,
+                                      label: _selectedPaymentMethod != "Tunai" && _selectedPaymentMethod.isNotEmpty ? _selectedPaymentMethod : "QRIS",
+                                      primaryColor: primaryColor,
+                                      isDark: isDark,
+                                      isSelected: _selectedPaymentMethod != "Tunai",
+                                      onTap: () => _showPaymentMethodPicker(customMethods, total, primaryColor, isDark),
+                                    ),
+                                  ),
+                                  if (pelangganEnabled) ...[
+                                    const SizedBox(width: 6),
+                                    Expanded(
+                                      child: _buildActionCard(
+                                        icon: Icons.person_outline,
+                                        label: widget.selectedCustomer?.name ?? "Pelanggan",
+                                        primaryColor: primaryColor,
+                                        isDark: isDark,
+                                        isSelected: widget.selectedCustomer != null,
+                                        customColor: widget.selectedCustomer != null && widget.discountData?['is_member_discount'] == true
+                                            ? const Color(0xFF10B981)
+                                            : null,
+                                        onTap: () => _showCustomerSearchDialog(isDark),
+                                      ),
+                                    ),
+                                  ],
+                                ],
+                              );
+                            },
+                          ),
+                          const SizedBox(width: 6, height: 6),
+                          // Row 2: [ Diskon ] [ Pisah Bill (Jika Aktif) ] [ Split Pay (Jika Aktif) ]
+                          ValueListenableBuilder<bool>(
+                            valueListenable: SettingsController.instance.featurePisahBillEnabled,
+                            builder: (context, pisahBillEnabled, _) {
+                              return ValueListenableBuilder<bool>(
+                                valueListenable: SettingsController.instance.featureSplitPayEnabled,
+                                builder: (context, splitPayEnabled, _) {
+                                  final List<Widget> row2Items = [
+                                    _buildActionCard(
+                                      icon: _manualDiscount > 0 ? Icons.discount_rounded : Icons.discount_outlined,
+                                      label: _manualDiscount > 0
+                                          ? (_manualDiscountIsPercent
+                                              ? "Diskon ${_manualDiscount.toStringAsFixed(0)}%"
+                                              : "Diskon ${_currencyFormat.format(_manualDiscount)}")
+                                          : "Diskon",
+                                      primaryColor: primaryColor,
+                                      isDark: isDark,
+                                      customColor: _manualDiscount > 0 ? Colors.green : primaryColor,
+                                      isSelected: _manualDiscount > 0,
+                                      onTap: () => _showDiscountSheet(isDark, primaryColor, subTotal),
+                                    ),
+                                  ];
+
+                                  if (pisahBillEnabled) {
+                                    row2Items.add(
+                                      _buildActionCard(
+                                        icon: Icons.call_split_rounded,
+                                        label: "Pisah Bill",
+                                        primaryColor: primaryColor,
+                                        isDark: isDark,
+                                        customColor: Colors.deepPurple,
+                                        onTap: widget.cartItems.length < 2
+                                            ? null
+                                            : () => _showSplitItemDialog(isDark),
+                                      ),
+                                    );
+                                  }
+
+                                  if (splitPayEnabled) {
+                                    row2Items.add(
+                                      _buildActionCard(
+                                        icon: Icons.payment_rounded,
+                                        label: _splitPayments != null ? "${_splitPayments!.length} Metode" : "Split Pay",
+                                        primaryColor: primaryColor,
+                                        isDark: isDark,
+                                        customColor: _splitPayments != null ? Colors.green : Colors.teal,
+                                        isSelected: _splitPayments != null,
+                                        onTap: () => _showSplitPaymentSheet(isDark, total, _cachedPaymentMethods),
+                                      ),
+                                    );
+                                  }
+
+                                  return Row(
+                                    children: [
+                                      for (int i = 0; i < row2Items.length; i++) ...[
+                                        if (i > 0) const SizedBox(width: 6),
+                                        Expanded(child: row2Items[i]),
+                                      ],
+                                    ],
+                                  );
+                                },
+                              );
+                            },
+                          ),
+                        ],
+                      );
+                   }
+                 ),
 
                 // Split Payment summary badges
                 if (_splitPayments != null) ...[
@@ -2345,7 +2392,7 @@ class _CartSidebarState extends State<CartSidebar> {
     final db = context.read<AppDatabase>();
     List<Customer> allCustomers = [];
     List<Customer> filtered = [];
-    const primaryColor = Color(0xFFC0392B);
+    const primaryColor = Color(0xFF00BF63);
 
     showModalBottomSheet(
       context: context,
@@ -2791,7 +2838,7 @@ class _CartSidebarState extends State<CartSidebar> {
               }
             },
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFC0392B),
+              backgroundColor: const Color(0xFF00BF63),
               foregroundColor: Colors.white,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(10),
@@ -2811,6 +2858,13 @@ class _CartSidebarState extends State<CartSidebar> {
     Color primaryColor,
     bool isDark,
   ) {
+    // Filter out cash / tunai so digital sheet only displays digital/bank methods
+    final digitalMethods = methods.where((m) {
+      final name = m.name.toLowerCase();
+      final type = m.type.toLowerCase();
+      return type != 'cash' && !name.contains('kas') && !name.contains('tunai');
+    }).toList();
+
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -2828,12 +2882,25 @@ class _CartSidebarState extends State<CartSidebar> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
-                  "Pilih Metode Digital",
-                  style: GoogleFonts.plusJakartaSans(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                  ),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      "Pilih Metode Pembayaran",
+                      style: GoogleFonts.plusJakartaSans(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      "QRIS, E-Wallet (DANA, GoPay) & Transfer Bank",
+                      style: GoogleFonts.openSans(
+                        fontSize: 12,
+                        color: Colors.grey,
+                      ),
+                    ),
+                  ],
                 ),
                 IconButton(
                   onPressed: () => Navigator.pop(ctx),
@@ -2842,7 +2909,7 @@ class _CartSidebarState extends State<CartSidebar> {
               ],
             ),
             const SizedBox(height: 16),
-            ...methods.map((m) {
+            ...digitalMethods.map((m) {
               final isSelected = _selectedPaymentMethod == m.name;
               return Padding(
                 padding: const EdgeInsets.only(bottom: 12),

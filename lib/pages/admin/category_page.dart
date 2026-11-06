@@ -180,7 +180,7 @@ class _CategoryPageState extends State<CategoryPage> {
                     }
                   },
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFFC0392B),
+                    backgroundColor: const Color(0xFF00BF63),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(16),
                     ),
@@ -365,7 +365,7 @@ class _CategoryPageState extends State<CategoryPage> {
             ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _showCategorySheet(),
-        backgroundColor: const Color(0xFFC0392B),
+        backgroundColor: const Color(0xFF00BF63),
         icon: const Icon(Icons.add, color: Colors.white),
         label: Text(
           "Tambah Kategori",

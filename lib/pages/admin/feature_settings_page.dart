@@ -120,6 +120,76 @@ class _FeatureSettingsPageState extends State<FeatureSettingsPage> {
                           );
                         },
                       ),
+                      // 5. Fitur Pelanggan (Kasir)
+                      ValueListenableBuilder<bool>(
+                        valueListenable: SettingsController.instance.featurePelangganEnabled,
+                        builder: (context, enabled, _) {
+                          return _buildFeatureToggle(
+                            title: "Fitur Pelanggan (Kasir)",
+                            subtitle: "Tampilkan tombol pilihan pelanggan saat transaksi kasir",
+                            value: enabled,
+                            onChanged: (v) => SettingsController.instance.setFeaturePelangganEnabled(v),
+                            isDark: isDark,
+                            showDivider: true,
+                          );
+                        },
+                      ),
+                      // 6. Pisah Bill (Split Bill)
+                      ValueListenableBuilder<bool>(
+                        valueListenable: SettingsController.instance.featurePisahBillEnabled,
+                        builder: (context, enabled, _) {
+                          return _buildFeatureToggle(
+                            title: "Pisah Bill (Split Bill)",
+                            subtitle: "Tampilkan tombol pisah tagihan/item pesanan di kasir",
+                            value: enabled,
+                            onChanged: (v) => SettingsController.instance.setFeaturePisahBillEnabled(v),
+                            isDark: isDark,
+                            showDivider: true,
+                          );
+                        },
+                      ),
+                      // 7. Split Pay (Multi Pembayaran)
+                      ValueListenableBuilder<bool>(
+                        valueListenable: SettingsController.instance.featureSplitPayEnabled,
+                        builder: (context, enabled, _) {
+                          return _buildFeatureToggle(
+                            title: "Split Pay (Multi Pembayaran)",
+                            subtitle: "Tampilkan opsi bayar campuran (misal: tunai + transfer/QRIS)",
+                            value: enabled,
+                            onChanged: (v) => SettingsController.instance.setFeatureSplitPayEnabled(v),
+                            isDark: isDark,
+                            showDivider: true,
+                          );
+                        },
+                      ),
+                      // 8. Pegawai, Gaji & Absensi
+                      ValueListenableBuilder<bool>(
+                        valueListenable: SettingsController.instance.featureKaryawanEnabled,
+                        builder: (context, enabled, _) {
+                          return _buildFeatureToggle(
+                            title: "Pegawai, Gaji & Absensi",
+                            subtitle: "Kelola data staf/karyawan, pencatatan gaji, dan presensi absensi",
+                            value: enabled,
+                            onChanged: (v) => SettingsController.instance.setFeatureKaryawanEnabled(v),
+                            isDark: isDark,
+                            showDivider: true,
+                          );
+                        },
+                      ),
+                      // 9. Antrean Pesanan (Kasir)
+                      ValueListenableBuilder<bool>(
+                        valueListenable: SettingsController.instance.featureAntreanPesananEnabled,
+                        builder: (context, enabled, _) {
+                          return _buildFeatureToggle(
+                            title: "Antrean Pesanan (Kasir)",
+                            subtitle: "Simpan sementara & panggil antrean transaksi di kasir",
+                            value: enabled,
+                            onChanged: (v) => SettingsController.instance.setFeatureAntreanPesananEnabled(v),
+                            isDark: isDark,
+                            showDivider: true,
+                          );
+                        },
+                      ),
                       // 5. Tampilkan Numpad Kasir
                       ValueListenableBuilder<bool>(
                         valueListenable: SettingsController.instance.showNumpad,
@@ -129,6 +199,20 @@ class _FeatureSettingsPageState extends State<FeatureSettingsPage> {
                             subtitle: "Tampilkan keyboard angka virtual (matikan jika pakai mouse/keyboard fisik)",
                             value: showNumpad,
                             onChanged: (v) => SettingsController.instance.setShowNumpad(v),
+                            isDark: isDark,
+                            showDivider: true,
+                          );
+                        },
+                      ),
+                      // 6. Otomatis Buka Keyboard Kasir
+                      ValueListenableBuilder<bool>(
+                        valueListenable: SettingsController.instance.autoFocusKasirSearch,
+                        builder: (context, autoFocus, child) {
+                          return _buildFeatureToggle(
+                            title: "Otomatis Buka Keyboard Kasir",
+                            subtitle: "Otomatis fokus & buka keyboard pada kolom pencarian saat membuka halaman kasir (matikan jika ingin keyboard hanya muncul saat kolom diketuk)",
+                            value: autoFocus,
+                            onChanged: (v) => SettingsController.instance.setAutoFocusKasirSearch(v),
                             isDark: isDark,
                             showDivider: false,
                           );
@@ -197,7 +281,7 @@ class _FeatureSettingsPageState extends State<FeatureSettingsPage> {
               ),
               CupertinoSwitch(
                 value: value,
-                activeTrackColor: const Color(0xFFC0392B),
+                activeTrackColor: const Color(0xFF00BF63),
                 onChanged: onChanged,
               ),
             ],
