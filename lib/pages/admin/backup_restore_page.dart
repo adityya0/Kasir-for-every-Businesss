@@ -188,7 +188,7 @@ Mohon bantuannya untuk mendaftarkan dan mengaktifkan akun Google Drive saya agar
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text("Gagal membuka WhatsApp: $e. Hubungi nomor: 083121782648"),
+            content: Text("Gagal membuka WhatsApp: $e"),
             backgroundColor: Colors.red,
           ),
         );
@@ -314,10 +314,10 @@ Mohon bantuannya untuk mendaftarkan dan mengaktifkan akun Google Drive saya agar
                 },
                 icon: const Icon(Icons.chat_bubble_rounded, size: 18, color: Colors.white),
                 label: Text(
-                  "Hubungi WhatsApp (083121782648)",
+                  "Buka WhatsApp Admin",
                   style: GoogleFonts.plusJakartaSans(
                     fontWeight: FontWeight.w700,
-                    fontSize: 12.5,
+                    fontSize: 13,
                     color: Colors.white,
                   ),
                 ),
@@ -548,91 +548,6 @@ Mohon bantuannya untuk mendaftarkan dan mengaktifkan akun Google Drive saya agar
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // ── Info & Tombol Aktivasi WhatsApp ─────────────────────────────
-        Container(
-          margin: const EdgeInsets.only(bottom: 14),
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: const Color(0xFF25D366).withValues(alpha: isDark ? 0.12 : 0.08),
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(
-              color: const Color(0xFF25D366).withValues(alpha: isDark ? 0.35 : 0.25),
-              width: 1.1,
-            ),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(7),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF25D366).withValues(alpha: 0.2),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: const Icon(Icons.chat_bubble_rounded, color: Color(0xFF25D366), size: 18),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          "Aktivasi Google Drive via WhatsApp",
-                          style: GoogleFonts.plusJakartaSans(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700,
-                            color: isDark ? Colors.white : const Color(0xFF0F172A),
-                          ),
-                        ),
-                        Text(
-                          "Hubungi admin untuk mendaftarkan akun Gmail Anda",
-                          style: GoogleFonts.openSans(
-                            fontSize: 11,
-                            color: isDark ? const Color(0xFFCBD5E1) : const Color(0xFF475569),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              Text(
-                "Untuk mengaktifkan fitur pencadangan Google Drive, silakan hubungi nomor WhatsApp 083121782648 dan cantumkan alamat Gmail Anda.",
-                style: GoogleFonts.openSans(
-                  fontSize: 11.5,
-                  height: 1.45,
-                  color: isDark ? const Color(0xFFCBD5E1) : const Color(0xFF475569),
-                ),
-              ),
-              const SizedBox(height: 12),
-              SizedBox(
-                width: double.infinity,
-                height: 38,
-                child: ElevatedButton.icon(
-                  onPressed: _contactAdminWhatsApp,
-                  icon: const Icon(Icons.chat_bubble_rounded, size: 16, color: Colors.white),
-                  label: Text(
-                    "Hubungi WhatsApp (083121782648)",
-                    style: GoogleFonts.plusJakartaSans(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.white,
-                    ),
-                  ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF25D366),
-                    elevation: 0,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-
         // ── 1. Unified Cloud & Auto-Backup Card ──────────────────────────────
         Container(
           padding: const EdgeInsets.all(16),
@@ -725,7 +640,7 @@ Mohon bantuannya untuk mendaftarkan dan mengaktifkan akun Google Drive saya agar
 
               if (!isSynced) ...[
                 Text(
-                  "Hubungkan akun Google Drive untuk menyimpan database secara otomatis & aman di cloud tanpa takut data hilang.",
+                  "Simpan database toko secara otomatis & aman di Google Drive. Fitur pencadangan cloud memerlukan aktivasi akun Gmail dari admin.",
                   style: GoogleFonts.openSans(fontSize: 12, color: secondaryTextColor, height: 1.4),
                 ),
                 const SizedBox(height: 12),
@@ -733,12 +648,10 @@ Mohon bantuannya untuk mendaftarkan dan mengaktifkan akun Google Drive saya agar
                   width: double.infinity,
                   height: 44,
                   child: ElevatedButton.icon(
-                    onPressed: _isGdriveLoading ? null : _handleGdriveSync,
-                    icon: _isGdriveLoading
-                        ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                        : const Icon(Icons.link_rounded, size: 18),
+                    onPressed: _contactAdminWhatsApp,
+                    icon: const Icon(Icons.cloud_upload_rounded, size: 18),
                     label: Text(
-                      _isGdriveLoading ? "Menghubungkan..." : "Hubungkan ke Google Drive",
+                      "Cadangkan ke Google Drive",
                       style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w700, fontSize: 13.5),
                     ),
                     style: ElevatedButton.styleFrom(
@@ -749,24 +662,17 @@ Mohon bantuannya untuk mendaftarkan dan mengaktifkan akun Google Drive saya agar
                     ),
                   ),
                 ),
-                const SizedBox(height: 8),
-                SizedBox(
-                  width: double.infinity,
-                  height: 38,
-                  child: OutlinedButton.icon(
-                    onPressed: _contactAdminWhatsApp,
-                    icon: const Icon(Icons.chat_bubble_rounded, size: 15, color: Color(0xFF25D366)),
-                    label: Text(
-                      "Aktivasi via WhatsApp (083121782648)",
-                      style: GoogleFonts.plusJakartaSans(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 12,
-                        color: const Color(0xFF25D366),
+                const SizedBox(height: 4),
+                Center(
+                  child: TextButton(
+                    onPressed: _isGdriveLoading ? null : _handleGdriveSync,
+                    child: Text(
+                      _isGdriveLoading ? "Menghubungkan..." : "Sudah diaktivasi admin? Masuk Akun Google",
+                      style: GoogleFonts.openSans(
+                        fontSize: 11.5,
+                        color: secondaryTextColor,
+                        decoration: TextDecoration.underline,
                       ),
-                    ),
-                    style: OutlinedButton.styleFrom(
-                      side: const BorderSide(color: Color(0xFF25D366), width: 1.2),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                     ),
                   ),
                 ),
@@ -968,13 +874,13 @@ Mohon bantuannya untuk mendaftarkan dan mengaktifkan akun Google Drive saya agar
                 icon: Icons.cloud_upload_rounded,
                 iconColor: Colors.green,
                 title: "Ke Google Drive",
-                subtitle: isSynced ? "Unggah cadangan ke cloud" : "Hubungkan Drive dahulu",
+                subtitle: isSynced ? "Unggah cadangan ke cloud" : "Aktivasi via WhatsApp",
                 isDark: isDark,
                 cardBg: cardBg,
                 borderColor: borderColor,
                 secondaryTextColor: secondaryTextColor,
-                isDisabled: !isSynced,
-                onTap: isSynced ? () => _backupToGdrive(context) : null,
+                isDisabled: false,
+                onTap: isSynced ? () => _backupToGdrive(context) : _contactAdminWhatsApp,
               ),
             ),
             const SizedBox(width: 10),
@@ -1264,7 +1170,7 @@ Mohon bantuannya untuk mendaftarkan dan mengaktifkan akun Google Drive saya agar
                   ),
                   if (!isSynced)
                     ElevatedButton(
-                      onPressed: _handleGdriveSync,
+                      onPressed: _contactAdminWhatsApp,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: primaryColor,
                         foregroundColor: Colors.white,
@@ -1273,36 +1179,12 @@ Mohon bantuannya untuk mendaftarkan dan mengaktifkan akun Google Drive saya agar
                         elevation: 0,
                       ),
                       child: Text(
-                        "Hubungkan",
+                        "Hubungi Admin",
                         style: GoogleFonts.plusJakartaSans(fontSize: 12, fontWeight: FontWeight.w700),
                       ),
                     ),
                 ],
               ),
-
-              if (!isSynced) ...[
-                const SizedBox(height: 10),
-                SizedBox(
-                  width: double.infinity,
-                  height: 36,
-                  child: OutlinedButton.icon(
-                    onPressed: _contactAdminWhatsApp,
-                    icon: const Icon(Icons.chat_bubble_rounded, size: 14, color: Color(0xFF25D366)),
-                    label: Text(
-                      "Aktivasi via WhatsApp (083121782648)",
-                      style: GoogleFonts.plusJakartaSans(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 11.5,
-                        color: const Color(0xFF25D366),
-                      ),
-                    ),
-                    style: OutlinedButton.styleFrom(
-                      side: const BorderSide(color: Color(0xFF25D366), width: 1.1),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                    ),
-                  ),
-                ),
-              ],
 
               if (isSynced) ...[
                 const SizedBox(height: 14),
