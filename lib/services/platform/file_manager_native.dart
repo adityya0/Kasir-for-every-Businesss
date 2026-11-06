@@ -208,6 +208,7 @@ class FileManager {
 
       // 3. Trigger system share
       try {
+        // ignore: deprecated_member_use
         await Share.shareXFiles(
           [XFile(tempFile.path, mimeType: mimeType)],
           subject: 'Laporan Kakilima Pos',

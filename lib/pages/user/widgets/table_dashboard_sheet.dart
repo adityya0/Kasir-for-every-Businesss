@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
@@ -49,7 +49,7 @@ class _TableDashboardSheetState extends State<TableDashboardSheet> {
       ),
     );
 
-    if (confirmed == true) {
+    if (confirmed == true && mounted) {
       final db = Provider.of<AppDatabase>(context, listen: false);
       await db.update(db.storeTables).write(
             const StoreTablesCompanion(status: drift.Value('available')),

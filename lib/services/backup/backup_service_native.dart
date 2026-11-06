@@ -122,6 +122,7 @@ class BackupService {
       // Share
       if (share) {
         final xFile = XFile(zipPath);
+        // ignore: deprecated_member_use
         await Share.shareXFiles(
           [xFile],
           subject: 'POS Kasir Bersama Full Backup',
