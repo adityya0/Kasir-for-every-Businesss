@@ -1,6 +1,5 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -14,6 +13,7 @@ import '../../widgets/kasir_dialog.dart';
 import '../../widgets/backup_time_picker_dialog.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../controllers/admin_controller.dart';
 
 class BackupRestorePage extends StatefulWidget {
@@ -39,6 +39,9 @@ class _BackupRestorePageState extends State<BackupRestorePage> {
     super.initState();
     _checkGdriveStatus();
     _autoBackup.addListener(_onAutoBackupStateChanged);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkAndShowGdriveActivationDialog();
+    });
   }
 
   @override
@@ -146,115 +149,203 @@ class _BackupRestorePageState extends State<BackupRestorePage> {
       } else {
         final err = _driveService.lastError ?? "";
         if (mounted) {
-          _showGdriveSetupInfoDialog(context, errorDetail: err);
+          _showGdriveActivationDialog(context, errorDetail: err);
         }
       }
     } catch (e) {
       if (mounted) {
-        _showGdriveSetupInfoDialog(context, errorDetail: e.toString());
+        _showGdriveActivationDialog(context, errorDetail: e.toString());
       }
     } finally {
       if (mounted) setState(() => _isGdriveLoading = false);
     }
   }
 
-  void _showGdriveSetupInfoDialog(BuildContext context, {String? errorDetail}) {
+  Future<void> _contactAdminWhatsApp() async {
+    final prefs = await SharedPreferences.getInstance();
+    final storeName = prefs.getString('store_name') ?? 'Toko Saya';
+
+    final text = '''
+Halo Admin Kakilima POS,
+
+Saya ingin melakukan aktivasi fitur Pencadangan Google Drive untuk toko saya.
+
+Data Pendaftaran:
+• Nama Toko: $storeName
+• Akun Gmail Saya: [MOHON TULIS GMAIL ANDA DI SINI]
+
+Mohon bantuannya untuk mendaftarkan dan mengaktifkan akun Google Drive saya agar bisa melakukan pencadangan otomatis. Terima kasih!
+'''.trim();
+
+    final url = Uri.parse("https://wa.me/6283121782648?text=${Uri.encodeComponent(text)}");
+    try {
+      if (await canLaunchUrl(url)) {
+        await launchUrl(url, mode: LaunchMode.externalApplication);
+      } else {
+        await launchUrl(url);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Gagal membuka WhatsApp: $e. Hubungi nomor: 083121782648"),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _checkAndShowGdriveActivationDialog() async {
+    final prefs = await SharedPreferences.getInstance();
+    final alreadyShown = prefs.getBool('gdrive_activation_info_shown') ?? false;
+    if (!alreadyShown && mounted) {
+      await prefs.setBool('gdrive_activation_info_shown', true);
+      if (!mounted) return;
+      _showGdriveActivationDialog(context);
+    }
+  }
+
+  void _showGdriveActivationDialog(BuildContext context, {String? errorDetail}) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
+        backgroundColor: isDark ? const Color(0xFF1E293B) : Colors.white,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: Colors.orange.withValues(alpha: 0.1),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(Icons.cloud_off_rounded, color: Colors.orange, size: 24),
-            ),
-            const SizedBox(width: 10),
-            const Expanded(
-              child: Text(
-                "Sinkronisasi Google Drive",
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-              ),
-            ),
-          ],
-        ),
+        contentPadding: const EdgeInsets.fromLTRB(22, 20, 22, 16),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              "Google Sign-In API di Android memerlukan registrasi sertifikat SHA-1 di Google Cloud Console untuk package aplikasi.",
-              style: TextStyle(fontSize: 13),
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF25D366).withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(Icons.chat_bubble_rounded, color: Color(0xFF25D366), size: 24),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        "Aktivasi Google Drive",
+                        style: GoogleFonts.plusJakartaSans(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                          color: isDark ? Colors.white : const Color(0xFF0F172A),
+                        ),
+                      ),
+                      Text(
+                        "Pencadangan Cloud Otomatis",
+                        style: GoogleFonts.openSans(
+                          fontSize: 11.5,
+                          color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 16),
             Container(
-              width: double.infinity,
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: Colors.grey.withValues(alpha: 0.08),
-                borderRadius: BorderRadius.circular(10),
+                color: isDark ? const Color(0xFF0F172A) : const Color(0xFFF1F5F9),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0),
+                ),
               ),
-              child: const Column(
+              child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text("Package Name:", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
-                  Text("com.kakilima.pos", style: TextStyle(fontSize: 11, color: Color(0xFF00BF63), fontWeight: FontWeight.w600)),
-                  SizedBox(height: 6),
-                  Text("SHA-1 Sertifikat:", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
-                  SelectableText("4E:71:D3:6E:AF:93:D0:37:24:36:AB:6E:ED:26:77:63:2B:A7:0A:9F", style: TextStyle(fontSize: 10, color: Color(0xFF00BF63), fontWeight: FontWeight.w600)),
-                ],
-              ),
-            ),
-            const SizedBox(height: 14),
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: const Color(0xFF00BF63).withValues(alpha: 0.08),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: const Color(0xFF00BF63).withValues(alpha: 0.2)),
-              ),
-              child: const Row(
-                children: [
-                  Icon(Icons.lightbulb_outline_rounded, color: Color(0xFF00BF63), size: 20),
-                  SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      "Solusi Cepat: Anda bisa langsung mencadangkan ke Google Drive melalui menu 'Cadangkan & Bagikan ke Drive' tanpa perlu login API.",
-                      style: TextStyle(fontSize: 11.5, color: Colors.black87),
+                  Text(
+                    "Untuk mengaktifkan fitur pencadangan otomatis Google Drive, Anda perlu menghubungi Admin WhatsApp agar akun Gmail Anda didaftarkan & diizinkan ke sistem cloud.",
+                    style: GoogleFonts.openSans(
+                      fontSize: 12.5,
+                      height: 1.45,
+                      color: isDark ? const Color(0xFFCBD5E1) : const Color(0xFF334155),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.blue.withValues(alpha: 0.25)),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(Icons.info_outline_rounded, size: 16, color: Colors.blue),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            "Jangan lupa mengisi alamat Gmail Anda pada template pesan WhatsApp yang telah disediakan.",
+                            style: GoogleFonts.plusJakartaSans(
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.blue,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ],
               ),
             ),
+            const SizedBox(height: 18),
+            SizedBox(
+              width: double.infinity,
+              height: 44,
+              child: ElevatedButton.icon(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  _contactAdminWhatsApp();
+                },
+                icon: const Icon(Icons.chat_bubble_rounded, size: 18, color: Colors.white),
+                label: Text(
+                  "Hubungi WhatsApp (083121782648)",
+                  style: GoogleFonts.plusJakartaSans(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12.5,
+                    color: Colors.white,
+                  ),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF25D366),
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              height: 38,
+              child: TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: Text(
+                  "Nanti Saja",
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w600,
+                    color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
+                  ),
+                ),
+              ),
+            ),
           ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              Clipboard.setData(const ClipboardData(
-                text: "Package: com.kakilima.pos\nSHA-1: 4E:71:D3:6E:AF:93:D0:37:24:36:AB:6E:ED:26:77:63:2B:A7:0A:9F",
-              ));
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text("Info SHA-1 disalin ke clipboard")),
-              );
-            },
-            child: const Text("Salin Info"),
-          ),
-          ElevatedButton.icon(
-            onPressed: () {
-              Navigator.pop(ctx);
-              _backupLocal(context);
-            },
-            icon: const Icon(Icons.share_rounded, size: 16, color: Colors.white),
-            label: const Text("Cadangkan Sekarang", style: TextStyle(color: Colors.white)),
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00BF63)),
-          ),
-        ],
       ),
     );
   }
@@ -321,9 +412,9 @@ class _BackupRestorePageState extends State<BackupRestorePage> {
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.help_outline_rounded, size: 21),
-            tooltip: "Panduan Sinkronisasi",
-            onPressed: () => _showGdriveSetupInfoDialog(context),
+            icon: const Icon(Icons.info_outline_rounded, size: 21),
+            tooltip: "Info Aktivasi Google Drive",
+            onPressed: () => _showGdriveActivationDialog(context),
           ),
           const SizedBox(width: 8),
         ],
@@ -457,6 +548,91 @@ class _BackupRestorePageState extends State<BackupRestorePage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        // ── Info & Tombol Aktivasi WhatsApp ─────────────────────────────
+        Container(
+          margin: const EdgeInsets.only(bottom: 14),
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: const Color(0xFF25D366).withValues(alpha: isDark ? 0.12 : 0.08),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: const Color(0xFF25D366).withValues(alpha: isDark ? 0.35 : 0.25),
+              width: 1.1,
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(7),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF25D366).withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(Icons.chat_bubble_rounded, color: Color(0xFF25D366), size: 18),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          "Aktivasi Google Drive via WhatsApp",
+                          style: GoogleFonts.plusJakartaSans(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: isDark ? Colors.white : const Color(0xFF0F172A),
+                          ),
+                        ),
+                        Text(
+                          "Hubungi admin untuk mendaftarkan akun Gmail Anda",
+                          style: GoogleFonts.openSans(
+                            fontSize: 11,
+                            color: isDark ? const Color(0xFFCBD5E1) : const Color(0xFF475569),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Text(
+                "Untuk mengaktifkan fitur pencadangan Google Drive, silakan hubungi nomor WhatsApp 083121782648 dan cantumkan alamat Gmail Anda.",
+                style: GoogleFonts.openSans(
+                  fontSize: 11.5,
+                  height: 1.45,
+                  color: isDark ? const Color(0xFFCBD5E1) : const Color(0xFF475569),
+                ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                height: 38,
+                child: ElevatedButton.icon(
+                  onPressed: _contactAdminWhatsApp,
+                  icon: const Icon(Icons.chat_bubble_rounded, size: 16, color: Colors.white),
+                  label: Text(
+                    "Hubungi WhatsApp (083121782648)",
+                    style: GoogleFonts.plusJakartaSans(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white,
+                    ),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF25D366),
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+
         // ── 1. Unified Cloud & Auto-Backup Card ──────────────────────────────
         Container(
           padding: const EdgeInsets.all(16),
@@ -570,6 +746,27 @@ class _BackupRestorePageState extends State<BackupRestorePage> {
                       foregroundColor: Colors.white,
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                       elevation: 0,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  height: 38,
+                  child: OutlinedButton.icon(
+                    onPressed: _contactAdminWhatsApp,
+                    icon: const Icon(Icons.chat_bubble_rounded, size: 15, color: Color(0xFF25D366)),
+                    label: Text(
+                      "Aktivasi via WhatsApp (083121782648)",
+                      style: GoogleFonts.plusJakartaSans(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 12,
+                        color: const Color(0xFF25D366),
+                      ),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      side: const BorderSide(color: Color(0xFF25D366), width: 1.2),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                     ),
                   ),
                 ),
@@ -1082,6 +1279,30 @@ class _BackupRestorePageState extends State<BackupRestorePage> {
                     ),
                 ],
               ),
+
+              if (!isSynced) ...[
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  height: 36,
+                  child: OutlinedButton.icon(
+                    onPressed: _contactAdminWhatsApp,
+                    icon: const Icon(Icons.chat_bubble_rounded, size: 14, color: Color(0xFF25D366)),
+                    label: Text(
+                      "Aktivasi via WhatsApp (083121782648)",
+                      style: GoogleFonts.plusJakartaSans(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 11.5,
+                        color: const Color(0xFF25D366),
+                      ),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      side: const BorderSide(color: Color(0xFF25D366), width: 1.1),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                  ),
+                ),
+              ],
 
               if (isSynced) ...[
                 const SizedBox(height: 14),
