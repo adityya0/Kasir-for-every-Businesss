@@ -13,7 +13,7 @@ class ActivationPage extends StatefulWidget {
 }
 
 class _ActivationPageState extends State<ActivationPage> {
-  static const Color primaryColor = Color(0xFFBD1B19); // Kakilima Pos Red
+  static const Color primaryColor = Color(0xFFBD1B19); // OMNI POS Red
   final _keyController = TextEditingController();
   final _activationService = ActivationService();
 
@@ -182,7 +182,7 @@ class _ActivationPageState extends State<ActivationPage> {
 
                       // Title & Subtitle
                       Text(
-                        "Kakilima Pos",
+                        "OMNI POS",
                         style: GoogleFonts.plusJakartaSans(
                           fontSize: 22,
                           fontWeight: FontWeight.w800,

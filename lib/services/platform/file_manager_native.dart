@@ -211,7 +211,7 @@ class FileManager {
         // ignore: deprecated_member_use
         await Share.shareXFiles(
           [XFile(tempFile.path, mimeType: mimeType)],
-          subject: 'Laporan Kakilima Pos',
+          subject: 'Laporan OMNI POS',
         );
       } catch (e) {
         debugPrint("FileManager: Share error (non-fatal): $e");

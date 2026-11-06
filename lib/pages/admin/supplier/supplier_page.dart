@@ -3008,7 +3008,7 @@ class _SupplierPageState extends State<SupplierPage> {
 
                                                 supplierName: supplier.name,
 
-                                                storeName: admin.storeName ?? "Kakilima Pos",
+                                                storeName: admin.storeName ?? "OMNI POS",
 
                                                 amountPaid: val,
 
@@ -3712,7 +3712,7 @@ class _SupplierPageState extends State<SupplierPage> {
 
                                                 supplierName: supplier.name,
 
-                                                storeName: "KakiLima Pos",
+                                                storeName: "OMNI POS",
 
                                                 productName: prodLabel,
 
@@ -4430,7 +4430,7 @@ class _SupplierPageState extends State<SupplierPage> {
 
                                             supplierName: targetSup.name,
 
-                                            storeName: "KakiLima Pos",
+                                            storeName: "OMNI POS",
 
                                             amountPaid: item.amount,
 
@@ -4716,7 +4716,7 @@ class _SupplierPageState extends State<SupplierPage> {
 
         bytes = await exportService.generateSupplierSettlementsPdf(
 
-          storeName: "KakiLima Pos",
+          storeName: "OMNI POS",
 
           settlements: data,
 
@@ -4732,7 +4732,7 @@ class _SupplierPageState extends State<SupplierPage> {
 
         bytes = await exportService.generateSupplierSettlementsExcel(
 
-          storeName: "KakiLima Pos",
+          storeName: "OMNI POS",
 
           settlements: data,
 

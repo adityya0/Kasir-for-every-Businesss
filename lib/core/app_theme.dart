@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 class AppTheme {
-  // KakiLima Pos - Vibrant Green Theme
+  // OMNI POS - Vibrant Green Theme
   static const Color primaryColor = Color(0xFF00BF63);      // Vibrant Green (Brand Logo)
   static const Color primaryLight = Color(0xFF2EE589);      // Bright Leaf Green
   static const Color primaryDark = Color(0xFF0D7A4E);       // Deep Forest Green

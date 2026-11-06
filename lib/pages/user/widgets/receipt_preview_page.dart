@@ -69,7 +69,7 @@ class ReceiptPreviewPage extends StatelessWidget {
               final adminCtrl = context.read<AdminController>();
               if (printerService.isConnected) {
                 await printerService.printReceipt(
-                  storeName: storeName ?? adminCtrl.storeName ?? "Kakilima Pos",
+                  storeName: storeName ?? adminCtrl.storeName ?? "OMNI POS",
                   transactionId: transactionId ?? "TXN",
                   createdAt: createdAt ?? DateTime.now(),
                   items: items ?? [],

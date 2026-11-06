@@ -1081,7 +1081,7 @@ class _KasirPageState extends State<KasirPage> {
       final now = DateTime.now();
       final double finalCash = _cashReceived;
       final double finalChange = _cashReceived - finalTotal;
-      final currentStoreName = _storeName ?? "Kakilima Pos";
+      final currentStoreName = _storeName ?? "OMNI POS";
       final currentStoreLogo = _storeLogoUrl;
 
       final List<Map<String, dynamic>> receiptItems = [];
@@ -1297,7 +1297,7 @@ class _KasirPageState extends State<KasirPage> {
                 elevation: 0,
                 leading: null,
                 title: Text(
-                  _storeName ?? "KakiLima Pos",
+                  _storeName ?? "OMNI POS",
                   style: GoogleFonts.plusJakartaSans(
                     fontWeight: FontWeight.w700,
                     fontSize: 18,

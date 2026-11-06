@@ -17,7 +17,7 @@ class LoginPage extends StatefulWidget {
 }
 
 class _LoginPageState extends State<LoginPage> {
-  static const Color primaryColor = Color(0xFFBD1B19); // Kakilima Pos Red
+  static const Color primaryColor = Color(0xFFBD1B19); // OMNI POS Red
   late AppDatabase _db;
 
   bool _isRegisterMode = false;
@@ -151,7 +151,7 @@ class _LoginPageState extends State<LoginPage> {
         password: password,
         data: {
           'full_name': fullName,
-          'store_name': 'Kakilima Pos ($fullName)',
+          'store_name': 'OMNI POS ($fullName)',
           'pin_code': '123456', // Default PIN sesuai aturan database
         },
       );
@@ -164,7 +164,7 @@ class _LoginPageState extends State<LoginPage> {
             'id': user.id,
             'email': email,
             'full_name': fullName,
-            'store_name': 'Kakilima Pos ($fullName)',
+            'store_name': 'OMNI POS ($fullName)',
             'pin_code': '123456',
             'role': 'admin',
             'is_active': true,
@@ -538,7 +538,7 @@ class _LoginPageState extends State<LoginPage> {
 
                       // Title
                       Text(
-                        "Kakilima Pos",
+                        "OMNI POS",
                         style: GoogleFonts.plusJakartaSans(
                           fontSize: 22,
                           fontWeight: FontWeight.w800,

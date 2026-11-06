@@ -60,7 +60,7 @@ class _LaporanPageState extends State<LaporanPage> {
 
       if (type == 'pdf') {
         bytes = await _exportService.generateTransactionsPdf(
-          "Kakilima Pos",
+          "OMNI POS",
           _transactions,
         );
         filename =
@@ -68,7 +68,7 @@ class _LaporanPageState extends State<LaporanPage> {
         mimeType = "application/pdf";
       } else {
         bytes = await _exportService.generateTransactionsExcel(
-          "Kakilima Pos",
+          "OMNI POS",
           _transactions,
         );
         filename =

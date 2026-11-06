@@ -125,7 +125,7 @@ class BackupService {
         // ignore: deprecated_member_use
         await Share.shareXFiles(
           [xFile],
-          subject: 'POS Kasir Bersama Full Backup',
+          subject: 'OMNI POS Full Backup',
         );
       }
 

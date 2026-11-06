@@ -13,7 +13,7 @@ class PinVerificationPage extends StatefulWidget {
 }
 
 class _PinVerificationPageState extends State<PinVerificationPage> {
-  static const Color primaryColor = Color(0xFFBD1B19); // Kakilima Pos Red
+  static const Color primaryColor = Color(0xFFBD1B19); // OMNI POS Red
   final _pinController = TextEditingController();
   final _activationService = ActivationService();
 

@@ -1,5 +1,5 @@
 name: kasir_bersama
-description: "Point of Sale system for Kakilima Pos"
+description: "Point of Sale system for OMNI POS"
 publish_to: 'none'
 
 version: 1.0.0+1
@@ -82,12 +82,12 @@ flutter:
     - assets/products/
 
 flutter_native_splash:
-  color: "#BD1B19"
+  color: "#194439"
   image: "assets/logo/splash_logo.png"
   
   android_12:
     image: "assets/logo/splash_logo.png"
-    color: "#BD1B19"
+    color: "#194439"
 
   android: true
   ios: true

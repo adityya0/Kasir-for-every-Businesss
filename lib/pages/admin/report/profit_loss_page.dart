@@ -779,7 +779,7 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
 
       if (format == 'pdf') {
         bytes = await _exportService.generateFinancialReportPdf(
-          storeName: "KakiLima Pos",
+          storeName: "OMNI POS",
           transactions: allTxs,
           expenses: allExps,
           supplierReports: supplierExports,
@@ -788,7 +788,7 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
         mimeType = "application/pdf";
       } else if (format == 'excel') {
         bytes = await _exportService.generateFinancialReportExcel(
-          storeName: "KakiLima Pos",
+          storeName: "OMNI POS",
           transactions: allTxs,
           expenses: allExps,
           supplierReports: supplierExports,
@@ -797,7 +797,7 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
         mimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
       } else {
         bytes = _exportService.generateFinancialReportCsv(
-          storeName: "KakiLima Pos",
+          storeName: "OMNI POS",
           transactions: allTxs,
           expenses: allExps,
           supplierReports: supplierExports,
@@ -904,7 +904,7 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
 
         if (format == 'pdf') {
           bytes = await _exportService.generateTransactionsPdf(
-            "KakiLima Pos",
+            "OMNI POS",
             _periodTransactions,
             periodLabel: periodLabel,
             startDate: _startDate,
@@ -914,7 +914,7 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
           mimeType = "application/pdf";
         } else if (format == 'excel') {
           bytes = await _exportService.generateTransactionsExcel(
-            "KakiLima Pos",
+            "OMNI POS",
             _periodTransactions,
             periodLabel: periodLabel,
             startDate: _startDate,
@@ -924,7 +924,7 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
           mimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
         } else {
           bytes = _exportService.generateTransactionsCsv(
-            storeName: "KakiLima Pos",
+            storeName: "OMNI POS",
             startDate: _startDate,
             endDate: _endDate,
             transactions: _periodTransactions,
@@ -1013,7 +1013,7 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
 
         if (format == 'pdf') {
           bytes = await _exportService.generateCashFlowPdf(
-            storeName: "KakiLima Pos",
+            storeName: "OMNI POS",
             startDate: _startDate,
             endDate: _endDate,
             penjualanTunaiDP: cashSalesSum > 0 ? cashSalesSum : null,
@@ -1033,7 +1033,7 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
           mimeType = "application/pdf";
         } else if (format == 'excel') {
           bytes = await _exportService.generateCashFlowExcel(
-            storeName: "KakiLima Pos",
+            storeName: "OMNI POS",
             startDate: _startDate,
             endDate: _endDate,
             penjualanTunaiDP: cashSalesSum > 0 ? cashSalesSum : null,
@@ -1053,7 +1053,7 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
           mimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
         } else {
           bytes = _exportService.generateCashFlowCsv(
-            storeName: "KakiLima Pos",
+            storeName: "OMNI POS",
             startDate: _startDate,
             endDate: _endDate,
             penjualanTunaiDP: cashSalesSum > 0 ? cashSalesSum : null,
@@ -1080,7 +1080,7 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
 
         if (format == 'pdf') {
           bytes = await _exportService.generateFinancialReportPdf(
-            storeName: "KakiLima Pos",
+            storeName: "OMNI POS",
             transactions: _periodTransactions,
             expenses: _periodExpenses,
             supplierReports: supplierMaps,
@@ -1090,7 +1090,7 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
           mimeType = "application/pdf";
         } else if (format == 'excel') {
           bytes = await _exportService.generateFinancialReportExcel(
-            storeName: "KakiLima Pos",
+            storeName: "OMNI POS",
             transactions: _periodTransactions,
             expenses: _periodExpenses,
             supplierReports: supplierMaps,
@@ -1101,7 +1101,7 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
         } else {
           // CSV Laba Rugi
           bytes = _exportService.generateProfitLossCsv(
-            storeName: "KakiLima Pos",
+            storeName: "OMNI POS",
             startDate: _startDate,
             endDate: _endDate,
             sales: sales,
@@ -3783,7 +3783,7 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
                                             SupplierService.shareSettlementToWhatsApp(
                                               phone: supplier.phone,
                                               supplierName: supplier.name,
-                                              storeName: "KakiLima Pos",
+                                              storeName: "OMNI POS",
                                               amountPaid: val,
                                               remainingBalance: remaining,
                                               paymentMethod: paymentMethod,
@@ -3877,7 +3877,7 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
     final savedPhone = prefs.getString('owner_wa_phone') ?? '';
     final phoneCtrl = TextEditingController(text: savedPhone);
 
-    String storeName = "Kakilima POS";
+    String storeName = "OMNI POS";
     try {
       final store = await (db.select(db.stores)..where((s) => s.id.equals(widget.storeId))).getSingleOrNull();
       if (store != null && store.name != null && store.name!.isNotEmpty) {
@@ -3916,7 +3916,7 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
       buffer.writeln("• Piutang Pelanggan: ${currency.format(_totalPiutang)}");
     }
     buffer.writeln("─────────────────────────");
-    buffer.writeln("✨ _Dihasilkan otomatis oleh Sistem POS Kakilima_");
+    buffer.writeln("✨ _Dihasilkan otomatis oleh SISTEM OMNI POS_");
 
     final reportText = buffer.toString();
 
@@ -4193,7 +4193,7 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
     );
   }
 
-  // ─── 4 Tombol Aksi Cepat (Versi Orisinal Kakilima POS) ─────────────────────
+  // ─── 4 Tombol Aksi Cepat (Versi Orisinal OMNI POS) ─────────────────────
   Widget _buildQuickAction4Buttons(bool isDark) {
     return LayoutBuilder(
       builder: (context, constraints) {

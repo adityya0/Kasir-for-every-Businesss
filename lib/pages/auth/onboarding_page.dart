@@ -102,7 +102,7 @@ class _OnboardingPageState extends State<OnboardingPage>
                         const SizedBox(height: 50),
                         // Title & Subtitle
                         Text(
-                          "Kakilima Pos \n Manajemen Apps",
+                          "OMNI POS \n Manajemen Apps",
                           textAlign: TextAlign.center,
                           style: GoogleFonts.plusJakartaSans(
                             fontSize: 32,

@@ -296,7 +296,7 @@ class _HistoryPageState extends State<HistoryPage> {
 
       if (type == 'pdf') {
         bytes = await exportService.generateTransactionsPdf(
-          "Kakilima Pos",
+          "OMNI POS",
           transactions,
           periodLabel: activePeriod,
           startDate: startDate,
@@ -307,7 +307,7 @@ class _HistoryPageState extends State<HistoryPage> {
         mimeType = "application/pdf";
       } else if (type == 'excel') {
         bytes = await exportService.generateTransactionsExcel(
-          "Kakilima Pos",
+          "OMNI POS",
           transactions,
           periodLabel: activePeriod,
           startDate: startDate,
@@ -321,7 +321,7 @@ class _HistoryPageState extends State<HistoryPage> {
         final effStart = startDate ?? (transactions.isNotEmpty ? (transactions.last.createdAt ?? DateTime.now()) : DateTime.now());
         final effEnd = endDate ?? (transactions.isNotEmpty ? (transactions.first.createdAt ?? DateTime.now()) : DateTime.now());
         bytes = exportService.generateTransactionsCsv(
-          storeName: "Kakilima Pos",
+          storeName: "OMNI POS",
           startDate: effStart,
           endDate: effEnd,
           transactions: transactions,

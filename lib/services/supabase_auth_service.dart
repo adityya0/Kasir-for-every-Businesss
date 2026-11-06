@@ -29,7 +29,7 @@ class AuthUserProfile {
       id: map['id']?.toString() ?? '',
       email: map['email']?.toString() ?? '',
       fullName: map['full_name']?.toString() ?? map['fullName']?.toString() ?? 'Pengguna',
-      storeName: map['store_name']?.toString() ?? map['storeName']?.toString() ?? 'Kakilima Pos',
+      storeName: map['store_name']?.toString() ?? map['storeName']?.toString() ?? 'OMNI POS',
       role: map['role']?.toString() ?? 'admin',
       pinCode: map['pin_code']?.toString() ?? map['pinCode']?.toString(),
       isActive: map['is_active'] == true || map['isActive'] == true || map['is_active'] == null,
@@ -249,7 +249,7 @@ class SupabaseAuthService {
 
       final email = prefs.getString('user_email') ?? await _storage.read(key: _keyEmail) ?? '';
       final fullName = prefs.getString('user_name') ?? await _storage.read(key: _keyFullName) ?? 'Pengguna';
-      final storeName = prefs.getString('store_name') ?? await _storage.read(key: _keyStoreName) ?? 'Kakilima Pos';
+      final storeName = prefs.getString('store_name') ?? await _storage.read(key: _keyStoreName) ?? 'OMNI POS';
       final role = prefs.getString('user_role') ?? await _storage.read(key: _keyRole) ?? 'admin';
       final pinCode = prefs.getString('pin_code') ?? await _storage.read(key: _keyPinCode);
 

@@ -196,7 +196,7 @@ class _KasirMainPageState extends State<KasirMainPage> {
       context: context,
       builder: (context) => KasirDialog(
         title: "Keluar Aplikasi",
-        message: "Apakah Anda yakin ingin menutup dan keluar dari aplikasi Kakilima Pos?",
+        message: "Apakah Anda yakin ingin menutup dan keluar dari aplikasi OMNI POS?",
         icon: Icons.power_settings_new_rounded,
         iconColor: Colors.redAccent,
         isDestructive: true,

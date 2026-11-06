@@ -59,7 +59,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
       )..where((t) => t.storeId.equals(storeId))).get();
 
       final bytes = await _exportService.generateProductsExcel(
-        adminCtrl.storeName ?? "Kakilima Pos",
+        adminCtrl.storeName ?? "OMNI POS",
         products,
       );
 
@@ -235,7 +235,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
 
       if (type == 'pdf') {
         bytes = await _exportService.generateTransactionsPdf(
-          adminCtrl.storeName ?? "Kakilima Pos",
+          adminCtrl.storeName ?? "OMNI POS",
           transactions,
         );
         filename =
@@ -243,7 +243,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
         mimeType = "application/pdf";
       } else {
         bytes = await _exportService.generateTransactionsExcel(
-          adminCtrl.storeName ?? "Kakilima Pos",
+          adminCtrl.storeName ?? "OMNI POS",
           transactions,
         );
         filename =

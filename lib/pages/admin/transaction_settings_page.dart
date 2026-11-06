@@ -1,4 +1,4 @@
-﻿import 'dart:io';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -498,7 +498,7 @@ class _TransactionSettingsPageState extends State<TransactionSettingsPage> {
 
               const SizedBox(height: 12),
               Text(
-                "DIHASILKAN OLEH SISTEM KASIR BERSAMA",
+                "DIHASILKAN OLEH SISTEM OMNI POS",
                 style: GoogleFonts.robotoMono(
                   fontSize: 7,
                   fontStyle: FontStyle.italic,
@@ -698,7 +698,7 @@ class _TransactionSettingsPageState extends State<TransactionSettingsPage> {
 
     try {
       final pdfBytes = await receiptService.generateReceiptPdf(
-        storeName: adminCtrl.storeName ?? "Kakilima Pos",
+        storeName: adminCtrl.storeName ?? "OMNI POS",
         storeLogoUrl: adminCtrl.storeLogo ?? 'assets/logo/logo.png',
         transactionId: "TX-88912",
         createdAt: DateTime(2026, 3, 19, 14, 20),
@@ -740,7 +740,7 @@ class _TransactionSettingsPageState extends State<TransactionSettingsPage> {
           builder: (_) => ReceiptPreviewPage(
             pdfData: pdfBytes,
             fileName: 'Uji_Coba_Struk_TX-88912.pdf',
-            storeName: adminCtrl.storeName ?? "Kakilima Pos",
+            storeName: adminCtrl.storeName ?? "OMNI POS",
             transactionId: "TX-88912",
             createdAt: DateTime(2026, 3, 19, 14, 20),
             items: items,

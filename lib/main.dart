@@ -43,7 +43,7 @@ void main() async {
       backgroundColor: Colors.transparent,
       skipTaskbar: false,
       titleBarStyle: TitleBarStyle.normal,
-      title: 'Kakilima Pos',
+      title: 'OMNI POS',
     );
     windowManager.waitUntilReadyToShow(windowOptions, () async {
       await windowManager.show();
@@ -154,7 +154,7 @@ class _RootAppState extends State<RootApp> {
               ],
               child: MaterialApp(
                 debugShowCheckedModeBanner: false,
-                title: 'Kakilima Pos',
+                title: 'OMNI POS',
                 themeMode: currentMode,
                 locale: currentLocale,
                 localizationsDelegates: const [

@@ -165,7 +165,7 @@ class AdminController extends ChangeNotifier {
           await _db.into(_db.stores).insert(
             StoresCompanion.insert(
               id: initialStoreId,
-              name: const Value('Kakilima Pos'),
+              name: const Value('OMNI POS'),
               adminName: const Value('Owner'),
               createdAt: Value(DateTime.now()),
             ),

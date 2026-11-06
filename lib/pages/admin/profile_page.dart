@@ -219,7 +219,7 @@ class _ProfilePageState extends State<ProfilePage> {
             color: isDark ? Colors.white : Colors.black87,
           ),
           decoration: InputDecoration(
-            hintText: "Nama Toko (Contoh: Kakilima Pos)",
+            hintText: "Nama Toko (Contoh: OMNI POS)",
             fillColor: Colors.grey.withValues(alpha: 0.1),
             filled: true,
             border: OutlineInputBorder(

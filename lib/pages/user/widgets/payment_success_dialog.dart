@@ -509,7 +509,7 @@ class PaymentSuccessDialog extends StatelessWidget {
 
             const SizedBox(height: 10),
             Text(
-              "DIHASILKAN OLEH SISTEM KASIR BERSAMA",
+              "DIHASILKAN OLEH SISTEM OMNI POS",
               style: GoogleFonts.robotoMono(
                 fontSize: 7.5,
                 fontStyle: FontStyle.italic,

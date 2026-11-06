@@ -166,7 +166,7 @@ class _BackupRestorePageState extends State<BackupRestorePage> {
     final storeName = prefs.getString('store_name') ?? 'Toko Saya';
 
     final text = '''
-Halo Admin Kakilima POS,
+Halo Admin OMNI POS,
 
 Saya ingin melakukan aktivasi fitur Pencadangan Google Drive untuk toko saya.
 

@@ -211,7 +211,7 @@ class ActivationService {
       await prefs.setString(_savedDeviceIdKey, deviceId);
 
       if (data is Map) {
-        final storeName = data['store_name']?.toString() ?? 'Kakilima Pos';
+        final storeName = data['store_name']?.toString() ?? 'OMNI POS';
         final role = data['role']?.toString() ?? 'admin';
         final fullName = data['full_name']?.toString() ?? 'Admin Toko';
         await prefs.setString('store_name', storeName);

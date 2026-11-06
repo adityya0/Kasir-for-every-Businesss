@@ -217,7 +217,7 @@ class _ActivityDetailSheetWidgetState extends State<_ActivityDetailSheetWidget> 
       buffer.writeln("📝 *Catatan:* ${widget.notes!.trim()}");
     }
     buffer.writeln("─────────────────────────");
-    buffer.writeln("Dikirim melalui *Kakilima POS* 🙏");
+    buffer.writeln("Dikirim melalui *OMNI POS* 🙏");
 
     final text = buffer.toString();
 
@@ -338,7 +338,7 @@ class _ActivityDetailSheetWidgetState extends State<_ActivityDetailSheetWidget> 
     final receiptService = ReceiptService();
     final bluetoothService = BluetoothPrinterService();
 
-    const storeName = "Kakilima POS";
+    const storeName = "OMNI POS";
     final transactionId = widget.code;
 
     List<Map<String, dynamic>> itemsList = [];
@@ -1681,7 +1681,7 @@ class _ActivityDetailSheetWidgetState extends State<_ActivityDetailSheetWidget> 
           ),
           const SizedBox(width: 8),
 
-          // 4. Print Button (Kakilima Signature Green)
+          // 4. Print Button (OMNI POS Signature Green)
           Expanded(
             child: ElevatedButton.icon(
               onPressed: _printReceipt,

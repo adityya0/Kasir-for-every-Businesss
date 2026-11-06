@@ -313,7 +313,7 @@ class BluetoothPrinterService {
       _printer.printNewLine();
     }
 
-    _printer.printCustom("DIHASILKAN OLEH SISTEM KASIR BERSAMA", 0, 1);
+    _printer.printCustom("DIHASILKAN OLEH SISTEM OMNI POS", 0, 1);
     _printer.printNewLine();
     _printer.printNewLine();
     _printer.printNewLine();

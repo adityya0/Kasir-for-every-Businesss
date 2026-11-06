@@ -305,7 +305,7 @@ class TransactionDetailPage extends StatelessWidget {
                   }
 
                     final pdfData = await receiptService.generateReceiptPdf(
-                      storeName: adminCtrl.storeName ?? "Kakilima Pos",
+                      storeName: adminCtrl.storeName ?? "OMNI POS",
                       storeLogoUrl: adminCtrl.storeLogo,
                       transactionId: transaction['id'].toString().substring(0, 8).toUpperCase(),
                       createdAt: date,
@@ -369,7 +369,7 @@ class TransactionDetailPage extends StatelessWidget {
                             total,
                         change:
                             (transaction['change'] as num?)?.toDouble() ?? 0,
-                        storeName: adminCtrl.storeName ?? "Kakilima Pos",
+                        storeName: adminCtrl.storeName ?? "OMNI POS",
                         createdAt: date,
                         items: items.map((it) {
                           return {
@@ -421,7 +421,7 @@ class TransactionDetailPage extends StatelessWidget {
                   );
                   try {
                     await receiptService.shareReceiptPdf(
-                      storeName: adminCtrl.storeName ?? "Kakilima Pos",
+                      storeName: adminCtrl.storeName ?? "OMNI POS",
                       storeLogoUrl: adminCtrl.storeLogo,
                       transactionId: transaction['id'].toString().substring(0, 8).toUpperCase(),
                       createdAt: date,

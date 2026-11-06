@@ -1989,7 +1989,7 @@ Metode: ${tx.paymentMethod ?? 'Kas Toko'}
 ---------------------------------------
 Catatan: ${tx.notes ?? '-'}
 
-_Tercatat otomatis via KAKILIMA POS_
+_Tercatat otomatis via OMNI POS_
 """.trim();
 
     final url = Uri.parse("https://wa.me/$formatted?text=${Uri.encodeComponent(msg)}");
@@ -2018,7 +2018,7 @@ $itemsStr
 *Total Pasokan: ${_currencyFormat.format(tx.totalAmount)}*
 *Total Hutang Berjalan: ${_currencyFormat.format(_supplier.unpaidBalance)}*
 
-_Tercatat otomatis via KAKILIMA POS_
+_Tercatat otomatis via OMNI POS_
 """.trim();
 
     final url = Uri.parse("https://wa.me/$formatted?text=${Uri.encodeComponent(msg)}");

@@ -165,7 +165,7 @@ class ReceiptService {
         }
       }
 
-      // Default fallback to Kakilima Pos app logo
+      // Default fallback to OMNI POS app logo
       if (logoImage == null) {
         try {
           final byteData = await rootBundle.load('assets/logo/logo.png');
@@ -386,7 +386,7 @@ class ReceiptService {
 
               pw.SizedBox(height: 6),
               pw.Text(
-                "DIHASILKAN OLEH SISTEM KASIR BERSAMA",
+                "DIHASILKAN OLEH SISTEM OMNI POS",
                 style: pw.TextStyle(
                   fontSize: 6,
                   fontStyle: pw.FontStyle.italic,
