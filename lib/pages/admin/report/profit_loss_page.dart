@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter/cupertino.dart';
@@ -45,13 +47,16 @@ class ProfitLossPage extends StatefulWidget {
   State<ProfitLossPage> createState() => _ProfitLossPageState();
 }
 
-class _ProfitLossPageState extends State<ProfitLossPage> {
+class _ProfitLossPageState extends State<ProfitLossPage> with WidgetsBindingObserver {
   final _currencyFormat = NumberFormat.currency(
     locale: 'id',
     symbol: 'Rp ',
     decimalDigits: 0,
   );
   final _exportService = ExportService();
+
+  DateTime _lastDateChecked = DateTime.now();
+  Timer? _midnightTimer;
 
   // Tab State: 0: Laba Rugi, 1: Arus Kas, 2: Transaksi, 3: Grafik, 4: Pasokan
   int _selectedTabIndex = 0;
@@ -66,21 +71,150 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
   // Expenses grouped by category & transaction list for current range
   Map<String, double> _expenseCategories = {};
   List<Transaction> _periodTransactions = [];
+  // Static in-memory cache for 0-second instant rendering across tab switches
+  static double _cachedTotalPiutang = 0.0;
+  static double _cachedTotalHutangSupplier = 0.0;
+  static double _cachedRealCumulativeSaldoKasBank = 0.0;
+  static Map<String, double> _cachedMethodCurrentBalances = {};
+  static List<_RecentActivityItem> _cachedRecentActivities = [];
+
   List<Expense> _periodExpenses = [];
   List<SupplierReportSummary> _supplierSummaries = [];
   List<SupplierTransaction> _periodSupplierTxs = [];
   bool _isLoadingDetails = false;
-  double _totalPiutang = 0.0;
-  double _totalHutangSupplier = 0.0;
+  double _totalPiutang = _cachedTotalPiutang;
+  double _totalHutangSupplier = _cachedTotalHutangSupplier;
   double _operationalExpensesSum = 0.0;
   double _totalExpensesSum = 0.0;
   double _periodOtherIncomeSum = 0.0;
   double _periodSupplierPurchaseSum = 0.0;
+  double _periodSalesSum = 0.0;
+  double _periodCogsSum = 0.0;
+  int _periodTxCount = 0;
   double _drawerBaseCash = 0.0;
   List<PaymentMethod> _activePaymentMethods = [];
-  Map<String, double> _methodCurrentBalances = {};
-  double _realCumulativeSaldoKasBank = 0.0;
-  List<_RecentActivityItem> _recentActivities = [];
+  Map<String, double> _methodCurrentBalances = _cachedMethodCurrentBalances;
+  double _realCumulativeSaldoKasBank = _cachedRealCumulativeSaldoKasBank;
+  List<_RecentActivityItem> _recentActivities = _cachedRecentActivities;
+  String? _selectedPaymentMethodFilter; // null means 'ALL' (Semua Metode)
+  String? _selectedSupplierIdFilter; // null means 'ALL' (Semua Supplier)
+  List<Supplier> _allSuppliers = [];
+  Map<String, Set<String>> _txSupplierIdsMap = {};
+  Map<String, Map<String, double>> _txSupplierSalesMap = {};
+  Map<String, Map<String, double>> _txSupplierCogsMap = {};
+  List<TransactionItem> _periodTxItems = [];
+  Map<String, Product> _periodProductsMap = {};
+  Map<String, Set<String>> _productToSuppliersMap = {};
+
+  Supplier? get _selectedSupplier {
+    if (_selectedSupplierIdFilter == null || _selectedSupplierIdFilter == 'ALL' || _selectedSupplierIdFilter == 'STORE') return null;
+    return _allSuppliers.where((s) => s.id == _selectedSupplierIdFilter).firstOrNull;
+  }
+
+  double _getTxSupplierTotalSales(String txId) {
+    final map = _txSupplierSalesMap[txId];
+    if (map == null || map.isEmpty) return 0.0;
+    return map.values.fold(0.0, (sum, val) => sum + val);
+  }
+
+  double _getTxSupplierTotalCogs(String txId) {
+    final map = _txSupplierCogsMap[txId];
+    if (map == null || map.isEmpty) return 0.0;
+    return map.values.fold(0.0, (sum, val) => sum + val);
+  }
+
+  double _getTxStoreSales(String txId, double txTotalAmount) {
+    final supSales = _getTxSupplierTotalSales(txId);
+    final storeSales = txTotalAmount - supSales;
+    return storeSales > 0 ? storeSales : 0.0;
+  }
+
+  double _getTxStoreCogs(String txId, double txTotalCogs) {
+    final supCogs = _getTxSupplierTotalCogs(txId);
+    final storeCogs = txTotalCogs - supCogs;
+    return storeCogs > 0 ? storeCogs : 0.0;
+  }
+
+  Map<String, double> _txCogsMap = {};
+  Map<String, String> _expMethodMap = {};
+
+  bool _matchesPaymentMethod(String? rawMethod, String filter) {
+    if (filter == 'ALL' || filter.trim().isEmpty) return true;
+    final method = (rawMethod ?? 'Kas').trim().toLowerCase();
+    final target = filter.trim().toLowerCase();
+
+    if (target == 'tunai' || target == 'kas') {
+      return method.contains('tunai') ||
+          method.contains('kas') ||
+          method.contains('cash') ||
+          method == 'laci';
+    }
+    if (target == 'qris') {
+      return method.contains('qris');
+    }
+    return method.contains(target);
+  }
+
+  bool _activityMatchesSupplier(_RecentActivityItem item, String supplierId) {
+    if (supplierId == 'STORE') {
+      // Khusus Toko:
+      // 1. Sales (PJ-xxxx)
+      if (item.rawTransaction != null) {
+        final storeSales = _getTxStoreSales(item.rawTransaction!.id, item.rawTransaction!.totalAmount ?? 0.0);
+        return storeSales > 0.001;
+      }
+      // 2. Supplier transactions (PB, BH, RB) -> bukan toko
+      if (item.rawSupplierTx != null) {
+        return false;
+      }
+      // 3. Expenses / Book entries
+      if (item.rawExpense != null) {
+        final notes = (item.rawExpense!.notes ?? '').toLowerCase();
+        final cat = item.rawExpense!.category.toLowerCase();
+        final isSupplierExpense = notes.contains('supplier') ||
+            notes.contains('pasokan') ||
+            notes.contains('hutang') ||
+            notes.contains('(pb-') ||
+            notes.contains('(bh-') ||
+            cat.contains('supplier') ||
+            cat.contains('restock') ||
+            cat.contains('pasokan') ||
+            cat.contains('hutang');
+        return !isSupplierExpense;
+      }
+      if (item.supplierName != null && item.supplierName!.isNotEmpty) {
+        return false;
+      }
+      return true;
+    }
+
+    final sup = _selectedSupplier;
+    if (sup == null) return true;
+    final supName = sup.name.toLowerCase();
+
+    // 1. Sales (PJ-xxxx)
+    if (item.rawTransaction != null) {
+      final sups = _txSupplierIdsMap[item.rawTransaction!.id];
+      return sups != null && sups.contains(supplierId);
+    }
+    // 2. Supplier transactions (PB, BH, RB)
+    if (item.rawSupplierTx != null) {
+      if (item.rawSupplierTx!.supplierId == supplierId) return true;
+      if (item.supplierName != null && item.supplierName!.toLowerCase().contains(supName)) return true;
+      return false;
+    }
+    // 3. Expenses / Book entries
+    if (item.rawExpense != null) {
+      final notes = (item.rawExpense!.notes ?? '').toLowerCase();
+      final cat = item.rawExpense!.category.toLowerCase();
+      return notes.contains(supName) || (cat.contains('supplier') && notes.contains(supName));
+    }
+    // 4. Fallback on supplierName or subtitle
+    if (item.supplierName != null && item.supplierName!.toLowerCase().contains(supName)) {
+      return true;
+    }
+    return item.subtitle.toLowerCase().contains(supName);
+  }
 
   bool _isInflowCategory(String category, {String? notes}) {
     final c = category.toLowerCase().trim();
@@ -112,6 +246,10 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
            c.contains('tarik') ||
            c.contains('transfer') ||
            c.contains('cek fisik') ||
+           c.contains('hutang') ||
+           c.contains('pelunasan') ||
+           n.contains('bayar hutang') ||
+           n.contains('pelunasan') ||
            n.contains('[cek_fisik]') ||
            n.contains('stok awal') ||
            n.contains('tarik') ||
@@ -123,14 +261,126 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _lastDateChecked = DateTime.now();
     _isShowingLaporanView = widget.initialLaporanView;
     _selectedTabIndex = widget.initialTabIndex;
+    _loadFastInitialData();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final ctrl = context.read<AnalyticsController>();
       ctrl.init(widget.storeId).then((_) {
-        _applyRange(ctrl.selectedRange, updateCtrl: false);
+        // Default selalu tampilkan Hari Ini (Today) di overview keuangan utama
+        _applyRange(ChartRange.today, updateCtrl: true);
       });
     });
+
+    // Otomatis cek setiap menit: jika tengah malam lewat (ganti tanggal), refresh data ke 0 secara real-time
+    _midnightTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+      _checkMidnightRollover();
+    });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _midnightTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // Saat kasir membuka kembali HP/tablet yang sempat ditinggal tidur/terkunci
+      _checkMidnightRollover();
+    }
+  }
+
+  void _checkMidnightRollover() {
+    final now = DateTime.now();
+    if (now.day != _lastDateChecked.day ||
+        now.month != _lastDateChecked.month ||
+        now.year != _lastDateChecked.year) {
+      _lastDateChecked = now;
+      if (mounted) {
+        final ctrl = context.read<AnalyticsController>();
+        ctrl.refreshData();
+        _applyRange(ctrl.selectedRange, updateCtrl: true);
+      }
+    }
+  }
+
+  Future<void> _loadFastInitialData() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final storeId = widget.storeId;
+      
+      final cachedSaldo = prefs.getDouble('profit_loss_cached_saldo_$storeId');
+      final cachedPiutang = prefs.getDouble('profit_loss_cached_piutang_$storeId');
+      final cachedHutang = prefs.getDouble('profit_loss_cached_hutang_$storeId');
+      final cachedMethodsRaw = prefs.getString('profit_loss_cached_methods_$storeId');
+      final cachedActivitiesRaw = prefs.getString('profit_loss_cached_activities_$storeId');
+
+      Map<String, double>? methods;
+      if (cachedMethodsRaw != null && cachedMethodsRaw.isNotEmpty) {
+        try {
+          final decoded = jsonDecode(cachedMethodsRaw) as Map<String, dynamic>;
+          methods = decoded.map((k, v) => MapEntry(k, (v as num).toDouble()));
+        } catch (_) {}
+      }
+
+      List<_RecentActivityItem>? activities;
+      if (cachedActivitiesRaw != null && cachedActivitiesRaw.isNotEmpty) {
+        try {
+          final list = jsonDecode(cachedActivitiesRaw) as List;
+          activities = list.map((item) {
+            final m = item as Map<String, dynamic>;
+            return _RecentActivityItem(
+              id: m['id'] ?? '',
+              badgeLabel: m['badgeLabel'] ?? '',
+              badgeBgColor: Color(m['badgeBgColor'] ?? 0xFFE0F2FE),
+              badgeTextColor: Color(m['badgeTextColor'] ?? 0xFF0369A1),
+              code: m['code'] ?? '',
+              secondaryBadge: m['secondaryBadge'],
+              secondaryBadgeBg: m['secondaryBadgeBg'] != null ? Color(m['secondaryBadgeBg']) : null,
+              secondaryBadgeText: m['secondaryBadgeText'] != null ? Color(m['secondaryBadgeText']) : null,
+              subtitle: m['subtitle'] ?? '',
+              date: DateTime.tryParse(m['date'] ?? '') ?? DateTime.now(),
+              amountText: m['amountText'] ?? '',
+              amountColor: Color(m['amountColor'] ?? 0xFF0F172A),
+              amountValue: (m['amountValue'] as num?)?.toDouble() ?? 0.0,
+              customerName: m['customerName'],
+              supplierName: m['supplierName'],
+              paymentMethodName: m['paymentMethodName'],
+            );
+          }).toList();
+        } catch (_) {}
+      }
+
+      if (mounted) {
+        setState(() {
+          if (cachedSaldo != null) {
+            _realCumulativeSaldoKasBank = cachedSaldo;
+            _cachedRealCumulativeSaldoKasBank = cachedSaldo;
+          }
+          if (cachedPiutang != null) {
+            _totalPiutang = cachedPiutang;
+            _cachedTotalPiutang = cachedPiutang;
+          }
+          if (cachedHutang != null) {
+            _totalHutangSupplier = cachedHutang;
+            _cachedTotalHutangSupplier = cachedHutang;
+          }
+          if (methods != null && methods.isNotEmpty) {
+            _methodCurrentBalances = methods;
+            _cachedMethodCurrentBalances = methods;
+          }
+          if (activities != null && activities.isNotEmpty) {
+            _recentActivities = activities;
+            _cachedRecentActivities = activities;
+          }
+        });
+      }
+    } catch (_) {}
   }
 
   void _applyRange(ChartRange range, {bool updateCtrl = true}) {
@@ -179,12 +429,28 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
 
   Future<void> _loadDetailData() async {
     if (!mounted) return;
-    setState(() => _isLoadingDetails = true);
+    if (_recentActivities.isEmpty) {
+      setState(() => _isLoadingDetails = true);
+    }
 
     try {
       final db = context.read<AppDatabase>();
       final startDay = DateTime(_startDate.year, _startDate.month, _startDate.day, 0, 0, 0);
       final endDay = DateTime(_endDate.year, _endDate.month, _endDate.day, 23, 59, 59);
+
+      // Fetch Payment Methods early to resolve expense payment method labels
+      final paymentService = PaymentMethodService(db);
+      await paymentService.ensureDefaultPaymentMethods(widget.storeId);
+      final pMethods = await paymentService.getPaymentMethods(widget.storeId);
+      final methodSummaries = await paymentService.calculateMethodSummaries(widget.storeId);
+      final Map<String, double> methodCurrentBalances = {
+        for (var e in methodSummaries.entries) e.key: e.value.currentBalance
+      };
+      final activeMethods = pMethods.where((m) => m.isActive).toList();
+      final realTotalBalance = activeMethods.fold<double>(
+        0.0,
+        (s, m) => s + (methodCurrentBalances[m.id] ?? 0.0),
+      );
 
       // 1. Fetch Expenses in range
       final exps = await (db.select(db.expenses)
@@ -193,6 +459,7 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
       ).get();
 
       final Map<String, double> catMap = {};
+      final Map<String, String> expMethodMap = {};
       double opExpSum = 0.0;
       double totalExpSum = 0.0;
       double otherIncSum = 0.0;
@@ -200,6 +467,16 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
       for (final exp in exps) {
         final cat = (exp.category.trim().isEmpty ? 'Lain-lain' : exp.category.trim());
         final amt = exp.amount ?? 0;
+        final expNotes = exp.notes ?? '';
+
+        String methodLabel = 'Kas';
+        for (final m in pMethods) {
+          if (expNotes.contains('[${m.name}]') || expNotes.toLowerCase().contains(m.name.toLowerCase())) {
+            methodLabel = m.name;
+            break;
+          }
+        }
+        expMethodMap[exp.id] = methodLabel;
 
         if (_isInflowCategory(cat, notes: exp.notes)) {
           if (!cat.toLowerCase().contains('modal')) {
@@ -227,6 +504,27 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
       final suppliers = await supplierService.getSuppliers(widget.storeId);
       final products = await (db.select(db.products)..where((p) => p.storeId.equals(widget.storeId))).get();
       final prodMap = {for (final p in products) p.id: p};
+
+      double periodSales = 0.0;
+      int periodTxCount = txs.length;
+      for (final t in txs) {
+        periodSales += (t.totalAmount ?? 0.0);
+      }
+
+      final currentTxIds = txs.map((t) => t.id).toList();
+      final currentTxItems = currentTxIds.isNotEmpty
+          ? await (db.select(db.transactionItems)..where((ti) => ti.transactionId.isIn(currentTxIds))).get()
+          : <TransactionItem>[];
+      double periodCogs = 0.0;
+      final Map<String, double> txCogsMap = {};
+      for (final ti in currentTxItems) {
+        final prod = prodMap[ti.productId];
+        final cost = (prod?.basePrice ?? prod?.buyPrice ?? 0.0) * (ti.quantity ?? 1);
+        periodCogs += cost;
+        if (ti.transactionId != null) {
+          txCogsMap[ti.transactionId!] = (txCogsMap[ti.transactionId!] ?? 0.0) + cost;
+        }
+      }
 
       // Cari cutoff pelunasan supplier agar tagihan berjalan tidak terpotong oleh filter tanggal atas
       DateTime? earliestCutoff;
@@ -335,19 +633,8 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
         (sum, s) => sum + s.unpaidBalance,
       );
 
-      // 6. Fetch Payment Methods & Saldo per Metode (termasuk korelasi transaksi penjualan lengkap)
-      final paymentService = PaymentMethodService(db);
-      await paymentService.ensureDefaultPaymentMethods(widget.storeId);
-      final pMethods = await paymentService.getPaymentMethods(widget.storeId);
-      final methodSummaries = await paymentService.calculateMethodSummaries(widget.storeId);
-      final Map<String, double> methodCurrentBalances = {
-        for (var e in methodSummaries.entries) e.key: e.value.currentBalance
-      };
-      final activeMethods = pMethods.where((m) => m.isActive).toList();
-      final realTotalBalance = activeMethods.fold<double>(
-        0.0,
-        (s, m) => s + (methodCurrentBalances[m.id] ?? 0.0),
-      );
+      // 6. Payment Methods & Saldo per Metode sudah diambil di awal method
+
 
       // 8. Fetch all supplier transactions & customers to build Aktivitas Terakhir & period purchase sum
       final allSupTxs = await supplierService.getAllStoreTransactions(widget.storeId);
@@ -361,13 +648,69 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
         }
       }
 
-      final allStoreTxs = await (db.select(db.transactions)
+      // Mapping produk per supplier & penjualan/COGS transaksi per supplier
+      final Map<String, Set<String>> supplierProductIdsMap = {};
+      for (final sup in suppliers) {
+        final Set<String> pIds = {...sup.productUsualStock.keys, ...sup.productPrices.keys};
+        supplierProductIdsMap[sup.id] = pIds;
+      }
+      for (final stx in allSupTxs) {
+        if (supplierProductIdsMap.containsKey(stx.supplierId)) {
+          for (final item in stx.items) {
+            if (item.productId.isNotEmpty) {
+              supplierProductIdsMap[stx.supplierId]!.add(item.productId);
+            }
+          }
+        }
+      }
+
+      final Map<String, Set<String>> productToSuppliersMap = {};
+      for (final entry in supplierProductIdsMap.entries) {
+        for (final pId in entry.value) {
+          productToSuppliersMap.putIfAbsent(pId, () => <String>{}).add(entry.key);
+        }
+      }
+
+      final Map<String, Set<String>> txSupplierIdsMap = {};
+      final Map<String, Map<String, double>> txSupplierSalesMap = {};
+      final Map<String, Map<String, double>> txSupplierCogsMap = {};
+
+      for (final ti in currentTxItems) {
+        final txId = ti.transactionId;
+        final pId = ti.productId;
+        if (txId == null || pId == null) continue;
+
+        final prod = prodMap[pId];
+        final cost = (prod?.basePrice ?? prod?.buyPrice ?? 0.0) * (ti.quantity ?? 1);
+        final sale = ti.totalPrice ?? ((prod?.salePrice ?? 0.0) * (ti.quantity ?? 1));
+
+        final supIds = productToSuppliersMap[pId] ?? {};
+        for (final sId in supIds) {
+          txSupplierIdsMap.putIfAbsent(txId, () => <String>{}).add(sId);
+
+          txSupplierSalesMap.putIfAbsent(txId, () => <String, double>{});
+          txSupplierSalesMap[txId]![sId] = (txSupplierSalesMap[txId]![sId] ?? 0.0) + sale;
+
+          txSupplierCogsMap.putIfAbsent(txId, () => <String, double>{});
+          txSupplierCogsMap[txId]![sId] = (txSupplierCogsMap[txId]![sId] ?? 0.0) + cost;
+        }
+      }
+
+      final totalCountExp = db.transactions.id.count();
+      final countQuery = db.selectOnly(db.transactions)
+        ..addColumns([totalCountExp])
+        ..where(db.transactions.storeId.equals(widget.storeId));
+      final totalTxCount = await countQuery.map((row) => row.read(totalCountExp)).getSingleOrNull() ?? 0;
+
+      final recentStoreTxs = await (db.select(db.transactions)
             ..where((t) => t.storeId.equals(widget.storeId))
-            ..orderBy([(t) => OrderingTerm.asc(t.createdAt)]))
+            ..orderBy([(t) => OrderingTerm.desc(t.createdAt)])
+            ..limit(40))
           .get();
-      final allStoreExps = await (db.select(db.expenses)
+      final recentStoreExps = await (db.select(db.expenses)
             ..where((e) => e.storeId.equals(widget.storeId))
-            ..orderBy([(e) => OrderingTerm.asc(e.date)]))
+            ..orderBy([(e) => OrderingTerm.desc(e.date)])
+            ..limit(40))
           .get();
       final allCustomers = await (db.select(db.customers)
             ..where((c) => c.storeId.equals(widget.storeId)))
@@ -377,9 +720,10 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
       final List<_RecentActivityItem> recentItems = [];
 
       // a) Sales (PJ-xxxx)
-      for (int i = 0; i < allStoreTxs.length; i++) {
-        final tx = allStoreTxs[i];
-        final pjNo = 'PJ-${(i + 1).toString().padLeft(4, '0')}';
+      for (int i = 0; i < recentStoreTxs.length; i++) {
+        final tx = recentStoreTxs[i];
+        final orderNum = totalTxCount - i;
+        final pjNo = 'PJ-${(orderNum > 0 ? orderNum : 1).toString().padLeft(4, '0')}';
         final custName = (tx.customerName != null && tx.customerName!.trim().isNotEmpty)
             ? tx.customerName!.trim()
             : (tx.customerId != null && custMap.containsKey(tx.customerId)
@@ -477,10 +821,11 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
       int tfCounter = 0;
       int smCounter = 0;
       int bhManualCounter = 0;
-      for (final exp in allStoreExps) {
+      for (final exp in recentStoreExps.reversed) {
         final notes = exp.notes ?? '';
+        final notesLower = notes.toLowerCase();
         // Skip duplicate expense entries automatically created by PB-xxxx or BH-xxxx
-        if (notes.contains('(PB-') || notes.contains('(BH-')) {
+        if (notesLower.contains('(pb-') || notesLower.contains('(bh-') || notesLower.contains('pb-') || notesLower.contains('bh-')) {
           continue;
         }
         final cat = exp.category.trim().isEmpty ? 'Biaya' : exp.category.trim();
@@ -543,7 +888,23 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
             amountValue: amt,
             paymentMethodName: methodLabel,
           ));
-        } else if (cLower.contains('prive') || cLower.contains('tarik')) {
+        } else if (cLower.contains('bayar hutang') || cLower.contains('pelunasan') || notesLower.contains('bayar hutang') || notesLower.contains('pelunasan')) {
+          bhManualCounter++;
+          recentItems.add(_RecentActivityItem(
+            id: exp.id,
+            badgeLabel: 'BAYAR HUTANG',
+            badgeBgColor: const Color(0xFFFFF1F2),
+            badgeTextColor: const Color(0xFFBE123C),
+            code: 'BH-${bhManualCounter.toString().padLeft(4, '0')}',
+            subtitle: '${cleanNote.isNotEmpty ? cleanNote : "Bayar Hutang"} · $methodLabel',
+            date: exp.date ?? DateTime.now(),
+            amountText: '-${_currencyFormat.format(amt)}',
+            amountColor: const Color(0xFFE05260),
+            rawExpense: exp,
+            amountValue: amt,
+            paymentMethodName: methodLabel,
+          ));
+        } else if (cLower.contains('prive') || cLower.contains('pribadi') || (cLower.contains('tarik') && !notesLower.contains('hutang') && !notesLower.contains('supplier'))) {
           prCounter++;
           recentItems.add(_RecentActivityItem(
             id: exp.id,
@@ -571,22 +932,6 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
             date: exp.date ?? DateTime.now(),
             amountText: '+${_currencyFormat.format(amt)}',
             amountColor: const Color(0xFF047857),
-            rawExpense: exp,
-            amountValue: amt,
-            paymentMethodName: methodLabel,
-          ));
-        } else if (cLower.contains('bayar hutang') || cLower.contains('pelunasan hutang')) {
-          bhManualCounter++;
-          recentItems.add(_RecentActivityItem(
-            id: exp.id,
-            badgeLabel: 'BAYAR HUTANG',
-            badgeBgColor: const Color(0xFFFFF1F2),
-            badgeTextColor: const Color(0xFFBE123C),
-            code: 'BH-${bhManualCounter.toString().padLeft(4, '0')}',
-            subtitle: '${cleanNote.isNotEmpty ? cleanNote : "Bayar Hutang"} · $methodLabel',
-            date: exp.date ?? DateTime.now(),
-            amountText: '-${_currencyFormat.format(amt)}',
-            amountColor: const Color(0xFFE05260),
             rawExpense: exp,
             amountValue: amt,
             paymentMethodName: methodLabel,
@@ -652,12 +997,58 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
           ? methodCurrentBalances[cashMethod.id]!
           : savedDrawer;
 
+      _cachedTotalPiutang = totalPiutang;
+      _cachedTotalHutangSupplier = totalHutangSup;
+      _cachedRealCumulativeSaldoKasBank = realTotalBalance;
+      _cachedMethodCurrentBalances = methodCurrentBalances;
+      _cachedRecentActivities = recentItems;
+
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final storeId = widget.storeId;
+        await prefs.setDouble('profit_loss_cached_saldo_$storeId', realTotalBalance);
+        await prefs.setDouble('profit_loss_cached_piutang_$storeId', totalPiutang);
+        await prefs.setDouble('profit_loss_cached_hutang_$storeId', totalHutangSup);
+        await prefs.setString('profit_loss_cached_methods_$storeId', jsonEncode(methodCurrentBalances));
+        final activitiesJson = recentItems.take(15).map((item) => {
+          'id': item.id,
+          'badgeLabel': item.badgeLabel,
+          'badgeBgColor': item.badgeBgColor.toARGB32(),
+          'badgeTextColor': item.badgeTextColor.toARGB32(),
+          'code': item.code,
+          'secondaryBadge': item.secondaryBadge,
+          'secondaryBadgeBg': item.secondaryBadgeBg?.toARGB32(),
+          'secondaryBadgeText': item.secondaryBadgeText?.toARGB32(),
+          'subtitle': item.subtitle,
+          'date': item.date.toIso8601String(),
+          'amountText': item.amountText,
+          'amountColor': item.amountColor.toARGB32(),
+          'amountValue': item.amountValue,
+          'customerName': item.customerName,
+          'supplierName': item.supplierName,
+          'paymentMethodName': item.paymentMethodName,
+        }).toList();
+        await prefs.setString('profit_loss_cached_activities_$storeId', jsonEncode(activitiesJson));
+      } catch (_) {}
+
       if (mounted) {
         setState(() {
           _expenseCategories = catMap;
           _periodTransactions = txs;
+          _periodSalesSum = periodSales;
+          _periodCogsSum = periodCogs;
+          _periodTxCount = periodTxCount;
           _periodExpenses = exps;
+          _txCogsMap = txCogsMap;
+          _expMethodMap = expMethodMap;
           _supplierSummaries = summaries;
+          _allSuppliers = suppliers;
+          _txSupplierIdsMap = txSupplierIdsMap;
+          _txSupplierSalesMap = txSupplierSalesMap;
+          _txSupplierCogsMap = txSupplierCogsMap;
+          _periodTxItems = currentTxItems;
+          _periodProductsMap = prodMap;
+          _productToSuppliersMap = productToSuppliersMap;
           _totalPiutang = totalPiutang;
           _totalHutangSupplier = totalHutangSup;
           _operationalExpensesSum = opExpSum;
@@ -684,6 +1075,41 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
 
 
 
+  Future<Map<String, String>> _loadTxItemSummaryMap(AppDatabase db, List<Transaction> txs) async {
+    final txIds = txs.map((t) => t.id).where((id) => id.isNotEmpty).toSet().toList();
+    if (txIds.isEmpty) return {};
+
+    final summaryMap = <String, List<String>>{};
+
+    try {
+      final allProducts = await db.select(db.products).get();
+      final prodNameMap = {for (var p in allProducts) p.id: p.name};
+
+      const chunkSize = 400;
+      for (var i = 0; i < txIds.length; i += chunkSize) {
+        final chunk = txIds.sublist(i, (i + chunkSize > txIds.length) ? txIds.length : i + chunkSize);
+        final items = await (db.select(db.transactionItems)..where((t) => t.transactionId.isIn(chunk))).get();
+        for (final item in items) {
+          final tId = item.transactionId;
+          if (tId == null || tId.isEmpty) continue;
+          final name = (item.productName != null && item.productName!.trim().isNotEmpty)
+              ? item.productName!.trim()
+              : (prodNameMap[item.productId] ?? 'Item');
+          final qty = item.quantity ?? 1;
+          final itemStr = qty > 1 ? '$name (${qty}x)' : name;
+          summaryMap.putIfAbsent(tId, () => []).add(itemStr);
+        }
+      }
+    } catch (e) {
+      debugPrint("Error loading tx item summary map: $e");
+    }
+
+    return {
+      for (var entry in summaryMap.entries)
+        entry.key: entry.value.join(', ')
+    };
+  }
+
   Future<void> _handleComprehensiveExport(String format) async {
     try {
       final db = context.read<AppDatabase>();
@@ -702,7 +1128,7 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
             ],
           ),
           duration: Duration(seconds: 2),
-          backgroundColor: Color(0xFF00BF63),
+          backgroundColor: Color(0xFF2CAED2),
         ),
       );
 
@@ -772,6 +1198,8 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
         });
       }
 
+      final txItemSummaryMap = await _loadTxItemSummaryMap(db, allTxs);
+
       final fmtTime = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
       Uint8List bytes;
       String filename;
@@ -779,28 +1207,31 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
 
       if (format == 'pdf') {
         bytes = await _exportService.generateFinancialReportPdf(
-          storeName: "OMNI POS",
+          storeName: "FLASH COIN LAUNDRY",
           transactions: allTxs,
           expenses: allExps,
           supplierReports: supplierExports,
+          transactionItemsSummary: txItemSummaryMap,
         );
         filename = "Laporan_Keuangan_Lengkap_AllTime_$fmtTime.pdf";
         mimeType = "application/pdf";
       } else if (format == 'excel') {
         bytes = await _exportService.generateFinancialReportExcel(
-          storeName: "OMNI POS",
+          storeName: "FLASH COIN LAUNDRY",
           transactions: allTxs,
           expenses: allExps,
           supplierReports: supplierExports,
+          transactionItemsSummary: txItemSummaryMap,
         );
         filename = "Laporan_Keuangan_Lengkap_AllTime_$fmtTime.xlsx";
         mimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
       } else {
         bytes = _exportService.generateFinancialReportCsv(
-          storeName: "OMNI POS",
+          storeName: "FLASH COIN LAUNDRY",
           transactions: allTxs,
           expenses: allExps,
           supplierReports: supplierExports,
+          transactionItemsSummary: txItemSummaryMap,
         );
         filename = "Laporan_Keuangan_Lengkap_AllTime_$fmtTime.csv";
         mimeType = "text/csv";
@@ -820,7 +1251,7 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
               "Laporan keuangan lengkap berhasil disimpan di folder Download\n($filename)",
               style: GoogleFonts.openSans(fontSize: 13, color: Colors.white),
             ),
-            backgroundColor: const Color(0xFF00BF63),
+            backgroundColor: const Color(0xFF2CAED2),
             duration: const Duration(seconds: 6),
             action: (savedPath != null)
                 ? SnackBarAction(
@@ -865,32 +1296,169 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
 
   Future<void> _handleFilteredExport(AnalyticsController controller, String format) async {
     try {
+      final db = context.read<AppDatabase>();
       final fmtTime = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
       Uint8List bytes;
       String filename;
       String mimeType;
 
-      final sales = _getCurrentSales(controller);
-      final cogs = _getCurrentCOGS(controller);
-      final grossProfit = sales - cogs;
-      final totalExp = _getCurrentExpenses(controller);
-      final netProfit = grossProfit - totalExp;
-      final txCount = _getCurrentTxCount(controller);
-      final periodLabel = _getPeriodLabel(controller);
+      final methodFilter = _selectedPaymentMethodFilter;
+      final bool hasMethodFilter = methodFilter != null && methodFilter != 'ALL';
+      final supFilter = _selectedSupplierIdFilter;
+      final bool hasSupFilter = supFilter != null && supFilter != 'ALL';
+      final bool isStoreOnly = supFilter == 'STORE';
+      final selectedSup = _selectedSupplier;
 
-      final supplierMaps = _supplierSummaries.map((s) => {
-        'supplierName': s.supplier.name,
-        'phone': s.supplier.phone ?? '-',
-        'productNames': s.productDetails.map((d) => d.productName).join(", "),
-        'totalQtySold': s.totalQtySold,
-        'totalCost': s.totalSupplierCost + s.directExpensesPaid,
-        'totalGross': s.totalGrossSales,
-        'netProfit': s.netProfit,
+      // 1. Filtered Transactions
+      final filteredTxs = _periodTransactions.where((t) {
+        if (hasMethodFilter && !_matchesPaymentMethod(t.paymentMethod, methodFilter)) {
+          return false;
+        }
+        if (hasSupFilter) {
+          if (isStoreOnly) {
+            final storeSales = _getTxStoreSales(t.id, t.totalAmount ?? 0.0);
+            if (storeSales <= 0.001) return false;
+          } else {
+            final sups = _txSupplierIdsMap[t.id];
+            if (sups == null || !sups.contains(supFilter)) {
+              return false;
+            }
+          }
+        }
+        return true;
       }).toList();
+
+      double currentSales = 0.0;
+      double currentCogs = 0.0;
+
+      if (hasSupFilter) {
+        if (isStoreOnly) {
+          for (final t in filteredTxs) {
+            currentSales += _getTxStoreSales(t.id, t.totalAmount ?? 0.0);
+            currentCogs += _getTxStoreCogs(t.id, _txCogsMap[t.id] ?? 0.0);
+          }
+        } else {
+          for (final t in filteredTxs) {
+            currentSales += (_txSupplierSalesMap[t.id]?[supFilter] ?? 0.0);
+            currentCogs += (_txSupplierCogsMap[t.id]?[supFilter] ?? 0.0);
+          }
+        }
+      } else if (hasMethodFilter) {
+        for (final t in filteredTxs) {
+          currentSales += (t.totalAmount ?? 0.0);
+          currentCogs += (_txCogsMap[t.id] ?? 0.0);
+        }
+      } else {
+        currentSales = _getCurrentSales(controller);
+        currentCogs = _getCurrentCOGS(controller);
+      }
+
+      final int currentTxCount = filteredTxs.length;
+      final double currentGrossProfit = currentSales - currentCogs;
+
+      // 2. Filtered Expenses
+      final filteredExpenses = _periodExpenses.where((e) {
+        if (hasMethodFilter) {
+          final mLabel = _expMethodMap[e.id] ?? 'Kas';
+          if (!_matchesPaymentMethod(mLabel, methodFilter)) return false;
+        }
+        if (hasSupFilter) {
+          if (isStoreOnly) {
+            final notes = (e.notes ?? '').toLowerCase();
+            final cat = e.category.toLowerCase();
+            final isSupplierExpense = notes.contains('supplier') ||
+                notes.contains('pasokan') ||
+                notes.contains('hutang') ||
+                notes.contains('(pb-') ||
+                notes.contains('(bh-') ||
+                cat.contains('supplier') ||
+                cat.contains('restock') ||
+                cat.contains('pasokan') ||
+                cat.contains('hutang');
+            if (isSupplierExpense) return false;
+          } else if (selectedSup != null) {
+            final sName = selectedSup.name.toLowerCase();
+            final notes = (e.notes ?? '').toLowerCase();
+            final cat = e.category.toLowerCase();
+            final isSupExp = notes.contains(sName) || (cat.contains('supplier') && notes.contains(sName));
+            if (!isSupExp) return false;
+          }
+        }
+        return true;
+      }).toList();
+
+      final Map<String, double> currentExpenseCategories = {};
+      double currentOpExpenses = 0.0;
+      double currentOtherIncome = 0.0;
+      double currentTotalExp = 0.0;
+
+      for (final exp in filteredExpenses) {
+        final cat = (exp.category.trim().isEmpty ? 'Lain-lain' : exp.category.trim());
+        final amt = exp.amount ?? 0.0;
+
+        if (_isInflowCategory(cat, notes: exp.notes)) {
+          if (!cat.toLowerCase().contains('modal')) {
+            currentOtherIncome += amt;
+          }
+        } else if (_isStockRestockCategory(cat, notes: exp.notes)) {
+          currentTotalExp += amt;
+        } else {
+          currentExpenseCategories[cat] = (currentExpenseCategories[cat] ?? 0.0) + amt;
+          currentOpExpenses += amt;
+          currentTotalExp += amt;
+        }
+      }
+
+      final double currentNetProfit = currentGrossProfit - currentOpExpenses + currentOtherIncome;
+
+      final basePeriodLabel = _getPeriodLabel(controller);
+      final List<String> activeFilterNames = [];
+      if (hasMethodFilter) activeFilterNames.add("Metode: $methodFilter");
+      if (hasSupFilter) {
+        activeFilterNames.add(isStoreOnly ? "Pemasukan Toko" : "Supplier: ${selectedSup?.name ?? ''}");
+      }
+
+      final periodLabel = activeFilterNames.isNotEmpty
+          ? "$basePeriodLabel (${activeFilterNames.join(' · ')})"
+          : basePeriodLabel;
+
+      final methodSlug = hasMethodFilter ? "_${methodFilter.replaceAll(RegExp(r'\s+'), '_')}" : "";
+      final supSlug = hasSupFilter
+          ? (isStoreOnly ? "_Toko" : (selectedSup != null ? "_Sup_${selectedSup.name.replaceAll(RegExp(r'\s+'), '_')}" : ""))
+          : "";
+      final filterFileSuffix = "$methodSlug$supSlug";
+
+      final String? exportSupplierName = hasSupFilter
+          ? (isStoreOnly
+              ? "Pemasukan Toko"
+              : (selectedSup != null
+                  ? (((selectedSup.notes ?? '').contains('[Titip]') ||
+                          (selectedSup.address ?? '').contains('[Titip]') ||
+                          (selectedSup.notes ?? '').toLowerCase().contains('penitip'))
+                      ? "Penitip: ${selectedSup.name}"
+                      : selectedSup.name)
+                  : null))
+          : null;
+
+      final supplierMaps = isStoreOnly
+          ? <Map<String, dynamic>>[]
+          : _supplierSummaries
+              .where((s) => !hasSupFilter || s.supplier.id == supFilter)
+              .map((s) => {
+            'supplierName': s.supplier.name,
+            'phone': s.supplier.phone ?? '-',
+            'productNames': s.productDetails.map((d) => d.productName).join(", "),
+            'totalQtySold': s.totalQtySold,
+            'totalCost': s.totalSupplierCost + s.directExpensesPaid,
+            'totalGross': s.totalGrossSales,
+            'netProfit': s.netProfit,
+          }).toList();
+
+      final txItemSummaryMap = await _loadTxItemSummaryMap(db, filteredTxs);
 
       if (_selectedTabIndex == 2) {
         // Tab Transaksi
-        if (_periodTransactions.isEmpty) {
+        if (filteredTxs.isEmpty) {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
@@ -904,32 +1472,39 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
 
         if (format == 'pdf') {
           bytes = await _exportService.generateTransactionsPdf(
-            "OMNI POS",
-            _periodTransactions,
+            "FLASH COIN LAUNDRY",
+            filteredTxs,
             periodLabel: periodLabel,
             startDate: _startDate,
             endDate: _endDate,
+            supplierName: exportSupplierName,
+            transactionItemsSummary: txItemSummaryMap,
           );
-          filename = "Laporan_Transaksi_$fmtTime.pdf";
+          filename = "Laporan_Transaksi${filterFileSuffix}_$fmtTime.pdf";
           mimeType = "application/pdf";
         } else if (format == 'excel') {
           bytes = await _exportService.generateTransactionsExcel(
-            "OMNI POS",
-            _periodTransactions,
+            "FLASH COIN LAUNDRY",
+            filteredTxs,
             periodLabel: periodLabel,
             startDate: _startDate,
             endDate: _endDate,
+            supplierName: exportSupplierName,
+            transactionItemsSummary: txItemSummaryMap,
           );
-          filename = "Laporan_Transaksi_$fmtTime.xlsx";
+          filename = "Laporan_Transaksi${filterFileSuffix}_$fmtTime.xlsx";
           mimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
         } else {
           bytes = _exportService.generateTransactionsCsv(
-            storeName: "OMNI POS",
+            storeName: "FLASH COIN LAUNDRY",
             startDate: _startDate,
             endDate: _endDate,
-            transactions: _periodTransactions,
+            transactions: filteredTxs,
+            periodLabel: periodLabel,
+            supplierName: exportSupplierName,
+            transactionItemsSummary: txItemSummaryMap,
           );
-          filename = "Laporan_Transaksi_$fmtTime.csv";
+          filename = "Laporan_Transaksi${filterFileSuffix}_$fmtTime.csv";
           mimeType = "text/csv";
         }
       } else if (_selectedTabIndex == 1) {
@@ -938,14 +1513,22 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
         final endDay = DateTime(_endDate.year, _endDate.month, _endDate.day, 23, 59, 59);
 
         double cashSalesSum = 0.0;
-        for (final tx in _periodTransactions) {
+        for (final tx in filteredTxs) {
           final status = tx.status.toLowerCase().trim();
           final isCompleted = status == 'completed' || status == 'lunas' || status == 'success' || status.isEmpty;
           final isDebt = status == 'debt' || status == 'piutang' || status == 'pending';
           if (isCompleted) {
-            cashSalesSum += (tx.totalAmount ?? 0.0);
+            cashSalesSum += (hasSupFilter
+                ? (isStoreOnly
+                    ? _getTxStoreSales(tx.id, tx.totalAmount ?? 0.0)
+                    : (_txSupplierSalesMap[tx.id]?[supFilter] ?? 0.0))
+                : (tx.totalAmount ?? 0.0));
           } else if (isDebt) {
-            cashSalesSum += (tx.cashReceived ?? 0.0);
+            cashSalesSum += (hasSupFilter
+                ? (isStoreOnly
+                    ? _getTxStoreSales(tx.id, tx.cashReceived ?? 0.0)
+                    : (_txSupplierSalesMap[tx.id]?[supFilter] ?? 0.0))
+                : (tx.cashReceived ?? 0.0));
           }
         }
 
@@ -957,11 +1540,17 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
         double pembelianTunaiExpenseSum = 0.0;
         double bayarHutangExpenseSum = 0.0;
 
-        for (final exp in _periodExpenses) {
+        for (final exp in filteredExpenses) {
           final cat = exp.category.trim().toLowerCase();
           final notes = (exp.notes ?? '').trim().toLowerCase();
           final double amt = exp.amount ?? 0.0;
           if (cat.contains('transfer') || notes.contains('transfer') || notes.contains('[transfer]')) continue;
+
+          // Skip duplicate expense entries automatically created by PB-xxxx or BH-xxxx
+          if (notes.contains('(pb-') || notes.contains('(bh-') || notes.contains('pb-') || notes.contains('bh-')) {
+            continue;
+          }
+
           final isInflow = _isInflowCategory(exp.category, notes: exp.notes);
           if (isInflow) {
             if (cat.contains('modal') || notes.contains('modal')) {
@@ -972,12 +1561,25 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
               pemasukanLainSum += amt;
             }
           } else {
-            if (cat.contains('prive') || cat.contains('pribadi') || notes.contains('prive') || notes.contains('pribadi')) {
-              priveSum += amt;
-            } else if (cat.contains('hutang') || notes.contains('bayar hutang') || notes.contains('pelunasan supplier')) {
+            final isBayarHutang = cat.contains('hutang') || 
+                                  cat.contains('pelunasan') || 
+                                  notes.contains('bayar hutang') || 
+                                  notes.contains('pelunasan supplier');
+
+            final isBeliStok = cat.contains('pembelian') || 
+                               cat.contains('supplier') || 
+                               cat.contains('kulakan') || 
+                               notes.contains('pembelian pasokan');
+
+            final isPrive = !isBayarHutang && !isBeliStok && 
+                            (cat.contains('prive') || cat.contains('pribadi') || (cat.contains('tarik') && !notes.contains('hutang') && !notes.contains('supplier')));
+
+            if (isBayarHutang) {
               bayarHutangExpenseSum += amt;
-            } else if (cat.contains('pembelian') || cat.contains('supplier') || cat.contains('kulakan') || notes.contains('pembelian pasokan')) {
+            } else if (isBeliStok) {
               pembelianTunaiExpenseSum += amt;
+            } else if (isPrive) {
+              priveSum += amt;
             } else {
               biayaOperasionalSum += amt;
             }
@@ -986,7 +1588,19 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
 
         double supPurchaseCashSum = 0.0;
         double supDebtPaymentSum = 0.0;
-        for (final stx in _periodSupplierTxs) {
+        final filteredSupTxs = (hasSupFilter && isStoreOnly)
+            ? <SupplierTransaction>[]
+            : _periodSupplierTxs.where((stx) {
+                if (hasMethodFilter && !_matchesPaymentMethod(stx.paymentMethod, methodFilter)) {
+                  return false;
+                }
+                if (hasSupFilter && stx.supplierId != supFilter) {
+                  return false;
+                }
+                return true;
+              }).toList();
+
+        for (final stx in filteredSupTxs) {
           if (stx.createdAt.isBefore(startDay) || stx.createdAt.isAfter(endDay)) continue;
           if (stx.type == 'purchase') {
             final paid = stx.paymentStatus == 'lunas' ? stx.totalAmount : 0.0;
@@ -996,24 +1610,39 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
           }
         }
 
-        final pembelianTunaiDP = pembelianTunaiExpenseSum > 0 ? pembelianTunaiExpenseSum : supPurchaseCashSum;
-        final bayarHutang = bayarHutangExpenseSum > 0 ? bayarHutangExpenseSum : supDebtPaymentSum;
+        final pembelianTunaiDP = pembelianTunaiExpenseSum + supPurchaseCashSum;
+        final bayarHutang = bayarHutangExpenseSum + supDebtPaymentSum;
         final kasMasuk = cashSalesSum + setorModalSum + pemasukanLainSum + terimaPiutangSum;
         final kasKeluar = biayaOperasionalSum + priveSum + pembelianTunaiDP + bayarHutang;
         final arusKasBersih = kasMasuk - kasKeluar;
 
-        final accountNotes = <String>[];
-        for (final m in _activePaymentMethods) {
-          final bal = _methodCurrentBalances[m.id] ?? 0.0;
-          accountNotes.add("${m.name} ${_currencyFormat.format(bal)}");
+        String balancesNote;
+        if (hasSupFilter && isStoreOnly) {
+          balancesNote = "Laporan Arus Kas Toko.";
+        } else if (hasSupFilter && selectedSup != null) {
+          balancesNote = "Supplier: ${selectedSup.name} · Sisa hutang pasokan: ${_currencyFormat.format(selectedSup.unpaidBalance)}";
+        } else if (hasMethodFilter) {
+          double bal = 0.0;
+          for (final m in _activePaymentMethods) {
+            if (_matchesPaymentMethod(m.name, methodFilter)) {
+              bal += (_methodCurrentBalances[m.id] ?? 0.0);
+            }
+          }
+          balancesNote = "Saldo saat ini ($methodFilter): ${_currencyFormat.format(bal)} (transfer antar akun tidak dihitung arus).";
+        } else {
+          final accountNotes = <String>[];
+          for (final m in _activePaymentMethods) {
+            final bal = _methodCurrentBalances[m.id] ?? 0.0;
+            accountNotes.add("${m.name} ${_currencyFormat.format(bal)}");
+          }
+          balancesNote = accountNotes.isNotEmpty
+              ? "Saldo saat ini: ${accountNotes.join(' · ')} (transfer antar akun tidak dihitung arus)."
+              : "Saldo saat ini: Kas ${_currencyFormat.format(_drawerBaseCash)} (transfer antar akun tidak dihitung arus).";
         }
-        final balancesNote = accountNotes.isNotEmpty
-            ? "Saldo saat ini: ${accountNotes.join(' · ')} (transfer antar akun tidak dihitung arus)."
-            : "Saldo saat ini: Kas ${_currencyFormat.format(_drawerBaseCash)} (transfer antar akun tidak dihitung arus).";
 
         if (format == 'pdf') {
           bytes = await _exportService.generateCashFlowPdf(
-            storeName: "OMNI POS",
+            storeName: "FLASH COIN LAUNDRY",
             startDate: _startDate,
             endDate: _endDate,
             penjualanTunaiDP: cashSalesSum > 0 ? cashSalesSum : null,
@@ -1028,12 +1657,13 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
             totalCashOut: kasKeluar,
             netCashFlow: arusKasBersih,
             accountBalancesNote: balancesNote,
+            supplierName: exportSupplierName,
           );
-          filename = "Laporan_Arus_Kas_$fmtTime.pdf";
+          filename = "Laporan_Arus_Kas${filterFileSuffix}_$fmtTime.pdf";
           mimeType = "application/pdf";
         } else if (format == 'excel') {
           bytes = await _exportService.generateCashFlowExcel(
-            storeName: "OMNI POS",
+            storeName: "FLASH COIN LAUNDRY",
             startDate: _startDate,
             endDate: _endDate,
             penjualanTunaiDP: cashSalesSum > 0 ? cashSalesSum : null,
@@ -1048,12 +1678,13 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
             totalCashOut: kasKeluar,
             netCashFlow: arusKasBersih,
             accountBalancesNote: balancesNote,
+            supplierName: exportSupplierName,
           );
-          filename = "Laporan_Arus_Kas_$fmtTime.xlsx";
+          filename = "Laporan_Arus_Kas${filterFileSuffix}_$fmtTime.xlsx";
           mimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
         } else {
           bytes = _exportService.generateCashFlowCsv(
-            storeName: "OMNI POS",
+            storeName: "FLASH COIN LAUNDRY",
             startDate: _startDate,
             endDate: _endDate,
             penjualanTunaiDP: cashSalesSum > 0 ? cashSalesSum : null,
@@ -1068,8 +1699,9 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
             totalCashOut: kasKeluar,
             netCashFlow: arusKasBersih,
             accountBalancesNote: balancesNote,
+            supplierName: exportSupplierName,
           );
-          filename = "Laporan_Arus_Kas_$fmtTime.csv";
+          filename = "Laporan_Arus_Kas${filterFileSuffix}_$fmtTime.csv";
           mimeType = "text/csv";
         }
       } else {
@@ -1080,39 +1712,43 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
 
         if (format == 'pdf') {
           bytes = await _exportService.generateFinancialReportPdf(
-            storeName: "OMNI POS",
-            transactions: _periodTransactions,
-            expenses: _periodExpenses,
+            storeName: "FLASH COIN LAUNDRY",
+            transactions: filteredTxs,
+            expenses: filteredExpenses,
             supplierReports: supplierMaps,
             periodLabel: periodLabel,
+            transactionItemsSummary: txItemSummaryMap,
           );
-          filename = "Laporan_${prefix}_$fmtTime.pdf";
+          filename = "Laporan_$prefix${filterFileSuffix}_$fmtTime.pdf";
           mimeType = "application/pdf";
         } else if (format == 'excel') {
           bytes = await _exportService.generateFinancialReportExcel(
-            storeName: "OMNI POS",
-            transactions: _periodTransactions,
-            expenses: _periodExpenses,
+            storeName: "FLASH COIN LAUNDRY",
+            transactions: filteredTxs,
+            expenses: filteredExpenses,
             supplierReports: supplierMaps,
             periodLabel: periodLabel,
+            transactionItemsSummary: txItemSummaryMap,
           );
-          filename = "Laporan_${prefix}_$fmtTime.xlsx";
+          filename = "Laporan_$prefix${filterFileSuffix}_$fmtTime.xlsx";
           mimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
         } else {
           // CSV Laba Rugi
           bytes = _exportService.generateProfitLossCsv(
-            storeName: "OMNI POS",
+            storeName: "FLASH COIN LAUNDRY",
             startDate: _startDate,
             endDate: _endDate,
-            sales: sales,
-            cogs: cogs,
-            grossProfit: grossProfit,
-            expensesByCategory: _expenseCategories,
-            totalExpenses: totalExp,
-            netProfit: netProfit,
-            txCount: txCount,
+            sales: currentSales,
+            cogs: currentCogs,
+            grossProfit: currentGrossProfit,
+            expensesByCategory: currentExpenseCategories.isNotEmpty ? currentExpenseCategories : _expenseCategories,
+            totalExpenses: currentTotalExp > 0 ? currentTotalExp : currentOpExpenses,
+            netProfit: currentNetProfit,
+            txCount: currentTxCount,
+            periodLabel: periodLabel,
+            supplierName: exportSupplierName,
           );
-          filename = "Laporan_Laba_Rugi_$fmtTime.csv";
+          filename = "Laporan_Laba_Rugi${filterFileSuffix}_$fmtTime.csv";
           mimeType = "text/csv";
         }
       }
@@ -1130,7 +1766,7 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
               "Laporan berhasil disimpan di folder Download ($filename)",
               style: GoogleFonts.openSans(fontSize: 13, color: Colors.white),
             ),
-            backgroundColor: const Color(0xFF00BF63),
+            backgroundColor: const Color(0xFF2CAED2),
             duration: const Duration(seconds: 6),
             action: (savedPath != null)
                 ? SnackBarAction(
@@ -1247,12 +1883,12 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
                           Container(
                             padding: const EdgeInsets.all(6),
                             decoration: BoxDecoration(
-                              color: const Color(0xFF00BF63).withValues(alpha: 0.1),
+                              color: const Color(0xFF2CAED2).withValues(alpha: 0.1),
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: const Icon(
                               Icons.bolt_rounded,
-                              color: Color(0xFF00BF63),
+                              color: Color(0xFF2CAED2),
                               size: 20,
                             ),
                           ),
@@ -1339,7 +1975,7 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
                         icon: Icons.share_rounded,
                         label: "Kirim WA",
                         subtitle: "Laporan tutup buku WA",
-                        color: const Color(0xFF00BF63),
+                        color: const Color(0xFF2CAED2),
                         isDark: isDark,
                         onTap: () {
                           Navigator.pop(ctx);
@@ -1380,7 +2016,7 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
                         icon: Icons.table_chart_rounded,
                         label: "Unduh Excel",
                         subtitle: "Workbook all-time Excel",
-                        color: const Color(0xFF00BF63),
+                        color: const Color(0xFF2CAED2),
                         isDark: isDark,
                         onTap: () {
                           Navigator.pop(ctx);
@@ -1534,13 +2170,13 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
             if (!_isShowingLaporanView)
               TextButton.icon(
                 onPressed: () => setState(() => _isShowingLaporanView = true),
-                icon: const Icon(Icons.analytics_outlined, size: 18, color: Color(0xFF00BF63)),
+                icon: const Icon(Icons.analytics_outlined, size: 18, color: Color(0xFF2CAED2)),
                 label: Text(
                   "Laporan",
                   style: GoogleFonts.plusJakartaSans(
                     fontSize: 13,
                     fontWeight: FontWeight.w700,
-                    color: const Color(0xFF00BF63),
+                    color: const Color(0xFF2CAED2),
                   ),
                 ),
               ),
@@ -1558,7 +2194,7 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
                 child: IconButton(
                   icon: const Icon(
                     Icons.bolt_rounded,
-                    color: Color(0xFF00BF63),
+                    color: Color(0xFF2CAED2),
                     size: 24,
                   ),
                   tooltip: "Pintasan Cepat Keuangan",
@@ -1570,25 +2206,30 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
         ),
         body: Consumer<AnalyticsController>(
           builder: (context, controller, child) {
-            if (controller.isLoading) {
+            if (controller.isLoading && _cachedRecentActivities.isEmpty && controller.totalSales == 0) {
               return const Center(child: CupertinoActivityIndicator());
             }
 
-            final sales = _getCurrentSales(controller);
-            final cogs = _getCurrentCOGS(controller);
+            final ctrlSales = _getCurrentSales(controller);
+            final ctrlTxCount = _getCurrentTxCount(controller);
+            final ctrlCogs = _getCurrentCOGS(controller);
+
+            // Robust Single Source of Truth: Fallback ke hitungan database langsung jika controller 0 padahal ada transaksi
+            final sales = (ctrlSales > 0 || _periodSalesSum == 0) ? ctrlSales : _periodSalesSum;
+            final txCount = (ctrlTxCount > 0 || _periodTxCount == 0) ? ctrlTxCount : _periodTxCount;
+            final cogs = (ctrlCogs > 0 || _periodCogsSum == 0) ? ctrlCogs : _periodCogsSum;
             final grossProfit = sales - cogs;
             // Biaya Operasional murni (tidak memotong ganda modal Restock Supplier yang sudah diperhitungkan di HPP):
             final operationalExpenses = _operationalExpensesSum;
             final netProfit = grossProfit - operationalExpenses + _periodOtherIncomeSum;
             final totalCashOut = _totalExpensesSum > 0 ? _totalExpensesSum : _getCurrentExpenses(controller);
-            final txCount = _getCurrentTxCount(controller);
 
             return RefreshIndicator(
               onRefresh: () async {
                 await controller.refreshData();
                 await _loadDetailData();
               },
-              color: const Color(0xFF00BF63),
+              color: const Color(0xFF2CAED2),
               child: SingleChildScrollView(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
                 physics: const AlwaysScrollableScrollPhysics(),
@@ -1626,8 +2267,8 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
                         : Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              // 1. Top Period Filter Dropdown
-                              _buildPeriodPills(controller, isDark),
+                              // 1. Top Period & Payment Method Filter Dropdowns (Sebaris)
+                              _buildPeriodAndMethodFilters(controller, isDark),
                               const SizedBox(height: 12),
 
                               // 2. Tab Menu Bar (Laba Rugi, Arus Kas, Transaksi, Grafik)
@@ -1637,22 +2278,173 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
                               ],
 
                               // 3. Tab Body Content
-                              if (_isLoadingDetails)
+                              if (_isLoadingDetails && _periodTransactions.isEmpty && _recentActivities.isEmpty)
                                 const Padding(
                                   padding: EdgeInsets.symmetric(vertical: 40),
                                   child: Center(child: CupertinoActivityIndicator()),
                                 )
                               else ...[
-                                if (_selectedTabIndex == 0)
-                                  _buildLabaRugiTab(controller, sales, cogs, grossProfit, operationalExpenses, netProfit, txCount, isDark)
-                                else if (_selectedTabIndex == 1)
-                                  _buildArusKasTab(controller, sales, totalCashOut, isDark)
-                                else if (_selectedTabIndex == 2)
-                                  _buildTransaksiTab(controller, sales, txCount, isDark)
-                                else if (_selectedTabIndex == 3)
-                                  _buildGrafikTab(controller, netProfit, isDark)
-                                else if (_selectedTabIndex == 4)
-                                  _buildPasokanTab(isDark),
+                                () {
+                                  final methodFilter = _selectedPaymentMethodFilter;
+                                  final bool hasMethodFilter = methodFilter != null && methodFilter != 'ALL';
+                                  final supFilter = _selectedSupplierIdFilter;
+                                  final bool hasSupFilter = supFilter != null && supFilter != 'ALL';
+                                  final bool isStoreOnly = supFilter == 'STORE';
+                                  final selectedSup = _selectedSupplier;
+
+                                  // Filtered Transactions
+                                  final filteredTxs = _periodTransactions.where((t) {
+                                    if (hasMethodFilter && !_matchesPaymentMethod(t.paymentMethod, methodFilter)) {
+                                      return false;
+                                    }
+                                    if (hasSupFilter) {
+                                      if (isStoreOnly) {
+                                        final storeSales = _getTxStoreSales(t.id, t.totalAmount ?? 0.0);
+                                        if (storeSales <= 0.001) return false;
+                                      } else {
+                                        final sups = _txSupplierIdsMap[t.id];
+                                        if (sups == null || !sups.contains(supFilter)) {
+                                          return false;
+                                        }
+                                      }
+                                    }
+                                    return true;
+                                  }).toList();
+
+                                  double filteredSales = 0.0;
+                                  double filteredCogs = 0.0;
+
+                                  if (hasSupFilter) {
+                                    if (isStoreOnly) {
+                                      for (final t in filteredTxs) {
+                                        filteredSales += _getTxStoreSales(t.id, t.totalAmount ?? 0.0);
+                                        filteredCogs += _getTxStoreCogs(t.id, _txCogsMap[t.id] ?? 0.0);
+                                      }
+                                    } else {
+                                      for (final t in filteredTxs) {
+                                        filteredSales += (_txSupplierSalesMap[t.id]?[supFilter] ?? 0.0);
+                                        filteredCogs += (_txSupplierCogsMap[t.id]?[supFilter] ?? 0.0);
+                                      }
+                                    }
+                                  } else if (hasMethodFilter) {
+                                    for (final t in filteredTxs) {
+                                      filteredSales += (t.totalAmount ?? 0.0);
+                                      filteredCogs += (_txCogsMap[t.id] ?? 0.0);
+                                    }
+                                  } else {
+                                    filteredSales = sales;
+                                    filteredCogs = cogs;
+                                  }
+
+                                  final int filteredTxCount = filteredTxs.length;
+                                  final double filteredGrossProfit = filteredSales - filteredCogs;
+
+                                  // Filtered Expenses
+                                  final filteredExpenses = _periodExpenses.where((e) {
+                                    if (hasMethodFilter) {
+                                      final mLabel = _expMethodMap[e.id] ?? 'Kas';
+                                      if (!_matchesPaymentMethod(mLabel, methodFilter)) return false;
+                                    }
+                                    if (hasSupFilter) {
+                                      if (isStoreOnly) {
+                                        final notes = (e.notes ?? '').toLowerCase();
+                                        final cat = e.category.toLowerCase();
+                                        final isSupplierExpense = notes.contains('supplier') ||
+                                            notes.contains('pasokan') ||
+                                            notes.contains('hutang') ||
+                                            notes.contains('(pb-') ||
+                                            notes.contains('(bh-') ||
+                                            cat.contains('supplier') ||
+                                            cat.contains('restock') ||
+                                            cat.contains('pasokan') ||
+                                            cat.contains('hutang');
+                                        if (isSupplierExpense) return false;
+                                      } else if (selectedSup != null) {
+                                        final sName = selectedSup.name.toLowerCase();
+                                        final notes = (e.notes ?? '').toLowerCase();
+                                        final cat = e.category.toLowerCase();
+                                        final isSupExp = notes.contains(sName) || (cat.contains('supplier') && notes.contains(sName));
+                                        if (!isSupExp) return false;
+                                      }
+                                    }
+                                    return true;
+                                  }).toList();
+
+                                  final Map<String, double> filteredExpenseCategories = {};
+                                  double filteredOpExpSum = 0.0;
+                                  double filteredOtherIncSum = 0.0;
+                                  double filteredTotalExpSum = 0.0;
+
+                                  for (final exp in filteredExpenses) {
+                                    final cat = (exp.category.trim().isEmpty ? 'Lain-lain' : exp.category.trim());
+                                    final amt = exp.amount ?? 0.0;
+
+                                    if (_isInflowCategory(cat, notes: exp.notes)) {
+                                      if (!cat.toLowerCase().contains('modal')) {
+                                        filteredOtherIncSum += amt;
+                                      }
+                                    } else if (_isStockRestockCategory(cat, notes: exp.notes)) {
+                                      filteredTotalExpSum += amt;
+                                    } else {
+                                      filteredExpenseCategories[cat] = (filteredExpenseCategories[cat] ?? 0.0) + amt;
+                                      filteredOpExpSum += amt;
+                                      filteredTotalExpSum += amt;
+                                    }
+                                  }
+
+                                  final filteredNetProfit = filteredGrossProfit - filteredOpExpSum + filteredOtherIncSum;
+
+                                  if (_selectedTabIndex == 0) {
+                                    return _buildLabaRugiTab(
+                                      controller,
+                                      filteredSales,
+                                      filteredCogs,
+                                      filteredGrossProfit,
+                                      filteredOpExpSum,
+                                      filteredNetProfit,
+                                      filteredTxCount,
+                                      isDark,
+                                      expenseCategories: filteredExpenseCategories,
+                                      otherIncome: filteredOtherIncSum,
+                                      selectedSupplier: selectedSup,
+                                      supplierFilter: supFilter,
+                                    );
+                                  } else if (_selectedTabIndex == 1) {
+                                    return _buildArusKasTab(
+                                      controller,
+                                      filteredSales,
+                                      filteredTotalExpSum,
+                                      isDark,
+                                      filteredTxs: filteredTxs,
+                                      filteredExpenses: filteredExpenses,
+                                      paymentMethodFilter: methodFilter,
+                                      supplierFilter: supFilter,
+                                      selectedSupplier: selectedSup,
+                                    );
+                                  } else if (_selectedTabIndex == 2) {
+                                    return _buildTransaksiTab(
+                                      controller,
+                                      filteredSales,
+                                      filteredTxCount,
+                                      isDark,
+                                      paymentMethodFilter: methodFilter,
+                                      supplierFilter: supFilter,
+                                      selectedSupplier: selectedSup,
+                                    );
+                                  } else if (_selectedTabIndex == 3) {
+                                    return _buildGrafikTab(
+                                      controller,
+                                      filteredNetProfit,
+                                      isDark,
+                                      filteredTxs: filteredTxs,
+                                      supplierFilter: supFilter,
+                                      selectedSupplier: selectedSup,
+                                    );
+                                  } else if (_selectedTabIndex == 4) {
+                                    return _buildPasokanTab(isDark);
+                                  }
+                                  return const SizedBox.shrink();
+                                }(),
                               ],
 
                               const SizedBox(height: 40),
@@ -1668,127 +2460,399 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
     );
   }
 
-  // ─── 1. Period Selector Dropdown (Hemat Tempat & Fungsionalitas Sama) ──────
-  Widget _buildPeriodPills(AnalyticsController controller, bool isDark) {
+  // ─── 1. Period & Payment Method Selector Dropdowns (Sebaris / Side-by-Side) ──────
+  Widget _buildPeriodAndMethodFilters(AnalyticsController controller, bool isDark) {
     final isCustom = controller.selectedRange == ChartRange.custom;
     final activeRange = controller.selectedRange == ChartRange.thirtyDays
         ? ChartRange.month
         : controller.selectedRange;
 
     final customLabel = isCustom
-        ? "Tanggal: ${DateFormat('dd/MM/yy').format(_startDate)} - ${DateFormat('dd/MM/yy').format(_endDate)}"
-        : "Pilih Tanggal...";
+        ? "${DateFormat('dd/MM').format(_startDate)}-${DateFormat('dd/MM').format(_endDate)}"
+        : "Pilih Tanggal";
 
-    return Row(
-      children: [
-        Expanded(
-          child: Container(
-            height: 44,
-            padding: const EdgeInsets.symmetric(horizontal: 14),
-            decoration: BoxDecoration(
-              color: isDark ? const Color(0xFF1E293B) : Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: isDark ? Colors.white12 : const Color(0xFFE2E8F0),
-                width: 1.0,
+    // Build available payment method dropdown items safely
+    final currentMethodVal = (_selectedPaymentMethodFilter == null || _selectedPaymentMethodFilter!.isEmpty)
+        ? 'ALL'
+        : _selectedPaymentMethodFilter!;
+
+    final Set<String> knownValues = {'ALL', 'Tunai', 'QRIS'};
+    final List<DropdownMenuItem<String>> methodItems = [
+      DropdownMenuItem(
+        value: 'ALL',
+        child: Row(
+          children: [
+            const Icon(Icons.wallet_rounded, size: 14, color: Color(0xFF2CAED2)),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                "Semua Metode",
+                style: GoogleFonts.plusJakartaSans(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: isDark ? Colors.white : const Color(0xFF0F172A),
+                ),
+                overflow: TextOverflow.ellipsis,
               ),
             ),
+          ],
+        ),
+      ),
+      DropdownMenuItem(
+        value: 'Tunai',
+        child: Row(
+          children: [
+            const Icon(Icons.payments_outlined, size: 14, color: Color(0xFF10B981)),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                "Tunai / Kas",
+                style: GoogleFonts.plusJakartaSans(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: isDark ? Colors.white : const Color(0xFF0F172A),
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+      ),
+      DropdownMenuItem(
+        value: 'QRIS',
+        child: Row(
+          children: [
+            const Icon(Icons.qr_code_scanner_rounded, size: 14, color: Color(0xFF2CAED2)),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                "QRIS",
+                style: GoogleFonts.plusJakartaSans(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: isDark ? Colors.white : const Color(0xFF0F172A),
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+      ),
+    ];
+
+    for (final m in _activePaymentMethods) {
+      final nLower = m.name.toLowerCase();
+      if (nLower.contains('tunai') || nLower.contains('kas') || nLower.contains('qris')) {
+        continue;
+      }
+      if (!knownValues.contains(m.name)) {
+        knownValues.add(m.name);
+        methodItems.add(
+          DropdownMenuItem(
+            value: m.name,
+            child: Row(
+              children: [
+                const Icon(Icons.account_balance_wallet_outlined, size: 14, color: Color(0xFF8B5CF6)),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    m.name,
+                    style: GoogleFonts.plusJakartaSans(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: isDark ? Colors.white : const Color(0xFF0F172A),
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      }
+    }
+
+    final safeSelectedMethod = knownValues.contains(currentMethodVal) ? currentMethodVal : 'ALL';
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            // Dropdown 1: Periode Waktu
+            Expanded(
+              flex: 5,
+              child: Container(
+                height: 44,
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF1E293B) : Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: isDark ? Colors.white12 : const Color(0xFFE2E8F0),
+                    width: 1.0,
+                  ),
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<ChartRange>(
+                    value: activeRange,
+                    isExpanded: true,
+                    icon: const Icon(
+                      Icons.keyboard_arrow_down_rounded,
+                      color: Color(0xFF2CAED2),
+                      size: 20,
+                    ),
+                    dropdownColor: isDark ? const Color(0xFF1E293B) : Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    style: GoogleFonts.plusJakartaSans(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: isDark ? Colors.white : const Color(0xFF0F172A),
+                    ),
+                    items: [
+                      DropdownMenuItem(
+                        value: ChartRange.today,
+                        child: Row(
+                          children: [
+                            const Icon(Icons.calendar_today_rounded, size: 14, color: Color(0xFF2CAED2)),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                "Hari Ini",
+                                style: GoogleFonts.plusJakartaSans(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                  color: isDark ? Colors.white : const Color(0xFF0F172A),
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      DropdownMenuItem(
+                        value: ChartRange.sevenDays,
+                        child: Row(
+                          children: [
+                            const Icon(Icons.calendar_today_rounded, size: 14, color: Color(0xFF2CAED2)),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                "7 Hari",
+                                style: GoogleFonts.plusJakartaSans(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                  color: isDark ? Colors.white : const Color(0xFF0F172A),
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      DropdownMenuItem(
+                        value: ChartRange.month,
+                        child: Row(
+                          children: [
+                            const Icon(Icons.calendar_today_rounded, size: 14, color: Color(0xFF2CAED2)),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                "Bulan Ini",
+                                style: GoogleFonts.plusJakartaSans(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                  color: isDark ? Colors.white : const Color(0xFF0F172A),
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      DropdownMenuItem(
+                        value: ChartRange.allTime,
+                        child: Row(
+                          children: [
+                            const Icon(Icons.calendar_today_rounded, size: 14, color: Color(0xFF2CAED2)),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                "Semua",
+                                style: GoogleFonts.plusJakartaSans(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                  color: isDark ? Colors.white : const Color(0xFF0F172A),
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      DropdownMenuItem(
+                        value: ChartRange.custom,
+                        child: Row(
+                          children: [
+                            const Icon(Icons.date_range_rounded, size: 14, color: Color(0xFF2CAED2)),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                customLabel,
+                                style: GoogleFonts.plusJakartaSans(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                  color: isDark ? Colors.white : const Color(0xFF0F172A),
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                    onChanged: (val) {
+                      if (val == null) return;
+                      if (val == ChartRange.custom) {
+                        _showRangePicker(controller);
+                      } else {
+                        _applyRange(val);
+                      }
+                    },
+                  ),
+                ),
+              ),
+            ),
+            if (isCustom) ...[
+              const SizedBox(width: 6),
+              InkWell(
+                onTap: () => _showRangePicker(controller),
+                borderRadius: BorderRadius.circular(12),
+                child: Container(
+                  height: 44,
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF2CAED2).withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFF2CAED2), width: 1.2),
+                  ),
+                  child: const Icon(
+                    Icons.edit_calendar_rounded,
+                    color: Color(0xFF2CAED2),
+                    size: 18,
+                  ),
+                ),
+              ),
+            ],
+            const SizedBox(width: 8),
+
+            // Dropdown 2: Filter Metode Pembayaran (Sebaris)
+            Expanded(
+              flex: 5,
+              child: Container(
+                height: 44,
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF1E293B) : Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: safeSelectedMethod != 'ALL'
+                        ? const Color(0xFF2CAED2)
+                        : (isDark ? Colors.white12 : const Color(0xFFE2E8F0)),
+                    width: safeSelectedMethod != 'ALL' ? 1.5 : 1.0,
+                  ),
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: safeSelectedMethod,
+                    isExpanded: true,
+                    icon: const Icon(
+                      Icons.keyboard_arrow_down_rounded,
+                      color: Color(0xFF2CAED2),
+                      size: 20,
+                    ),
+                    dropdownColor: isDark ? const Color(0xFF1E293B) : Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    style: GoogleFonts.plusJakartaSans(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: isDark ? Colors.white : const Color(0xFF0F172A),
+                    ),
+                    items: methodItems,
+                    onChanged: (val) {
+                      setState(() {
+                        _selectedPaymentMethodFilter = (val == null || val == 'ALL') ? null : val;
+                      });
+                    },
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+        if (_allSuppliers.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          _buildSupplierFilterDropdown(isDark),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildSupplierFilterDropdown(bool isDark) {
+    final isFilteringSupplier = _selectedSupplierIdFilter != null && _selectedSupplierIdFilter != 'ALL';
+    final isStoreFilter = _selectedSupplierIdFilter == 'STORE';
+
+    final currentVal = (_selectedSupplierIdFilter == null || _selectedSupplierIdFilter!.isEmpty)
+        ? 'ALL'
+        : _selectedSupplierIdFilter!;
+
+    final Set<String> knownSupIds = {'ALL', 'STORE', ..._allSuppliers.map((s) => s.id)};
+    final safeSelectedVal = knownSupIds.contains(currentVal) ? currentVal : 'ALL';
+
+    return Container(
+      height: 44,
+      padding: const EdgeInsets.symmetric(horizontal: 10),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1E293B) : Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isFilteringSupplier
+              ? (isStoreFilter ? const Color(0xFF2CAED2) : const Color(0xFF0D9488))
+              : (isDark ? Colors.white12 : const Color(0xFFE2E8F0)),
+          width: isFilteringSupplier ? 1.5 : 1.0,
+        ),
+      ),
+      child: Row(
+        children: [
+          Expanded(
             child: DropdownButtonHideUnderline(
-              child: DropdownButton<ChartRange>(
-                value: activeRange,
+              child: DropdownButton<String>(
+                value: safeSelectedVal,
                 isExpanded: true,
                 icon: const Icon(
                   Icons.keyboard_arrow_down_rounded,
-                  color: Color(0xFF00BF63),
-                  size: 22,
+                  color: Color(0xFF2CAED2),
+                  size: 20,
                 ),
                 dropdownColor: isDark ? const Color(0xFF1E293B) : Colors.white,
                 borderRadius: BorderRadius.circular(12),
                 style: GoogleFonts.plusJakartaSans(
-                  fontSize: 13,
+                  fontSize: 12,
                   fontWeight: FontWeight.w700,
                   color: isDark ? Colors.white : const Color(0xFF0F172A),
                 ),
                 items: [
                   DropdownMenuItem(
-                    value: ChartRange.today,
+                    value: 'ALL',
                     child: Row(
                       children: [
-                        const Icon(Icons.calendar_today_rounded, size: 15, color: Color(0xFF00BF63)),
-                        const SizedBox(width: 8),
-                        Text(
-                          "Periode: Hari Ini",
-                          style: GoogleFonts.plusJakartaSans(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700,
-                            color: isDark ? Colors.white : const Color(0xFF0F172A),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  DropdownMenuItem(
-                    value: ChartRange.sevenDays,
-                    child: Row(
-                      children: [
-                        const Icon(Icons.calendar_today_rounded, size: 15, color: Color(0xFF00BF63)),
-                        const SizedBox(width: 8),
-                        Text(
-                          "Periode: 7 Hari Terakhir",
-                          style: GoogleFonts.plusJakartaSans(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700,
-                            color: isDark ? Colors.white : const Color(0xFF0F172A),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  DropdownMenuItem(
-                    value: ChartRange.month,
-                    child: Row(
-                      children: [
-                        const Icon(Icons.calendar_today_rounded, size: 15, color: Color(0xFF00BF63)),
-                        const SizedBox(width: 8),
-                        Text(
-                          "Periode: Bulan Ini",
-                          style: GoogleFonts.plusJakartaSans(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700,
-                            color: isDark ? Colors.white : const Color(0xFF0F172A),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  DropdownMenuItem(
-                    value: ChartRange.allTime,
-                    child: Row(
-                      children: [
-                        const Icon(Icons.calendar_today_rounded, size: 15, color: Color(0xFF00BF63)),
-                        const SizedBox(width: 8),
-                        Text(
-                          "Periode: Semua Waktu",
-                          style: GoogleFonts.plusJakartaSans(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700,
-                            color: isDark ? Colors.white : const Color(0xFF0F172A),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  DropdownMenuItem(
-                    value: ChartRange.custom,
-                    child: Row(
-                      children: [
-                        const Icon(Icons.date_range_rounded, size: 15, color: Color(0xFF00BF63)),
+                        const Icon(Icons.storefront_outlined, size: 15, color: Color(0xFF2CAED2)),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            customLabel,
+                            "Semua Sumber",
                             style: GoogleFonts.plusJakartaSans(
-                              fontSize: 13,
+                              fontSize: 12,
                               fontWeight: FontWeight.w700,
                               color: isDark ? Colors.white : const Color(0xFF0F172A),
                             ),
@@ -1798,41 +2862,88 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
                       ],
                     ),
                   ),
+                  DropdownMenuItem(
+                    value: 'STORE',
+                    child: Row(
+                      children: [
+                        const Icon(Icons.store_rounded, size: 15, color: Color(0xFF2CAED2)),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            "Pemasukan Toko",
+                            style: GoogleFonts.plusJakartaSans(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: const Color(0xFF2CAED2),
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  ..._allSuppliers.map((s) {
+                    final bool isTitip = (s.notes ?? '').contains('[Titip]') ||
+                        (s.address ?? '').contains('[Titip]') ||
+                        (s.notes ?? '').toLowerCase().contains('penitip');
+                    final prodCount = {...s.productUsualStock.keys, ...s.productPrices.keys}.length;
+                    return DropdownMenuItem(
+                      value: s.id,
+                      child: Row(
+                        children: [
+                          Icon(
+                            isTitip ? Icons.handshake_outlined : Icons.local_shipping_outlined,
+                            size: 15,
+                            color: isTitip ? const Color(0xFFD97706) : const Color(0xFF0D9488),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              "${isTitip ? 'Penitip' : 'Supplier'}: ${s.name}${prodCount > 0 ? ' ($prodCount produk)' : ''}",
+                              style: GoogleFonts.plusJakartaSans(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: isTitip
+                                    ? const Color(0xFFD97706)
+                                    : (isDark ? Colors.white : const Color(0xFF0F172A)),
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }),
                 ],
                 onChanged: (val) {
-                  if (val == null) return;
-                  if (val == ChartRange.custom) {
-                    _showRangePicker(controller);
-                  } else {
-                    _applyRange(val);
-                  }
+                  setState(() {
+                    _selectedSupplierIdFilter = (val == null || val == 'ALL') ? null : val;
+                  });
                 },
               ),
             ),
           ),
-        ),
-        if (isCustom) ...[
-          const SizedBox(width: 8),
-          InkWell(
-            onTap: () => _showRangePicker(controller),
-            borderRadius: BorderRadius.circular(12),
-            child: Container(
-              height: 44,
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              decoration: BoxDecoration(
-                color: const Color(0xFF00BF63).withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFF00BF63), width: 1.2),
-              ),
-              child: const Icon(
-                Icons.edit_calendar_rounded,
-                color: Color(0xFF00BF63),
-                size: 20,
+          if (isFilteringSupplier) ...[
+            const SizedBox(width: 4),
+            InkWell(
+              onTap: () {
+                setState(() {
+                  _selectedSupplierIdFilter = null;
+                });
+              },
+              borderRadius: BorderRadius.circular(20),
+              child: Padding(
+                padding: const EdgeInsets.all(4.0),
+                child: Icon(
+                  Icons.close_rounded,
+                  size: 18,
+                  color: isDark ? Colors.white70 : const Color(0xFF64748B),
+                ),
               ),
             ),
-          ),
+          ],
         ],
-      ],
+      ),
     );
   }
 
@@ -1869,7 +2980,7 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
       children: List.generate(tabs.length, (idx) {
         final isSelected = _selectedTabIndex == idx;
         final label = tabs[idx];
-        const activeColor = Color(0xFF00BF63);
+        const activeColor = Color(0xFF2CAED2);
 
         return Expanded(
           child: Padding(
@@ -1931,8 +3042,14 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
     double expenses,
     double netProfit,
     int txCount,
-    bool isDark,
-  ) {
+    bool isDark, {
+    Map<String, double>? expenseCategories,
+    double? otherIncome,
+    Supplier? selectedSupplier,
+    String? supplierFilter,
+  }) {
+    final catCategories = expenseCategories ?? _expenseCategories;
+    final incOther = otherIncome ?? _periodOtherIncomeSum;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1962,12 +3079,42 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text(
-                      "Laporan Laba Rugi",
-                      style: GoogleFonts.plusJakartaSans(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w700,
-                        color: isDark ? Colors.white : const Color(0xFF0F172A),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            "Laporan Laba Rugi",
+                            style: GoogleFonts.plusJakartaSans(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                              color: isDark ? Colors.white : const Color(0xFF0F172A),
+                            ),
+                          ),
+                          if (supplierFilter == 'STORE') ...[
+                            const SizedBox(height: 2),
+                            Text(
+                              "Pemasukan Toko",
+                              style: GoogleFonts.plusJakartaSans(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: const Color(0xFF2CAED2),
+                              ),
+                            ),
+                          ] else if (selectedSupplier != null) ...[
+                            const SizedBox(height: 2),
+                            Text(
+                              "${((selectedSupplier.notes ?? '').contains('[Titip]') || (selectedSupplier.address ?? '').contains('[Titip]') || (selectedSupplier.notes ?? '').toLowerCase().contains('penitip')) ? 'Penitip' : 'Supplier'}: ${selectedSupplier.name}",
+                              style: GoogleFonts.plusJakartaSans(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: ((selectedSupplier.notes ?? '').contains('[Titip]') || (selectedSupplier.address ?? '').contains('[Titip]') || (selectedSupplier.notes ?? '').toLowerCase().contains('penitip'))
+                                    ? const Color(0xFFD97706)
+                                    : const Color(0xFF2CAED2),
+                              ),
+                            ),
+                          ],
+                        ],
                       ),
                     ),
                     _buildExportButton(controller, isDark),
@@ -2002,12 +3149,12 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
                       _currencyFormat.format(grossProfit),
                       isDark,
                       isHighlight: true,
-                      highlightColor: const Color(0xFF00BF63),
+                      highlightColor: const Color(0xFF2CAED2),
                     ),
                     const SizedBox(height: 12),
 
                     // Expenses breakdown by category
-                    if (_expenseCategories.isEmpty)
+                    if (catCategories.isEmpty)
                       _buildReportRow(
                         "Operasional (Belum ada catatan)",
                         "- Rp 0",
@@ -2015,7 +3162,7 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
                         isSubItem: true,
                       )
                     else
-                      ..._expenseCategories.entries.map((e) {
+                      ...catCategories.entries.map((e) {
                         return Padding(
                           padding: const EdgeInsets.only(bottom: 8),
                           child: _buildReportRow(
@@ -2037,9 +3184,9 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
                     const SizedBox(height: 10),
                     _buildReportRow(
                       "Pemasukan lain",
-                      "+ ${_currencyFormat.format(_periodOtherIncomeSum)}",
+                      "+ ${_currencyFormat.format(incOther)}",
                       isDark,
-                      highlightColor: const Color(0xFF00BF63),
+                      highlightColor: const Color(0xFF2CAED2),
                     ),
                     const Padding(
                       padding: EdgeInsets.symmetric(vertical: 8),
@@ -2051,7 +3198,7 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
                       isDark,
                       isBoldTotal: true,
                       highlightColor: netProfit >= 0
-                          ? const Color(0xFF00BF63)
+                          ? const Color(0xFF2CAED2)
                           : const Color(0xFFEF4444),
                     ),
                     const SizedBox(height: 12),
@@ -2088,25 +3235,43 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
     AnalyticsController controller,
     double sales,
     double expenses,
-    bool isDark,
-  ) {
+    bool isDark, {
+    List<Transaction>? filteredTxs,
+    List<Expense>? filteredExpenses,
+    String? paymentMethodFilter,
+    String? supplierFilter,
+    Supplier? selectedSupplier,
+  }) {
     final startDay = DateTime(_startDate.year, _startDate.month, _startDate.day, 0, 0, 0);
     final endDay = DateTime(_endDate.year, _endDate.month, _endDate.day, 23, 59, 59);
 
+    final txSource = filteredTxs ?? _periodTransactions;
+    final expSource = filteredExpenses ?? _periodExpenses;
+    final bool hasSupFilter = supplierFilter != null && supplierFilter != 'ALL';
+    final bool isStoreOnly = supplierFilter == 'STORE';
+
     // 1. Penjualan tunai/DP
     double cashSalesSum = 0.0;
-    for (final tx in _periodTransactions) {
+    for (final tx in txSource) {
       final status = tx.status.toLowerCase().trim();
       final isCompleted = status == 'completed' || status == 'lunas' || status == 'success' || status.isEmpty;
       final isDebt = status == 'debt' || status == 'piutang' || status == 'pending';
       if (isCompleted) {
-        cashSalesSum += (tx.totalAmount ?? 0.0);
+        cashSalesSum += (hasSupFilter
+            ? (isStoreOnly
+                ? _getTxStoreSales(tx.id, tx.totalAmount ?? 0.0)
+                : (_txSupplierSalesMap[tx.id]?[supplierFilter] ?? 0.0))
+            : (tx.totalAmount ?? 0.0));
       } else if (isDebt) {
-        cashSalesSum += (tx.cashReceived ?? 0.0);
+        cashSalesSum += (hasSupFilter
+            ? (isStoreOnly
+                ? _getTxStoreSales(tx.id, tx.cashReceived ?? 0.0)
+                : (_txSupplierSalesMap[tx.id]?[supplierFilter] ?? 0.0))
+            : (tx.cashReceived ?? 0.0));
       }
     }
 
-    // 2. Streams from Buku Kas (_periodExpenses)
+    // 2. Streams from Buku Kas (expSource)
     double setorModalSum = 0.0;
     double pemasukanLainSum = 0.0;
     double terimaPiutangSum = 0.0;
@@ -2115,13 +3280,18 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
     double pembelianTunaiExpenseSum = 0.0;
     double bayarHutangExpenseSum = 0.0;
 
-    for (final exp in _periodExpenses) {
+    for (final exp in expSource) {
       final cat = exp.category.trim().toLowerCase();
       final notes = (exp.notes ?? '').trim().toLowerCase();
       final double amt = exp.amount ?? 0.0;
 
       // Transfer antar akun tidak dihitung arus kas
       if (cat.contains('transfer') || notes.contains('transfer') || notes.contains('[transfer]')) {
+        continue;
+      }
+
+      // Skip duplicate expense entries automatically created by PB-xxxx or BH-xxxx
+      if (notes.contains('(pb-') || notes.contains('(bh-') || notes.contains('pb-') || notes.contains('bh-')) {
         continue;
       }
 
@@ -2136,12 +3306,25 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
           pemasukanLainSum += amt;
         }
       } else {
-        if (cat.contains('prive') || cat.contains('pribadi') || notes.contains('prive') || notes.contains('pribadi')) {
-          priveSum += amt;
-        } else if (cat.contains('hutang') || notes.contains('bayar hutang') || notes.contains('pelunasan supplier')) {
+        final isBayarHutang = cat.contains('hutang') || 
+                              cat.contains('pelunasan') || 
+                              notes.contains('bayar hutang') || 
+                              notes.contains('pelunasan supplier');
+
+        final isBeliStok = cat.contains('pembelian') || 
+                           cat.contains('supplier') || 
+                           cat.contains('kulakan') || 
+                           notes.contains('pembelian pasokan');
+
+        final isPrive = !isBayarHutang && !isBeliStok && 
+                        (cat.contains('prive') || cat.contains('pribadi') || (cat.contains('tarik') && !notes.contains('hutang') && !notes.contains('supplier')));
+
+        if (isBayarHutang) {
           bayarHutangExpenseSum += amt;
-        } else if (cat.contains('pembelian') || cat.contains('supplier') || cat.contains('kulakan') || notes.contains('pembelian pasokan')) {
+        } else if (isBeliStok) {
           pembelianTunaiExpenseSum += amt;
+        } else if (isPrive) {
+          priveSum += amt;
         } else {
           biayaOperasionalSum += amt;
         }
@@ -2151,7 +3334,20 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
     // 3. Streams from Supplier Transactions (allSupTxs in period)
     double supPurchaseCashSum = 0.0;
     double supDebtPaymentSum = 0.0;
-    for (final stx in _periodSupplierTxs) {
+    final filteredSupTxs = _periodSupplierTxs.where((stx) {
+      if (paymentMethodFilter != null && paymentMethodFilter != 'ALL' && !_matchesPaymentMethod(stx.paymentMethod, paymentMethodFilter)) {
+        return false;
+      }
+      if (hasSupFilter) {
+        if (isStoreOnly) return false;
+        if (stx.supplierId != supplierFilter) {
+          return false;
+        }
+      }
+      return true;
+    }).toList();
+
+    for (final stx in filteredSupTxs) {
       if (stx.createdAt.isBefore(startDay) || stx.createdAt.isAfter(endDay)) continue;
       if (stx.type == 'purchase') {
         final paid = stx.paymentStatus == 'lunas' ? stx.totalAmount : 0.0;
@@ -2161,8 +3357,8 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
       }
     }
 
-    final pembelianTunaiDP = pembelianTunaiExpenseSum > 0 ? pembelianTunaiExpenseSum : supPurchaseCashSum;
-    final bayarHutang = bayarHutangExpenseSum > 0 ? bayarHutangExpenseSum : supDebtPaymentSum;
+    final pembelianTunaiDP = pembelianTunaiExpenseSum + supPurchaseCashSum;
+    final bayarHutang = bayarHutangExpenseSum + supDebtPaymentSum;
 
     // Totals
     final kasMasuk = cashSalesSum + setorModalSum + pemasukanLainSum + terimaPiutangSum;
@@ -2170,14 +3366,32 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
     final arusKasBersih = kasMasuk - kasKeluar;
 
     // Current Balances Note
-    final accountNotes = <String>[];
-    for (final m in _activePaymentMethods) {
-      final bal = _methodCurrentBalances[m.id] ?? 0.0;
-      accountNotes.add("${m.name} ${_currencyFormat.format(bal)}");
+    String balancesNote;
+    if (isStoreOnly) {
+      balancesNote = "Laporan Arus Kas Toko.";
+    } else if (hasSupFilter && selectedSupplier != null) {
+      final bool isTitip = (selectedSupplier.notes ?? '').contains('[Titip]') ||
+          (selectedSupplier.address ?? '').contains('[Titip]') ||
+          (selectedSupplier.notes ?? '').toLowerCase().contains('penitip');
+      balancesNote = "${isTitip ? 'Penitip' : 'Supplier'}: ${selectedSupplier.name} · ${isTitip ? 'Sisa dana titipan belum disetor' : 'Sisa hutang pasokan berjalan'}: ${_currencyFormat.format(selectedSupplier.unpaidBalance)}.";
+    } else if (paymentMethodFilter != null && paymentMethodFilter != 'ALL') {
+      double bal = 0.0;
+      for (final m in _activePaymentMethods) {
+        if (_matchesPaymentMethod(m.name, paymentMethodFilter)) {
+          bal += (_methodCurrentBalances[m.id] ?? 0.0);
+        }
+      }
+      balancesNote = "Saldo saat ini ($paymentMethodFilter): ${_currencyFormat.format(bal)} (transfer antar akun tidak dihitung arus).";
+    } else {
+      final accountNotes = <String>[];
+      for (final m in _activePaymentMethods) {
+        final bal = _methodCurrentBalances[m.id] ?? 0.0;
+        accountNotes.add("${m.name} ${_currencyFormat.format(bal)}");
+      }
+      balancesNote = accountNotes.isNotEmpty
+          ? "Saldo saat ini: ${accountNotes.join(' · ')} (transfer antar akun tidak dihitung arus)."
+          : "Saldo saat ini: Kas ${_currencyFormat.format(_drawerBaseCash)} (transfer antar akun tidak dihitung arus).";
     }
-    final balancesNote = accountNotes.isNotEmpty
-        ? "Saldo saat ini: ${accountNotes.join(' · ')} (transfer antar akun tidak dihitung arus)."
-        : "Saldo saat ini: Kas ${_currencyFormat.format(_drawerBaseCash)} (transfer antar akun tidak dihitung arus).";
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -2208,12 +3422,42 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text(
-                      "Laporan Arus Kas",
-                      style: GoogleFonts.plusJakartaSans(
-                        fontSize: 14.5,
-                        fontWeight: FontWeight.w600,
-                        color: isDark ? Colors.white : const Color(0xFF1E293B),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            "Laporan Arus Kas",
+                            style: GoogleFonts.plusJakartaSans(
+                              fontSize: 14.5,
+                              fontWeight: FontWeight.w600,
+                              color: isDark ? Colors.white : const Color(0xFF1E293B),
+                            ),
+                          ),
+                          if (isStoreOnly) ...[
+                            const SizedBox(height: 2),
+                            Text(
+                              "Pemasukan Toko",
+                              style: GoogleFonts.plusJakartaSans(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: const Color(0xFF2CAED2),
+                              ),
+                            ),
+                          ] else if (hasSupFilter && selectedSupplier != null) ...[
+                            const SizedBox(height: 2),
+                            Text(
+                              "${((selectedSupplier.notes ?? '').contains('[Titip]') || (selectedSupplier.address ?? '').contains('[Titip]') || (selectedSupplier.notes ?? '').toLowerCase().contains('penitip')) ? 'Penitip' : 'Supplier'}: ${selectedSupplier.name}",
+                              style: GoogleFonts.plusJakartaSans(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: ((selectedSupplier.notes ?? '').contains('[Titip]') || (selectedSupplier.address ?? '').contains('[Titip]') || (selectedSupplier.notes ?? '').toLowerCase().contains('penitip'))
+                                    ? const Color(0xFFD97706)
+                                    : const Color(0xFF2CAED2),
+                              ),
+                            ),
+                          ],
+                        ],
                       ),
                     ),
                     _buildExportButton(controller, isDark),
@@ -2398,17 +3642,33 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
     AnalyticsController controller,
     double sales,
     int txCount,
-    bool isDark,
-  ) {
+    bool isDark, {
+    String? paymentMethodFilter,
+    String? supplierFilter,
+    Supplier? selectedSupplier,
+  }) {
     final dayFormat = DateFormat('EEE, d MMM yyyy', 'id_ID');
     final startDay = DateTime(_startDate.year, _startDate.month, _startDate.day);
     final endDay = DateTime(_endDate.year, _endDate.month, _endDate.day, 23, 59, 59);
 
-    final periodActivities = controller.selectedRange == ChartRange.allTime
+    final rawPeriodActivities = controller.selectedRange == ChartRange.allTime
         ? _recentActivities
         : _recentActivities
             .where((item) => !item.date.isBefore(startDay) && !item.date.isAfter(endDay))
             .toList();
+
+    final bool hasMethodFilter = paymentMethodFilter != null && paymentMethodFilter != 'ALL';
+    final bool hasSupFilter = supplierFilter != null && supplierFilter != 'ALL';
+
+    final periodActivities = rawPeriodActivities.where((item) {
+      if (hasMethodFilter && !_matchesPaymentMethod(item.paymentMethodName, paymentMethodFilter)) {
+        return false;
+      }
+      if (hasSupFilter && !_activityMatchesSupplier(item, supplierFilter)) {
+        return false;
+      }
+      return true;
+    }).toList();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -2439,12 +3699,42 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text(
-                      "Riwayat Transaksi (${periodActivities.length})",
-                      style: GoogleFonts.plusJakartaSans(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w700,
-                        color: isDark ? Colors.white : const Color(0xFF0F172A),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            "Riwayat Transaksi (${periodActivities.length})",
+                            style: GoogleFonts.plusJakartaSans(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                              color: isDark ? Colors.white : const Color(0xFF0F172A),
+                            ),
+                          ),
+                          if (supplierFilter == 'STORE') ...[
+                            const SizedBox(height: 2),
+                            Text(
+                              "Pemasukan Toko",
+                              style: GoogleFonts.plusJakartaSans(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: const Color(0xFF2CAED2),
+                              ),
+                            ),
+                          ] else if (hasSupFilter && selectedSupplier != null) ...[
+                            const SizedBox(height: 2),
+                            Text(
+                              "${((selectedSupplier.notes ?? '').contains('[Titip]') || (selectedSupplier.address ?? '').contains('[Titip]') || (selectedSupplier.notes ?? '').toLowerCase().contains('penitip')) ? 'Penitip' : 'Supplier'}: ${selectedSupplier.name}",
+                              style: GoogleFonts.plusJakartaSans(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: ((selectedSupplier.notes ?? '').contains('[Titip]') || (selectedSupplier.address ?? '').contains('[Titip]') || (selectedSupplier.notes ?? '').toLowerCase().contains('penitip'))
+                                    ? const Color(0xFFD97706)
+                                    : const Color(0xFF2CAED2),
+                              ),
+                            ),
+                          ],
+                        ],
                       ),
                     ),
                     _buildExportButton(controller, isDark),
@@ -2482,6 +3772,30 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
                       dateLabel = dayFormat.format(item.date);
                     } catch (_) {
                       dateLabel = DateFormat('dd/MM/yyyy').format(item.date);
+                    }
+
+                    final bool isStoreFilter = supplierFilter == 'STORE';
+                    String displayAmountText = item.amountText;
+                    String subtitleText = item.subtitle;
+
+                    if (hasSupFilter && item.rawTransaction != null) {
+                      if (isStoreFilter) {
+                        final double storeAmt = _getTxStoreSales(item.rawTransaction!.id, item.rawTransaction!.totalAmount ?? 0.0);
+                        final double totalTxAmt = item.rawTransaction!.totalAmount ?? 0.0;
+                        displayAmountText = _currencyFormat.format(storeAmt);
+                        if ((totalTxAmt - storeAmt).abs() > 0.01) {
+                          subtitleText = "${item.subtitle} · Murni Toko (Total: ${_currencyFormat.format(totalTxAmt)})";
+                        }
+                      } else {
+                        final double supAmt = _txSupplierSalesMap[item.rawTransaction!.id]?[supplierFilter] ?? 0.0;
+                        if (supAmt > 0) {
+                          displayAmountText = _currencyFormat.format(supAmt);
+                          final double totalTxAmt = item.rawTransaction!.totalAmount ?? 0.0;
+                          if ((totalTxAmt - supAmt).abs() > 0.01) {
+                            subtitleText = "${item.subtitle} · Porsi ${selectedSupplier?.name ?? 'Supplier'} (Total: ${_currencyFormat.format(totalTxAmt)})";
+                          }
+                        }
+                      }
                     }
 
                     return InkWell(
@@ -2544,7 +3858,7 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
                                   ),
                                   const SizedBox(height: 5),
                                   Text(
-                                    item.subtitle,
+                                    subtitleText,
                                     style: GoogleFonts.openSans(
                                       fontSize: 12.5,
                                       fontWeight: FontWeight.w500,
@@ -2566,7 +3880,7 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
                             ),
                             const SizedBox(width: 12),
                             Text(
-                              item.amountText,
+                              displayAmountText,
                               style: GoogleFonts.plusJakartaSans(
                                 fontSize: 15.5,
                                 fontWeight: FontWeight.w800,
@@ -2594,29 +3908,253 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
   Widget _buildGrafikTab(
     AnalyticsController controller,
     double netProfit,
-    bool isDark,
-  ) {
+    bool isDark, {
+    List<Transaction>? filteredTxs,
+    String? supplierFilter,
+    Supplier? selectedSupplier,
+  }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _buildChartSection(controller, isDark),
-        const SizedBox(height: 24),
-        Text(
-          "Pertumbuhan Bisnis",
-          style: GoogleFonts.plusJakartaSans(
-            fontSize: 16,
-            fontWeight: FontWeight.w700,
-            color: isDark ? Colors.white : const Color(0xFF0F172A),
-          ),
+        _buildChartSection(
+          controller,
+          isDark,
+          filteredTxs: filteredTxs,
+          supplierFilter: supplierFilter,
+          selectedSupplier: selectedSupplier,
         ),
-        const SizedBox(height: 12),
-        _buildGrowthIndicators(controller, isDark),
-        const SizedBox(height: 12),
+        const SizedBox(height: 24),
+        _buildTopProductsSection(
+          isDark,
+          filteredTxs: filteredTxs,
+          supplierFilter: supplierFilter,
+        ),
+        const SizedBox(height: 16),
         _buildPeriodFooter(isDark),
       ],
     );
   }
 
+  Widget _buildTopProductsSection(
+    bool isDark, {
+    List<Transaction>? filteredTxs,
+    String? supplierFilter,
+  }) {
+    final validTxIds = (filteredTxs ?? _periodTransactions).map((t) => t.id).toSet();
+    final isStoreOnly = supplierFilter == 'STORE';
+    final hasSupFilter = supplierFilter != null && supplierFilter != 'ALL';
+
+    final Map<String, _TopProductItem> itemMap = {};
+
+    for (final ti in _periodTxItems) {
+      final txId = ti.transactionId;
+      if (txId == null || !validTxIds.contains(txId)) continue;
+
+      final pId = ti.productId ?? '';
+      final prod = _periodProductsMap[pId];
+
+      if (hasSupFilter) {
+        final supIds = _productToSuppliersMap[pId] ?? {};
+        if (isStoreOnly) {
+          if (supIds.isNotEmpty) continue;
+        } else {
+          if (!supIds.contains(supplierFilter)) continue;
+        }
+      }
+
+      final String name = (ti.productName != null && ti.productName!.trim().isNotEmpty)
+          ? ti.productName!.trim()
+          : (prod?.name ?? 'Item');
+      final int qty = ti.quantity ?? 1;
+      final double unitSale = ti.unitPrice ?? prod?.salePrice ?? 0.0;
+      final double totalSale = ti.totalPrice ?? (unitSale * qty);
+      final double cogs = (prod?.basePrice ?? prod?.buyPrice ?? 0.0) * qty;
+      final double profit = totalSale - cogs;
+
+      final key = pId.isNotEmpty ? pId : name;
+      if (itemMap.containsKey(key)) {
+        itemMap[key]!.qty += qty;
+        itemMap[key]!.sales += totalSale;
+        itemMap[key]!.profit += profit;
+      } else {
+        itemMap[key] = _TopProductItem(
+          name: name,
+          qty: qty,
+          sales: totalSale,
+          profit: profit,
+        );
+      }
+    }
+
+    final sortedItems = itemMap.values.toList()
+      ..sort((a, b) => b.qty != a.qty ? b.qty.compareTo(a.qty) : b.sales.compareTo(a.sales));
+
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1E293B) : Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isDark ? Colors.white12 : const Color(0xFFE2E8F0),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.03),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(7),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF2CAED2).withValues(alpha: isDark ? 0.2 : 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(
+                    Icons.inventory_2_outlined,
+                    size: 18,
+                    color: Color(0xFF2CAED2),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  "Produk Terlaris",
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    color: isDark ? Colors.white : const Color(0xFF0F172A),
+                  ),
+                ),
+                const Spacer(),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: isDark ? Colors.white10 : const Color(0xFFF1F5F9),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    "${sortedItems.length} Produk",
+                    style: GoogleFonts.plusJakartaSans(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: isDark ? Colors.white70 : const Color(0xFF64748B),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Divider(height: 1, color: isDark ? Colors.white12 : const Color(0xFFE2E8F0)),
+          if (sortedItems.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 36, horizontal: 16),
+              child: Center(
+                child: Column(
+                  children: [
+                    Icon(
+                      Icons.inventory_2_outlined,
+                      size: 40,
+                      color: isDark ? Colors.white24 : Colors.grey.shade300,
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      "Belum ada data penjualan produk pada filter ini",
+                      style: GoogleFonts.plusJakartaSans(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: isDark ? Colors.white54 : const Color(0xFF64748B),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          else
+            ListView.separated(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: sortedItems.length,
+              separatorBuilder: (_, __) => Divider(
+                height: 1,
+                color: isDark ? Colors.white10 : const Color(0xFFF1F5F9),
+              ),
+              itemBuilder: (context, index) {
+                final item = sortedItems[index];
+                final rank = index + 1;
+                return Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 24,
+                        height: 24,
+                        decoration: const BoxDecoration(
+                          color: Color(0xFFE0F2FE),
+                          shape: BoxShape.circle,
+                        ),
+                        alignment: Alignment.center,
+                        child: Text(
+                          "$rank",
+                          style: GoogleFonts.plusJakartaSans(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                            color: const Color(0xFF0284C7),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          item.name,
+                          style: GoogleFonts.plusJakartaSans(
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w600,
+                            color: isDark ? Colors.white : const Color(0xFF0F172A),
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text(
+                            _currencyFormat.format(item.sales),
+                            style: GoogleFonts.plusJakartaSans(
+                              fontSize: 13.5,
+                              fontWeight: FontWeight.w700,
+                              color: isDark ? Colors.white : const Color(0xFF0F172A),
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            "${item.qty} terjual · laba ${_currencyFormat.format(item.profit)}",
+                            style: GoogleFonts.plusJakartaSans(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w500,
+                              color: isDark ? Colors.white60 : const Color(0xFF64748B),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+        ],
+      ),
+    );
+  }
 
   // ─── Shared UI Helpers ────────────────────────────────────────────────────
   Widget _buildExportButton(AnalyticsController controller, bool isDark) {
@@ -2643,7 +4181,7 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
           value: 'excel',
           child: Row(
             children: [
-              const Icon(Icons.table_chart_rounded, color: Color(0xFF00BF63), size: 18),
+              const Icon(Icons.table_chart_rounded, color: Color(0xFF2CAED2), size: 18),
               const SizedBox(width: 8),
               Text(
                 "Ekspor Excel",
@@ -2682,7 +4220,7 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
             const Icon(
               Icons.file_download_outlined,
               size: 15,
-              color: Color(0xFF00BF63),
+              color: Color(0xFF2CAED2),
             ),
             const SizedBox(width: 4),
             Text(
@@ -2887,7 +4425,7 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
                               : (totalNetProfit >= 0 ? const Color(0xFFF0FDF4) : const Color(0xFFFEF2F2)),
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(
-                            color: (totalNetProfit >= 0 ? const Color(0xFF00BF63) : Colors.redAccent)
+                            color: (totalNetProfit >= 0 ? const Color(0xFF2CAED2) : Colors.redAccent)
                                 .withValues(alpha: 0.3),
                           ),
                         ),
@@ -2899,14 +4437,14 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
                                 Icon(
                                   totalNetProfit >= 0 ? Icons.trending_up_rounded : Icons.trending_down_rounded,
                                   size: 14,
-                                  color: totalNetProfit >= 0 ? const Color(0xFF00BF63) : Colors.redAccent,
+                                  color: totalNetProfit >= 0 ? const Color(0xFF2CAED2) : Colors.redAccent,
                                 ),
                                 const SizedBox(width: 4),
                                 Text(
                                   "Laba Bersih Supplier",
                                   style: GoogleFonts.plusJakartaSans(
                                     fontSize: 11,
-                                    color: totalNetProfit >= 0 ? const Color(0xFF00BF63) : Colors.redAccent,
+                                    color: totalNetProfit >= 0 ? const Color(0xFF2CAED2) : Colors.redAccent,
                                     fontWeight: FontWeight.w700,
                                   ),
                                 ),
@@ -2918,7 +4456,7 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
                               style: GoogleFonts.plusJakartaSans(
                                 fontSize: 15,
                                 fontWeight: FontWeight.w800,
-                                color: totalNetProfit >= 0 ? const Color(0xFF00BF63) : Colors.redAccent,
+                                color: totalNetProfit >= 0 ? const Color(0xFF2CAED2) : Colors.redAccent,
                               ),
                             ),
                           ],
@@ -3100,11 +4638,11 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                             decoration: BoxDecoration(
-                              color: (summary.netProfit >= 0 ? const Color(0xFF00BF63) : Colors.redAccent)
+                              color: (summary.netProfit >= 0 ? const Color(0xFF2CAED2) : Colors.redAccent)
                                   .withValues(alpha: 0.12),
                               borderRadius: BorderRadius.circular(6),
                               border: Border.all(
-                                color: (summary.netProfit >= 0 ? const Color(0xFF00BF63) : Colors.redAccent)
+                                color: (summary.netProfit >= 0 ? const Color(0xFF2CAED2) : Colors.redAccent)
                                     .withValues(alpha: 0.3),
                               ),
                             ),
@@ -3113,7 +4651,7 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
                               style: GoogleFonts.plusJakartaSans(
                                 fontWeight: FontWeight.w800,
                                 fontSize: 11.5,
-                                color: summary.netProfit >= 0 ? const Color(0xFF00BF63) : Colors.redAccent,
+                                color: summary.netProfit >= 0 ? const Color(0xFF2CAED2) : Colors.redAccent,
                               ),
                             ),
                           ),
@@ -3180,7 +4718,7 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
                                       style: GoogleFonts.plusJakartaSans(
                                         fontSize: 12.5,
                                         fontWeight: FontWeight.w800,
-                                        color: net >= 0 ? const Color(0xFF00BF63) : Colors.redAccent,
+                                        color: net >= 0 ? const Color(0xFF2CAED2) : Colors.redAccent,
                                       ),
                                     ),
                                   ],
@@ -3223,7 +4761,7 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
                                       style: GoogleFonts.plusJakartaSans(
                                         fontSize: 10.5,
                                         fontWeight: FontWeight.w600,
-                                        color: net >= 0 ? const Color(0xFF00BF63) : Colors.redAccent,
+                                        color: net >= 0 ? const Color(0xFF2CAED2) : Colors.redAccent,
                                       ),
                                     ),
                                   ],
@@ -3247,7 +4785,7 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
                           ),
                           child: Row(
                             children: [
-                              const Icon(Icons.check_circle_outline_rounded, size: 16, color: Color(0xFF00BF63)),
+                              const Icon(Icons.check_circle_outline_rounded, size: 16, color: Color(0xFF2CAED2)),
                               const SizedBox(width: 8),
                               Expanded(
                                 child: Text(
@@ -3299,7 +4837,7 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
                               ),
                             ),
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF00BF63),
+                              backgroundColor: const Color(0xFF2CAED2),
                               foregroundColor: Colors.white,
                               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
@@ -3369,7 +4907,7 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text("Laporan pasokan ${supplier.name} telah dikosongkan dan dimulai dari awal."),
-            backgroundColor: const Color(0xFF00BF63),
+            backgroundColor: const Color(0xFF2CAED2),
             behavior: SnackBarBehavior.floating,
           ),
         );
@@ -3432,7 +4970,7 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text("Seluruh laporan pasokan supplier telah dikosongkan dan dimulai dari awal."),
-            backgroundColor: Color(0xFF00BF63),
+            backgroundColor: Color(0xFF2CAED2),
             behavior: SnackBarBehavior.floating,
           ),
         );
@@ -3488,12 +5026,12 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
                                 Container(
                                   padding: const EdgeInsets.all(8),
                                   decoration: BoxDecoration(
-                                    color: const Color(0xFF00BF63).withValues(alpha: 0.12),
+                                    color: const Color(0xFF2CAED2).withValues(alpha: 0.12),
                                     shape: BoxShape.circle,
                                   ),
                                   child: const Icon(
                                     Icons.payments_rounded,
-                                    color: Color(0xFF00BF63),
+                                    color: Color(0xFF2CAED2),
                                     size: 20,
                                   ),
                                 ),
@@ -3545,7 +5083,7 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
                                   border: Border.all(
                                     color: currentBill > 0
                                         ? (isDark ? Colors.amber[800]!.withValues(alpha: 0.5) : const Color(0xFFFDE68A))
-                                        : (isDark ? const Color(0xFF00BF63).withValues(alpha: 0.3) : const Color(0xFFBBF7D0)),
+                                        : (isDark ? const Color(0xFF2CAED2).withValues(alpha: 0.3) : const Color(0xFFBBF7D0)),
                                   ),
                                 ),
                                 child: Column(
@@ -3565,7 +5103,7 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
                                         Container(
                                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                                           decoration: BoxDecoration(
-                                            color: currentBill > 0 ? Colors.amber : const Color(0xFF00BF63),
+                                            color: currentBill > 0 ? Colors.amber : const Color(0xFF2CAED2),
                                             borderRadius: BorderRadius.circular(6),
                                           ),
                                           child: Text(
@@ -3587,7 +5125,7 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
                                         fontWeight: FontWeight.w800,
                                         color: currentBill > 0
                                             ? (isDark ? Colors.amber[300] : const Color(0xFFB45309))
-                                            : const Color(0xFF00BF63),
+                                            : const Color(0xFF2CAED2),
                                       ),
                                     ),
                                     const SizedBox(height: 6),
@@ -3624,7 +5162,7 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
                                         style: GoogleFonts.plusJakartaSans(
                                           fontSize: 12,
                                           fontWeight: FontWeight.w700,
-                                          color: const Color(0xFF00BF63),
+                                          color: const Color(0xFF2CAED2),
                                         ),
                                       ),
                                     ),
@@ -3643,7 +5181,7 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
                                   prefixStyle: GoogleFonts.plusJakartaSans(
                                     fontSize: 16,
                                     fontWeight: FontWeight.w700,
-                                    color: const Color(0xFF00BF63),
+                                    color: const Color(0xFF2CAED2),
                                   ),
                                   hintText: "0",
                                   filled: true,
@@ -3656,7 +5194,7 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
                                   ),
                                   focusedBorder: OutlineInputBorder(
                                     borderRadius: BorderRadius.circular(12),
-                                    borderSide: const BorderSide(color: Color(0xFF00BF63), width: 2),
+                                    borderSide: const BorderSide(color: Color(0xFF2CAED2), width: 2),
                                   ),
                                 ),
                               ),
@@ -3687,7 +5225,7 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
                                       ),
                                     ),
                                     selected: isSelected,
-                                    selectedColor: const Color(0xFF00BF63),
+                                    selectedColor: const Color(0xFF2CAED2),
                                     backgroundColor: isDark ? const Color(0xFF2A2A2A) : const Color(0xFFF1F5F9),
                                     onSelected: (val) {
                                       if (val) setSheetState(() => paymentMethod = method);
@@ -3783,7 +5321,7 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
                                             SupplierService.shareSettlementToWhatsApp(
                                               phone: supplier.phone,
                                               supplierName: supplier.name,
-                                              storeName: "OMNI POS",
+                                              storeName: "FLASH COIN LAUNDRY",
                                               amountPaid: val,
                                               remainingBalance: remaining,
                                               paymentMethod: paymentMethod,
@@ -3826,7 +5364,7 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
                               ),
                             ),
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF00BF63),
+                              backgroundColor: const Color(0xFF2CAED2),
                               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                               elevation: 0,
                             ),
@@ -3877,7 +5415,7 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
     final savedPhone = prefs.getString('owner_wa_phone') ?? '';
     final phoneCtrl = TextEditingController(text: savedPhone);
 
-    String storeName = "OMNI POS";
+    String storeName = "FLASH COIN LAUNDRY";
     try {
       final store = await (db.select(db.stores)..where((s) => s.id.equals(widget.storeId))).getSingleOrNull();
       if (store != null && store.name != null && store.name!.isNotEmpty) {
@@ -3916,7 +5454,7 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
       buffer.writeln("• Piutang Pelanggan: ${currency.format(_totalPiutang)}");
     }
     buffer.writeln("─────────────────────────");
-    buffer.writeln("✨ _Dihasilkan otomatis oleh SISTEM OMNI POS_");
+    buffer.writeln("✨ _Dihasilkan otomatis oleh SISTEM FLASH COIN LAUNDRY_");
 
     final reportText = buffer.toString();
 
@@ -3935,10 +5473,10 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
                   Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF00BF63).withValues(alpha: 0.12),
+                      color: const Color(0xFF2CAED2).withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(10),
                     ),
-                    child: const Icon(Icons.share_rounded, color: Color(0xFF00BF63), size: 22),
+                    child: const Icon(Icons.share_rounded, color: Color(0xFF2CAED2), size: 22),
                   ),
                   const SizedBox(width: 10),
                   Expanded(
@@ -3977,7 +5515,7 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
                       decoration: InputDecoration(
                         hintText: "Contoh: 08123456789 atau kosongkan",
                         hintStyle: GoogleFonts.plusJakartaSans(fontSize: 12, color: Colors.grey),
-                        prefixIcon: const Icon(Icons.phone_android_rounded, size: 18, color: Color(0xFF00BF63)),
+                        prefixIcon: const Icon(Icons.phone_android_rounded, size: 18, color: Color(0xFF2CAED2)),
                         filled: true,
                         fillColor: isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC),
                         border: OutlineInputBorder(
@@ -3986,7 +5524,7 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(10),
-                          borderSide: const BorderSide(color: Color(0xFF00BF63), width: 1.5),
+                          borderSide: const BorderSide(color: Color(0xFF2CAED2), width: 1.5),
                         ),
                         contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                       ),
@@ -4070,7 +5608,7 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
                   icon: const Icon(Icons.send_rounded, size: 16, color: Colors.white),
                   label: const Text("Kirim WhatsApp", style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF00BF63),
+                    backgroundColor: const Color(0xFF2CAED2),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                   ),
                 ),
@@ -4193,7 +5731,7 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
     );
   }
 
-  // ─── 4 Tombol Aksi Cepat (Versi Orisinal OMNI POS) ─────────────────────
+  // ─── 4 Tombol Aksi Cepat (Versi Orisinal FLASH COIN LAUNDRY) ─────────────────────
   Widget _buildQuickAction4Buttons(bool isDark) {
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -4210,19 +5748,18 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           children: [
-            // 1. Kasir (Hijau Khas Brand POS)
+            // 1. Laporan (Laba Rugi & Analisis Keuangan)
             _buildActionCard(
-              label: "Kasir",
-              subtitle: "Buka POS Penjualan",
-              icon: Icons.point_of_sale_rounded,
-              accentColor: const Color(0xFF00BF63),
+              label: "Laporan",
+              subtitle: "Laba Rugi & Analisis",
+              icon: Icons.analytics_outlined,
+              accentColor: const Color(0xFF2CAED2),
               isDark: isDark,
               onTap: () {
-                if (widget.onNavigateToIndex != null) {
-                  widget.onNavigateToIndex!(0);
-                } else {
-                  Navigator.maybePop(context);
-                }
+                setState(() {
+                  _isShowingLaporanView = true;
+                  _selectedTabIndex = 0; // Buka tab Laba Rugi
+                });
               },
             ),
             // 2. Pembelian (Biru Aset & Pasokan Stok)
@@ -4459,7 +5996,7 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
           ),
           const Divider(height: 1, thickness: 1),
 
-          if (_isLoadingDetails)
+          if (_isLoadingDetails && _recentActivities.isEmpty)
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 32),
               child: Center(child: CupertinoActivityIndicator()),
@@ -4799,12 +6336,12 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
                                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                                         decoration: BoxDecoration(
                                           color: isSelected
-                                              ? const Color(0xFF00BF63).withValues(alpha: 0.15)
+                                              ? const Color(0xFF2CAED2).withValues(alpha: 0.15)
                                               : (isDark ? const Color(0xFF0F172A) : const Color(0xFFF1F5F9)),
                                           borderRadius: BorderRadius.circular(16),
                                           border: Border.all(
                                             color: isSelected
-                                                ? const Color(0xFF00BF63)
+                                                ? const Color(0xFF2CAED2)
                                                 : (isDark ? const Color(0xFF334155) : const Color(0xFFCBD5E1)),
                                           ),
                                         ),
@@ -4814,7 +6351,7 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
                                             fontSize: 11.5,
                                             fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
                                             color: isSelected
-                                                ? const Color(0xFF00BF63)
+                                                ? const Color(0xFF2CAED2)
                                                 : (isDark ? Colors.white70 : const Color(0xFF475569)),
                                           ),
                                         ),
@@ -5158,7 +6695,7 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
                                         style: GoogleFonts.plusJakartaSans(
                                           fontSize: 12,
                                           fontWeight: FontWeight.w700,
-                                          color: const Color(0xFF00BF63),
+                                          color: const Color(0xFF2CAED2),
                                         ),
                                       ),
                                     ),
@@ -5672,7 +7209,7 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
                                         style: GoogleFonts.plusJakartaSans(
                                           fontSize: 12,
                                           fontWeight: FontWeight.w700,
-                                          color: const Color(0xFF00BF63),
+                                          color: const Color(0xFF2CAED2),
                                         ),
                                       ),
                                     ),
@@ -5800,7 +7337,7 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
                                                           : Icons.add_circle_outline_rounded,
                                                       size: 18,
                                                       color: isChosen
-                                                          ? const Color(0xFF00BF63)
+                                                          ? const Color(0xFF2CAED2)
                                                           : (isDark ? Colors.white60 : const Color(0xFF64748B)),
                                                     ),
                                                     const SizedBox(width: 8),
@@ -6204,7 +7741,7 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
                                                   borderRadius: BorderRadius.circular(8),
                                                   border: Border.all(
                                                     color: isLunas
-                                                        ? const Color(0xFF00BF63)
+                                                        ? const Color(0xFF2CAED2)
                                                         : (isDark ? const Color(0xFF475569) : const Color(0xFFCBD5E1)),
                                                   ),
                                                 ),
@@ -6214,7 +7751,7 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
                                                     fontSize: 11.5,
                                                     fontWeight: FontWeight.w700,
                                                     color: isLunas
-                                                        ? const Color(0xFF00BF63)
+                                                        ? const Color(0xFF2CAED2)
                                                         : (isDark ? Colors.white70 : const Color(0xFF475569)),
                                                   ),
                                                 ),
@@ -6236,7 +7773,7 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
                                           borderRadius: BorderRadius.circular(12),
                                           border: Border.all(
                                             color: isLunas
-                                                ? const Color(0xFF00BF63).withValues(alpha: 0.4)
+                                                ? const Color(0xFF2CAED2).withValues(alpha: 0.4)
                                                 : (isPartial
                                                     ? const Color(0xFFD97706).withValues(alpha: 0.4)
                                                     : const Color(0xFFE05260).withValues(alpha: 0.4)),
@@ -6249,7 +7786,7 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
                                                   ? Icons.check_circle_rounded
                                                   : (isPartial ? Icons.hourglass_bottom_rounded : Icons.info_outline_rounded),
                                               color: isLunas
-                                                  ? const Color(0xFF00BF63)
+                                                  ? const Color(0xFF2CAED2)
                                                   : (isPartial ? const Color(0xFFD97706) : const Color(0xFFE05260)),
                                               size: 19,
                                             ),
@@ -6343,7 +7880,7 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
                                           height: 22,
                                           child: Checkbox(
                                             value: updateBuyPrice,
-                                            activeColor: const Color(0xFF00BF63),
+                                            activeColor: const Color(0xFF2CAED2),
                                             onChanged: (val) => setSheetState(() => updateBuyPrice = val ?? true),
                                           ),
                                         ),
@@ -6680,24 +8217,188 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
     );
   }
 
-  Widget _buildChartSection(AnalyticsController controller, bool isDark) {
+  List<Map<String, dynamic>> _getEffectiveChartData(
+    AnalyticsController controller,
+    List<Transaction> filteredTxs, {
+    String? supplierFilter,
+  }) {
+    final bool hasMethodFilter = _selectedPaymentMethodFilter != null && _selectedPaymentMethodFilter != 'ALL';
+    final bool hasSupFilter = supplierFilter != null && supplierFilter != 'ALL';
+
+    if (!hasMethodFilter && !hasSupFilter) {
+      return controller.chartData;
+    }
+
+    final now = DateTime.now();
+    DateTime startDate;
+    int steps;
+    DateFormat format;
+
+    switch (controller.selectedRange) {
+      case ChartRange.today:
+        startDate = DateTime(_startDate.year, _startDate.month, _startDate.day);
+        steps = 24;
+        format = DateFormat('HH:mm');
+        break;
+      case ChartRange.sevenDays:
+        startDate = DateTime(now.year, now.month, now.day).subtract(const Duration(days: 6));
+        steps = 7;
+        format = DateFormat('dd/MM');
+        break;
+      case ChartRange.thirtyDays:
+        startDate = DateTime(now.year, now.month, now.day).subtract(const Duration(days: 29));
+        steps = 30;
+        format = DateFormat('dd/MM');
+        break;
+      case ChartRange.month:
+        startDate = DateTime(_startDate.year, _startDate.month, 1);
+        steps = DateTime(_startDate.year, _startDate.month + 1, 0).day;
+        format = DateFormat('dd');
+        break;
+      case ChartRange.allTime:
+        startDate = DateTime(2020, 1, 1);
+        steps = 30;
+        format = DateFormat('dd/MM');
+        break;
+      case ChartRange.custom:
+        startDate = _startDate;
+        final customEnd = _endDate;
+        steps = customEnd.difference(startDate).inDays + 1;
+        if (steps <= 0) steps = 1;
+        format = steps > 60 ? DateFormat('MMM') : DateFormat('dd/MM');
+        break;
+    }
+
+    Map<String, double> dataMap = {};
+    for (int i = 0; i < steps; i++) {
+      DateTime stepDate;
+      if (controller.selectedRange == ChartRange.today) {
+        stepDate = startDate.add(Duration(hours: i));
+      } else {
+        stepDate = startDate.add(Duration(days: i));
+      }
+      final key = DateFormat('yyyy-MM-dd HH').format(stepDate);
+      dataMap[key] = 0;
+    }
+
+    for (var tx in filteredTxs) {
+      final date = tx.createdAt?.toLocal() ?? DateTime.now();
+      String foundKey = '';
+      if (controller.selectedRange == ChartRange.today) {
+        final key = DateFormat('yyyy-MM-dd HH').format(date);
+        if (dataMap.containsKey(key)) {
+          foundKey = key;
+        }
+      } else {
+        final dateKey = DateFormat('yyyy-MM-dd').format(date);
+        for (var k in dataMap.keys) {
+          if (k.startsWith(dateKey)) {
+            foundKey = k;
+            break;
+          }
+        }
+      }
+      if (foundKey.isNotEmpty) {
+        final double amt = hasSupFilter
+            ? (supplierFilter == 'STORE'
+                ? _getTxStoreSales(tx.id, tx.totalAmount ?? 0.0)
+                : (_txSupplierSalesMap[tx.id]?[supplierFilter] ?? 0.0))
+            : (tx.totalAmount ?? 0.0);
+        dataMap[foundKey] = dataMap[foundKey]! + amt;
+      }
+    }
+
+    return dataMap.entries.map((e) {
+      DateTime d = DateFormat('yyyy-MM-dd HH').parse(e.key);
+      return {'date': e.key, 'amount': e.value, 'label': format.format(d)};
+    }).toList();
+  }
+
+  Widget _buildChartSection(
+    AnalyticsController controller,
+    bool isDark, {
+    List<Transaction>? filteredTxs,
+    String? supplierFilter,
+    Supplier? selectedSupplier,
+  }) {
+    final chartData = _getEffectiveChartData(
+      controller,
+      filteredTxs ?? _periodTransactions,
+      supplierFilter: supplierFilter,
+    );
+    final int labelInterval = (chartData.length / 6).ceil().clamp(1, 10);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          "Grafik Pendapatan",
-          style: GoogleFonts.plusJakartaSans(
-            fontSize: 16,
-            fontWeight: FontWeight.w700,
-            color: isDark ? Colors.white : const Color(0xFF0F172A),
-          ),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              "Grafik Pendapatan",
+              style: GoogleFonts.plusJakartaSans(
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+                color: isDark ? Colors.white : const Color(0xFF0F172A),
+              ),
+            ),
+            if (supplierFilter == 'STORE')
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF2CAED2).withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: const Color(0xFF2CAED2).withValues(alpha: 0.3)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.store_rounded, size: 12, color: Color(0xFF2CAED2)),
+                    const SizedBox(width: 4),
+                    Text(
+                      "Pemasukan Toko",
+                      style: GoogleFonts.plusJakartaSans(
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w700,
+                        color: const Color(0xFF2CAED2),
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            else if (selectedSupplier != null)
+              Builder(
+                builder: (context) {
+                  final bool isTitip = (selectedSupplier.notes ?? '').contains('[Titip]') ||
+                      (selectedSupplier.address ?? '').contains('[Titip]') ||
+                      (selectedSupplier.notes ?? '').toLowerCase().contains('penitip');
+                  final Color bColor = isTitip ? const Color(0xFFD97706) : const Color(0xFF2CAED2);
+                  return Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: bColor.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: bColor.withValues(alpha: 0.3)),
+                    ),
+                    child: Text(
+                      "${isTitip ? 'Penitip' : 'Supplier'}: ${selectedSupplier.name}",
+                      style: GoogleFonts.plusJakartaSans(
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w700,
+                        color: bColor,
+                      ),
+                    ),
+                  );
+                },
+              ),
+          ],
         ),
         const SizedBox(height: 12),
         PinterestCard(
           padding: const EdgeInsets.fromLTRB(10, 24, 24, 16),
           child: SizedBox(
             height: 200,
-            child: controller.chartData.isEmpty
+            child: chartData.isEmpty
                 ? Center(
                     child: Text(
                       "Belum ada data grafik",
@@ -6754,14 +8455,14 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
                             interval: 1,
                             getTitlesWidget: (value, meta) {
                               final idx = value.toInt();
-                              final interval = controller.chartLabelInterval;
-                              if (idx >= 0 && idx < controller.chartData.length) {
+                              final interval = labelInterval;
+                              if (idx >= 0 && idx < chartData.length) {
                                 if (idx % interval == 0) {
                                   return SideTitleWidget(
                                     meta: meta,
                                     space: 8,
                                     child: Text(
-                                      controller.chartData[idx]['label'],
+                                      chartData[idx]['label'],
                                       style: GoogleFonts.openSans(
                                         fontSize: 10,
                                         color: Colors.grey[500],
@@ -6778,23 +8479,23 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
                       borderData: FlBorderData(show: false),
                       lineBarsData: [
                         LineChartBarData(
-                          spots: List.generate(controller.chartData.length, (i) {
+                          spots: List.generate(chartData.length, (i) {
                             return FlSpot(
                               i.toDouble(),
-                              controller.chartData[i]['amount'],
+                              chartData[i]['amount'],
                             );
                           }),
                           isCurved: true,
                           curveSmoothness: 0.35,
-                          color: const Color(0xFF00BF63),
+                          color: const Color(0xFF2CAED2),
                           barWidth: 3,
                           dotData: const FlDotData(show: false),
                           belowBarData: BarAreaData(
                             show: true,
                             gradient: LinearGradient(
                               colors: [
-                                const Color(0xFF00BF63).withValues(alpha: 0.25),
-                                const Color(0xFF00BF63).withValues(alpha: 0.0),
+                                const Color(0xFF2CAED2).withValues(alpha: 0.25),
+                                const Color(0xFF2CAED2).withValues(alpha: 0.0),
                               ],
                               begin: Alignment.topCenter,
                               end: Alignment.bottomCenter,
@@ -6807,75 +8508,6 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
           ),
         ),
       ],
-    );
-  }
-
-  Widget _buildGrowthIndicators(AnalyticsController controller, bool isDark) {
-    return Column(
-      children: [
-        _buildGrowthCard("Mingguan", controller.weeklyGrowth, isDark),
-        const SizedBox(height: 12),
-        _buildGrowthCard("Bulanan", controller.monthlyGrowth, isDark),
-      ],
-    );
-  }
-
-  Widget _buildGrowthCard(String label, double growth, bool isDark) {
-    final isPositive = growth >= 0;
-    final color = isPositive
-        ? const Color(0xFF00BF63)
-        : const Color(0xFFEF4444);
-
-    return PinterestCard(
-      padding: const EdgeInsets.all(16),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: Icon(
-              isPositive
-                  ? CupertinoIcons.graph_circle_fill
-                  : CupertinoIcons.graph_circle,
-              color: color,
-              size: 24,
-            ),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label,
-                  style: GoogleFonts.plusJakartaSans(
-                    fontWeight: FontWeight.w600,
-                    fontSize: 14,
-                  ),
-                ),
-                Text(
-                  isPositive ? "Kenaikan performa" : "Penurunan performa",
-                  style: GoogleFonts.openSans(
-                    fontSize: 11,
-                    color: Colors.grey[500],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Text(
-            "${isPositive ? '+' : ''}${growth.toStringAsFixed(1)}%",
-            style: GoogleFonts.plusJakartaSans(
-              fontWeight: FontWeight.w700,
-              fontSize: 16,
-              color: color,
-            ),
-          ),
-        ],
-      ),
     );
   }
 }
@@ -6978,3 +8610,18 @@ class _PurchaseDraftRow {
     required this.priceCtrl,
   });
 }
+
+class _TopProductItem {
+  final String name;
+  int qty;
+  double sales;
+  double profit;
+
+  _TopProductItem({
+    required this.name,
+    required this.qty,
+    required this.sales,
+    required this.profit,
+  });
+}
+

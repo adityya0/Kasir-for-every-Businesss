@@ -28,7 +28,8 @@ android {
         applicationId = "com.kakilima.pos"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion
+        // Kompatibel dari Android 7/8/9 hingga Android 13/14/15/16 terbaru (Segala HP)
+        minSdk = 24
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName

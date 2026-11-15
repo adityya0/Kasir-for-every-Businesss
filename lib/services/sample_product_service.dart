@@ -5,166 +5,353 @@ import 'package:uuid/uuid.dart';
 import 'app_database.dart';
 
 class SampleProductService {
+  /// The 20 items requested by FLASH COIN LAUNDRY
+  static final List<Map<String, dynamic>> flashCoinLaundryMenu = [
+    {
+      'name': 'Cuci',
+      'sku': 'LUN-001',
+      'category': 'Laundry',
+      'buyPrice': 0.0,
+      'salePrice': 10000.0,
+      'stock': 0.0,
+      'description': 'Layanan cuci',
+      'image': '',
+    },
+    {
+      'name': 'Kering',
+      'sku': 'LUN-002',
+      'category': 'Laundry',
+      'buyPrice': 0.0,
+      'salePrice': 10000.0,
+      'stock': 0.0,
+      'description': 'Layanan kering',
+      'image': '',
+    },
+    {
+      'name': 'Drop Off',
+      'sku': 'LUN-003',
+      'category': 'Laundry',
+      'buyPrice': 0.0,
+      'salePrice': 10000.0,
+      'stock': 0.0,
+      'description': 'Layanan drop off',
+      'image': '',
+    },
+    {
+      'name': 'Detergen',
+      'sku': 'LUN-004',
+      'category': 'Laundry',
+      'buyPrice': 0.0,
+      'salePrice': 3000.0,
+      'stock': 0.0,
+      'description': 'Tambahan detergen',
+      'image': '',
+    },
+    {
+      'name': 'Pewangi',
+      'sku': 'LUN-005',
+      'category': 'Laundry',
+      'buyPrice': 0.0,
+      'salePrice': 3000.0,
+      'stock': 0.0,
+      'description': 'Tambahan pewangi',
+      'image': '',
+    },
+    {
+      'name': 'Plastik',
+      'sku': 'LUN-006',
+      'category': 'Laundry',
+      'buyPrice': 0.0,
+      'salePrice': 3000.0,
+      'stock': 0.0,
+      'description': 'Plastik laundry',
+      'image': '',
+    },
+    {
+      'name': 'Cuci Kering Promo',
+      'sku': 'LUN-007',
+      'category': 'Laundry',
+      'buyPrice': 0.0,
+      'salePrice': 15000.0,
+      'stock': 0.0,
+      'description': 'Paket cuci kering promo',
+      'image': '',
+    },
+    {
+      'name': 'Baso Halus',
+      'sku': 'BAS-001',
+      'category': 'Makanan',
+      'buyPrice': 0.0,
+      'salePrice': 10000.0,
+      'stock': 0.0,
+      'description': 'Baso halus',
+      'image': '',
+    },
+    {
+      'name': 'Baso Cincang',
+      'sku': 'BAS-002',
+      'category': 'Makanan',
+      'buyPrice': 0.0,
+      'salePrice': 12000.0,
+      'stock': 0.0,
+      'description': 'Baso cincang',
+      'image': '',
+    },
+    {
+      'name': 'Baso Cincang Tetelan',
+      'sku': 'BAS-003',
+      'category': 'Makanan',
+      'buyPrice': 0.0,
+      'salePrice': 15000.0,
+      'stock': 0.0,
+      'description': 'Baso cincang dengan tetelan',
+      'image': '',
+    },
+    {
+      'name': 'Baso Cincang Kikil',
+      'sku': 'BAS-004',
+      'category': 'Makanan',
+      'buyPrice': 0.0,
+      'salePrice': 15000.0,
+      'stock': 0.0,
+      'description': 'Baso cincang dengan kikil',
+      'image': '',
+    },
+    {
+      'name': 'Air Mineral',
+      'sku': 'MNM-001',
+      'category': 'Minuman',
+      'buyPrice': 0.0,
+      'salePrice': 4000.0,
+      'stock': 0.0,
+      'description': 'Air mineral botol',
+      'image': '',
+    },
+    {
+      'name': 'Teh Kotak',
+      'sku': 'MNM-002',
+      'category': 'Minuman',
+      'buyPrice': 0.0,
+      'salePrice': 5000.0,
+      'stock': 0.0,
+      'description': 'Teh kotak',
+      'image': '',
+    },
+    {
+      'name': 'Fresh Tea',
+      'sku': 'MNM-003',
+      'category': 'Minuman',
+      'buyPrice': 0.0,
+      'salePrice': 5000.0,
+      'stock': 0.0,
+      'description': 'Fresh tea',
+      'image': '',
+    },
+    {
+      'name': 'Fanta',
+      'sku': 'MNM-004',
+      'category': 'Minuman',
+      'buyPrice': 0.0,
+      'salePrice': 6000.0,
+      'stock': 0.0,
+      'description': 'Minuman Fanta',
+      'image': '',
+    },
+    {
+      'name': 'Coca Cola',
+      'sku': 'MNM-005',
+      'category': 'Minuman',
+      'buyPrice': 0.0,
+      'salePrice': 6000.0,
+      'stock': 0.0,
+      'description': 'Minuman Coca Cola',
+      'image': '',
+    },
+    {
+      'name': 'Nipis Madu',
+      'sku': 'MNM-006',
+      'category': 'Minuman',
+      'buyPrice': 0.0,
+      'salePrice': 5000.0,
+      'stock': 0.0,
+      'description': 'Minuman Nipis Madu',
+      'image': '',
+    },
+    {
+      'name': 'Minute Maid',
+      'sku': 'MNM-007',
+      'category': 'Minuman',
+      'buyPrice': 0.0,
+      'salePrice': 6000.0,
+      'stock': 0.0,
+      'description': 'Minuman Minute Maid',
+      'image': '',
+    },
+    {
+      'name': 'Nutri Boost',
+      'sku': 'MNM-008',
+      'category': 'Minuman',
+      'buyPrice': 0.0,
+      'salePrice': 7000.0,
+      'stock': 0.0,
+      'description': 'Minuman Nutri Boost',
+      'image': '',
+    },
+    {
+      'name': 'All Kopi & Susu',
+      'sku': 'MNM-009',
+      'category': 'Minuman',
+      'buyPrice': 0.0,
+      'salePrice': 5000.0,
+      'stock': 0.0,
+      'description': 'Aneka kopi & susu',
+      'image': '',
+    },
+  ];
+
   static Future<void> seedSampleProducts(
+    AppDatabase db,
+    String storeId, {
+    bool force = false,
+  }) async {
+    await seedFlashCoinLaundryProducts(db, storeId, force: force);
+  }
+
+  /// Seeds or updates the 20 official FLASH COIN LAUNDRY products into the store.
+  static Future<int> seedFlashCoinLaundryProducts(
     AppDatabase db,
     String storeId, {
     bool force = false,
   }) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final key = 'sample_products_seeded_$storeId';
+      final key = 'flash_coin_menu_seeded_$storeId';
 
       if (!force) {
         final alreadySeeded = prefs.getBool(key) ?? false;
         if (alreadySeeded) {
-          return;
-        }
-
-        // Check if store already has any active products
-        final existingCount = await (db.select(db.products)
-              ..where((t) => t.storeId.equals(storeId))
-              ..where((t) => t.isDeleted.equals(false)))
-            .get();
-
-        if (existingCount.isNotEmpty) {
-          await prefs.setBool(key, true);
-          return;
+          // If already marked as seeded, verify if at least one product exists
+          final count = await (db.select(db.products)
+                ..where((t) => t.storeId.equals(storeId))
+                ..where((t) => t.isDeleted.equals(false)))
+              .get();
+          if (count.isNotEmpty) {
+            return 0;
+          }
         }
       }
 
-      // 1. Ensure Categories "Makanan" and "Minuman"
-      String makananCatId = 'cat_makanan_$storeId';
-      String minumanCatId = 'cat_minuman_$storeId';
+      final now = DateTime.now();
+      const uuid = Uuid();
 
+      // 1. Ensure Categories exist: Laundry, Makanan, Minuman
       final existingCategories = await (db.select(db.categories)
             ..where((t) => t.storeId.equals(storeId)))
           .get();
 
-      final existingMakanan = existingCategories
-          .where((c) => (c.name ?? '').toLowerCase() == 'makanan')
-          .firstOrNull;
-      if (existingMakanan != null) {
-        makananCatId = existingMakanan.id;
-      } else {
-        await db.into(db.categories).insertOnConflictUpdate(
-          CategoriesCompanion.insert(
-            id: makananCatId,
-            name: const Value('Makanan'),
-            storeId: Value(storeId),
-            createdAt: Value(DateTime.now()),
-            lastUpdated: Value(DateTime.now()),
-          ),
-        );
+      final categoryMap = <String, String>{};
+      for (final cat in existingCategories) {
+        final name = (cat.name ?? '').trim().toLowerCase();
+        if (name.isNotEmpty) {
+          categoryMap[name] = cat.id;
+        }
       }
 
-      final existingMinuman = existingCategories
-          .where((c) => (c.name ?? '').toLowerCase() == 'minuman')
-          .firstOrNull;
-      if (existingMinuman != null) {
-        minumanCatId = existingMinuman.id;
-      } else {
-        await db.into(db.categories).insertOnConflictUpdate(
-          CategoriesCompanion.insert(
-            id: minumanCatId,
-            name: const Value('Minuman'),
-            storeId: Value(storeId),
-            createdAt: Value(DateTime.now()),
-            lastUpdated: Value(DateTime.now()),
-          ),
-        );
+      final requiredCategories = ['Laundry', 'Makanan', 'Minuman'];
+      for (final catName in requiredCategories) {
+        final lower = catName.toLowerCase();
+        if (!categoryMap.containsKey(lower)) {
+          final catId = 'cat_${lower}_$storeId';
+          await db.into(db.categories).insertOnConflictUpdate(
+            CategoriesCompanion.insert(
+              id: catId,
+              name: Value(catName),
+              storeId: Value(storeId),
+              createdAt: Value(now),
+              lastUpdated: Value(now),
+            ),
+          );
+          categoryMap[lower] = catId;
+        }
       }
 
-      // 2. Ensure Units exist
-      final existingUnits = await db.select(db.units).get();
-      String? unitPcsId = existingUnits.where((u) => u.code.toLowerCase() == 'pcs').firstOrNull?.id ?? 'uPcs';
-      String? unitPorsiId = existingUnits.where((u) => u.code.toLowerCase() == 'prs').firstOrNull?.id ?? unitPcsId;
-      String? unitCupId = existingUnits.where((u) => u.code.toLowerCase() == 'cup').firstOrNull?.id ?? unitPcsId;
+      // 2. Fetch existing products for this store to prevent duplicate SKUs or names
+      final existingProducts = await (db.select(db.products)
+            ..where((t) => t.storeId.equals(storeId)))
+          .get();
 
-      final now = DateTime.now();
+      final productBySku = <String, Product>{};
+      final productByName = <String, Product>{};
+      for (final p in existingProducts) {
+        final sku = (p.sku ?? '').trim().toUpperCase();
+        if (sku.isNotEmpty) productBySku[sku] = p;
+        final name = (p.name ?? '').trim().toLowerCase();
+        if (name.isNotEmpty) productByName[name] = p;
+      }
 
-      // 3. Define 4 Sample Products with high quality assets
-      final sampleList = [
-        {
-          'id': 'prod_sample_ikan_bakar_${storeId.substring(0, storeId.length > 8 ? 8 : storeId.length)}',
-          'name': 'Ikan Bakar Sambal Lalapan',
-          'sku': 'IKN-01',
-          'description': 'Ikan nila bakar bumbu manis gurih dengan sambal terasi segar, lalapan mentimun dan selada.',
-          'buyPrice': 18000.0,
-          'salePrice': 28000.0,
-          'stock': 20.0,
-          'categoryId': makananCatId,
-          'unitId': unitPcsId,
-          'image': 'assets/products/ikan_bakar.jpg',
-        },
-        {
-          'id': 'prod_sample_es_teh_${storeId.substring(0, storeId.length > 8 ? 8 : storeId.length)}',
-          'name': 'Es Teh Manis Segar',
-          'sku': 'MIN-01',
-          'description': 'Teh melati seduh dingin segar dengan es batu kristal dan manis pas pelepas dahaga.',
-          'buyPrice': 2000.0,
-          'salePrice': 5000.0,
-          'stock': 100.0,
-          'categoryId': minumanCatId,
-          'unitId': unitCupId,
-          'image': 'assets/products/es_teh.jpg',
-        },
-        {
-          'id': 'prod_sample_nasi_goreng_${storeId.substring(0, storeId.length > 8 ? 8 : storeId.length)}',
-          'name': 'Nasi Goreng Spesial Telur',
-          'sku': 'NAS-01',
-          'description': 'Nasi goreng bumbu rempah spesial gurih dengan telur mata sapi, sayuran segar, dan timun.',
-          'buyPrice': 12000.0,
-          'salePrice': 22000.0,
-          'stock': 45.0,
-          'categoryId': makananCatId,
-          'unitId': unitPorsiId,
-          'image': 'assets/products/nasi_goreng.jpg',
-        },
-        {
-          'id': 'prod_sample_sate_ayam_${storeId.substring(0, storeId.length > 8 ? 8 : storeId.length)}',
-          'name': 'Sate Ayam Madura + Nasi',
-          'sku': 'SAT-01',
-          'description': 'Sate daging ayam panggang lembut dengan siraman bumbu kacang kental gurih, cabai, dan seporsi nasi putih.',
-          'buyPrice': 15000.0,
-          'salePrice': 25000.0,
-          'stock': 30.0,
-          'categoryId': makananCatId,
-          'unitId': unitPorsiId,
-          'image': 'assets/products/sate_ayam.jpg',
-        },
-      ];
+      int seededCount = 0;
 
-      for (var p in sampleList) {
-        final prodId = force ? const Uuid().v4() : p['id'] as String;
+      for (final item in flashCoinLaundryMenu) {
+        final name = item['name'] as String;
+        final sku = (item['sku'] as String).trim().toUpperCase();
+        final catName = (item['category'] as String).trim().toLowerCase();
+        final catId = categoryMap[catName];
+        final buyPrice = (item['buyPrice'] as num).toDouble();
+        final salePrice = (item['salePrice'] as num).toDouble();
+        final stock = (item['stock'] as num).toDouble();
+        final desc = item['description'] as String;
 
-        await db.into(db.products).insertOnConflictUpdate(
-          ProductsCompanion(
-            id: Value(prodId),
-            storeId: Value(storeId),
-            name: Value(p['name'] as String),
-            sku: Value(p['sku'] as String),
-            description: Value(p['description'] as String),
-            buyPrice: Value(p['buyPrice'] as double),
-            basePrice: Value(p['buyPrice'] as double),
-            salePrice: Value(p['salePrice'] as double),
-            stockQuantity: Value(p['stock'] as double),
-            isStockManaged: const Value(true),
-            categoryId: Value(p['categoryId'] as String?),
-            unitId: Value(p['unitId'] as String?),
-            imageUrl: Value(p['image'] as String?),
-            isAvailable: const Value(true),
-            isDeleted: const Value(false),
-            createdAt: Value(now),
-            lastUpdated: Value(now),
-          ),
-        );
+        Product? existing = productBySku[sku] ?? productByName[name.toLowerCase()];
+
+        if (existing != null) {
+          // Update existing product to make sure prices & category are accurate
+          await (db.update(db.products)..where((t) => t.id.equals(existing.id))).write(
+            ProductsCompanion(
+              name: Value(name),
+              sku: Value(sku),
+              categoryId: Value(catId ?? existing.categoryId),
+              buyPrice: Value(buyPrice),
+              basePrice: Value(buyPrice),
+              salePrice: Value(salePrice),
+              description: Value(desc),
+              isAvailable: const Value(true),
+              isDeleted: const Value(false),
+              lastUpdated: Value(now),
+            ),
+          );
+        } else {
+          // Insert new product
+          final newId = uuid.v4();
+          await db.into(db.products).insert(
+            ProductsCompanion.insert(
+              id: newId,
+              storeId: Value(storeId),
+              name: Value(name),
+              sku: Value(sku),
+              categoryId: Value(catId),
+              buyPrice: Value(buyPrice),
+              basePrice: Value(buyPrice),
+              salePrice: Value(salePrice),
+              stockQuantity: Value(stock),
+              description: Value(desc),
+              imageUrl: const Value(''),
+              isStockManaged: const Value(true),
+              isAvailable: const Value(true),
+              isDeleted: const Value(false),
+              createdAt: Value(now),
+              lastUpdated: Value(now),
+            ),
+          );
+        }
+        seededCount++;
       }
 
       await prefs.setBool(key, true);
-      debugPrint("SampleProductService: 4 sample products successfully seeded for store $storeId!");
-    } catch (e) {
-      debugPrint("SampleProductService Error: $e");
+      debugPrint("✓ Successfully seeded $seededCount FLASH COIN LAUNDRY products into store $storeId");
+      return seededCount;
+    } catch (e, stack) {
+      debugPrint("Error seeding Flash Coin Laundry products: $e\n$stack");
+      return 0;
     }
   }
 }
-

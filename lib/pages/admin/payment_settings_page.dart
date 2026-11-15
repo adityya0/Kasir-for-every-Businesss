@@ -12,6 +12,8 @@ import 'package:drift/drift.dart' show Value, OrderingTerm;
 import 'package:uuid/uuid.dart';
 import '../../widgets/activity_detail_sheet.dart';
 import '../../widgets/transaction_result_dialog.dart';
+import 'report/expense_management_page.dart';
+import '../../core/app_theme.dart';
 
 class PaymentSettingsPage extends StatefulWidget {
   final String storeId;
@@ -102,7 +104,7 @@ class _QuickActionItem {
 }
 
 class _PaymentSettingsPageState extends State<PaymentSettingsPage> with SingleTickerProviderStateMixin {
-  final Color _primaryColor = const Color(0xFF00BF63);
+  final Color _primaryColor = const Color(0xFF2CAED2);
   final NumberFormat _currencyFormat = NumberFormat.currency(
     locale: 'id_ID',
     symbol: 'Rp ',
@@ -1050,7 +1052,7 @@ class _PaymentSettingsPageState extends State<PaymentSettingsPage> with SingleTi
   Widget _buildCompactTypeFilterChip(String label, bool isDark) {
     final isSelected = _selectedTypeFilter == label;
     Color activeColor = _primaryColor;
-    if (label == 'Masuk') activeColor = const Color(0xFF00BF63);
+    if (label == 'Masuk') activeColor = const Color(0xFF2CAED2);
     if (label == 'Keluar') activeColor = const Color(0xFFE05260);
 
     return InkWell(
@@ -1105,14 +1107,50 @@ class _PaymentSettingsPageState extends State<PaymentSettingsPage> with SingleTi
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 13, 16, 11),
-            child: Text(
-              "Catat Keuangan",
-              style: GoogleFonts.plusJakartaSans(
-                fontSize: 14.5,
-                fontWeight: FontWeight.w700,
-                color: isDark ? Colors.white : const Color(0xFF0F172A),
-              ),
+            padding: const EdgeInsets.fromLTRB(16, 10, 12, 10),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  "Catat Keuangan",
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: 14.5,
+                    fontWeight: FontWeight.w700,
+                    color: isDark ? Colors.white : const Color(0xFF0F172A),
+                  ),
+                ),
+                InkWell(
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => ExpenseManagementPage(storeId: widget.storeId),
+                      ),
+                    );
+                  },
+                  borderRadius: BorderRadius.circular(8),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.tune_rounded, size: 14, color: AppTheme.primaryColor),
+                        const SizedBox(width: 4),
+                        Text(
+                          "Kelola Pengeluaran",
+                          style: GoogleFonts.plusJakartaSans(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: AppTheme.primaryColor,
+                          ),
+                        ),
+                        const SizedBox(width: 2),
+                        const Icon(Icons.chevron_right_rounded, size: 14, color: AppTheme.primaryColor),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
           Divider(height: 1, color: isDark ? Colors.white12 : const Color(0xFFE2E8F0)),
@@ -3029,10 +3067,10 @@ class _PaymentSettingsPageState extends State<PaymentSettingsPage> with SingleTi
                         Container(
                           padding: const EdgeInsets.all(8),
                           decoration: BoxDecoration(
-                            color: const Color(0xFF00BF63).withValues(alpha: 0.1),
+                            color: const Color(0xFF2CAED2).withValues(alpha: 0.1),
                             borderRadius: BorderRadius.circular(10),
                           ),
-                          child: const Icon(Icons.add_circle_outline_rounded, color: Color(0xFF00BF63), size: 22),
+                          child: const Icon(Icons.add_circle_outline_rounded, color: Color(0xFF2CAED2), size: 22),
                         ),
                         const SizedBox(width: 10),
                         Text(
@@ -3065,7 +3103,7 @@ class _PaymentSettingsPageState extends State<PaymentSettingsPage> with SingleTi
                               value: m,
                               child: Text(
                                 "${m.name} (Saldo: ${_currencyFormat.format(_currentBalances[m.id] ?? 0)})",
-                                style: GoogleFonts.plusJakartaSans(fontSize: 13, fontWeight: FontWeight.w600, color: const Color(0xFF00BF63)),
+                                style: GoogleFonts.plusJakartaSans(fontSize: 13, fontWeight: FontWeight.w600, color: const Color(0xFF2CAED2)),
                               ),
                             );
                           }).toList(),
@@ -3096,7 +3134,7 @@ class _PaymentSettingsPageState extends State<PaymentSettingsPage> with SingleTi
                               value: cat,
                               child: Text(
                                 cat,
-                                style: GoogleFonts.plusJakartaSans(fontSize: 13, fontWeight: FontWeight.w600, color: const Color(0xFF00BF63)),
+                                style: GoogleFonts.plusJakartaSans(fontSize: 13, fontWeight: FontWeight.w600, color: const Color(0xFF2CAED2)),
                               ),
                             );
                           }).toList(),
@@ -3143,7 +3181,7 @@ class _PaymentSettingsPageState extends State<PaymentSettingsPage> with SingleTi
                       height: 48,
                       child: ElevatedButton(
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF00BF63),
+                          backgroundColor: const Color(0xFF2CAED2),
                           foregroundColor: Colors.white,
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                         ),
@@ -3301,7 +3339,7 @@ class _PaymentSettingsPageState extends State<PaymentSettingsPage> with SingleTi
                               value: m,
                               child: Text(
                                 "${m.name} (Saldo: ${_currencyFormat.format(_currentBalances[m.id] ?? 0)})",
-                                style: GoogleFonts.plusJakartaSans(fontSize: 13, fontWeight: FontWeight.w600, color: const Color(0xFF00BF63)),
+                                style: GoogleFonts.plusJakartaSans(fontSize: 13, fontWeight: FontWeight.w600, color: const Color(0xFF2CAED2)),
                               ),
                             );
                           }).toList(),
@@ -3554,7 +3592,7 @@ class _PaymentSettingsPageState extends State<PaymentSettingsPage> with SingleTi
                         children: [
                           _buildReconRow("Modal Kas Awal", _currencyFormat.format(initialCash), dark),
                           const SizedBox(height: 6),
-                          _buildReconRow("Penjualan & Kas Masuk Hari Ini", "+ ${_currencyFormat.format(cashInToday)}", dark, valueColor: const Color(0xFF00BF63)),
+                          _buildReconRow("Penjualan & Kas Masuk Hari Ini", "+ ${_currencyFormat.format(cashInToday)}", dark, valueColor: const Color(0xFF2CAED2)),
                           const SizedBox(height: 6),
                           _buildReconRow("Pengeluaran & Tarik Hari Ini", "- ${_currencyFormat.format(cashOutToday)}", dark, valueColor: const Color(0xFFE05260)),
                           const Divider(height: 16),
@@ -3594,14 +3632,14 @@ class _PaymentSettingsPageState extends State<PaymentSettingsPage> with SingleTi
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
                           color: diff == 0
-                              ? const Color(0xFF00BF63).withValues(alpha: 0.1)
+                              ? const Color(0xFF2CAED2).withValues(alpha: 0.1)
                               : (diff > 0
                                   ? const Color(0xFF0284C7).withValues(alpha: 0.1)
                                   : const Color(0xFFE05260).withValues(alpha: 0.1)),
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(
                             color: diff == 0
-                                ? const Color(0xFF00BF63)
+                                ? const Color(0xFF2CAED2)
                                 : (diff > 0 ? const Color(0xFF0284C7) : const Color(0xFFE05260)),
                           ),
                         ),
@@ -3612,7 +3650,7 @@ class _PaymentSettingsPageState extends State<PaymentSettingsPage> with SingleTi
                                   ? Icons.check_circle_rounded
                                   : (diff > 0 ? Icons.arrow_circle_up_rounded : Icons.warning_amber_rounded),
                               color: diff == 0
-                                  ? const Color(0xFF00BF63)
+                                  ? const Color(0xFF2CAED2)
                                   : (diff > 0 ? const Color(0xFF0284C7) : const Color(0xFFE05260)),
                             ),
                             const SizedBox(width: 10),
@@ -3628,7 +3666,7 @@ class _PaymentSettingsPageState extends State<PaymentSettingsPage> with SingleTi
                                       fontWeight: FontWeight.w700,
                                       fontSize: 13,
                                       color: diff == 0
-                                          ? const Color(0xFF00BF63)
+                                          ? const Color(0xFF2CAED2)
                                           : (diff > 0 ? const Color(0xFF0284C7) : const Color(0xFFE05260)),
                                     ),
                                   ),
@@ -3655,7 +3693,7 @@ class _PaymentSettingsPageState extends State<PaymentSettingsPage> with SingleTi
                       height: 48,
                       child: ElevatedButton(
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF00BF63),
+                          backgroundColor: const Color(0xFF2CAED2),
                           foregroundColor: Colors.white,
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                         ),
@@ -3738,7 +3776,7 @@ class _PaymentSettingsPageState extends State<PaymentSettingsPage> with SingleTi
     if (typeLower == 'cash' || typeLower == 'kas') {
       badgeLabel = "KAS";
       typeIcon = Icons.payments_outlined;
-      iconColor = const Color(0xFF00BF63);
+      iconColor = const Color(0xFF2CAED2);
     } else if (typeLower == 'bank') {
       badgeLabel = "BANK";
       typeIcon = Icons.account_balance_outlined;
@@ -4269,7 +4307,7 @@ class _PaymentSettingsPageState extends State<PaymentSettingsPage> with SingleTi
             ElevatedButton.icon(
               onPressed: () => Navigator.pop(ctx, true),
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF00BF63),
+                backgroundColor: const Color(0xFF2CAED2),
                 foregroundColor: Colors.white,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
               ),

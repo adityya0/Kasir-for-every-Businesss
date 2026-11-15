@@ -4,8 +4,9 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../services/app_database.dart';
+import '../services/supplier_service.dart';
 
-class ProductGrid extends StatelessWidget {
+class ProductGrid extends StatefulWidget {
   final String storeId;
   final String searchQuery;
   final String? categoryFilter;
@@ -46,6 +47,48 @@ class ProductGrid extends StatelessWidget {
   });
 
   @override
+  State<ProductGrid> createState() => _ProductGridState();
+}
+
+class _ProductGridState extends State<ProductGrid> {
+  Map<String, Supplier> _productSupplierMap = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSuppliers();
+  }
+
+  @override
+  void didUpdateWidget(covariant ProductGrid oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.storeId != widget.storeId) {
+      _loadSuppliers();
+    }
+  }
+
+  Future<void> _loadSuppliers() async {
+    try {
+      final db = Provider.of<AppDatabase>(context, listen: false);
+      final supplierService = SupplierService(db);
+      final suppliers = await supplierService.getSuppliers(widget.storeId);
+      final map = <String, Supplier>{};
+      for (final s in suppliers) {
+        for (final pid in {...s.productUsualStock.keys, ...s.productPrices.keys}) {
+          map[pid] = s;
+        }
+      }
+      if (mounted) {
+        setState(() {
+          _productSupplierMap = map;
+        });
+      }
+    } catch (e) {
+      debugPrint("Error loading suppliers in ProductGrid: $e");
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     // Determine if Dark Mode
     final theme = Theme.of(context);
@@ -57,171 +100,173 @@ class ProductGrid extends StatelessWidget {
 
     // Filter using Drift Query DSL
     final query = db.select(db.products)
-      ..where((t) => t.storeId.equals(storeId))
+      ..where((t) => t.storeId.equals(widget.storeId))
       ..where((t) => t.isDeleted.equals(false));
 
-    if (categoryFilter != null && categoryFilter != "Semua") {
-      query.where((t) => t.categoryId.equals(categoryFilter!));
+    if (widget.categoryFilter != null && widget.categoryFilter != "Semua") {
+      query.where((t) => t.categoryId.equals(widget.categoryFilter!));
     }
 
     return StreamBuilder<List<Unit>>(
       stream: db.select(db.units).watch(),
       builder: (context, unitSnapshot) {
         final units = unitSnapshot.data ?? [];
-        final unitMap = { for (var u in units) u.id: u.code };
+        final unitMap = {for (var u in units) u.id: u.code};
 
         return StreamBuilder<List<Product>>(
-      stream: query.watch(),
-      builder: (context, snapshot) {
-        if (snapshot.hasError) {
-          return Center(
-            child: Padding(
-              padding: const EdgeInsets.all(24.0),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.refresh_rounded, size: 40, color: Colors.grey),
-                  const SizedBox(height: 8),
-                  Text("Memuat data produk...", style: TextStyle(color: Colors.grey[600], fontSize: 13)),
-                ],
-              ),
-            ),
-          );
-        }
-        if (!snapshot.hasData) {
-          return Center(child: CircularProgressIndicator(color: primaryColor));
-        }
+          stream: query.watch(),
+          builder: (context, snapshot) {
+            if (snapshot.hasError) {
+              return Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24.0),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.refresh_rounded, size: 40, color: Colors.grey),
+                      const SizedBox(height: 8),
+                      Text("Memuat data produk...", style: TextStyle(color: Colors.grey[600], fontSize: 13)),
+                    ],
+                  ),
+                ),
+              );
+            }
+            if (!snapshot.hasData) {
+              return Center(child: CircularProgressIndicator(color: primaryColor));
+            }
 
-        var localProducts = snapshot.data!;
+            var localProducts = snapshot.data!;
 
-        // Client-side promo filter
-        if (promoProductIds != null || promoCategoryIds != null) {
-          localProducts = localProducts.where((p) {
-            if (promoProductIds != null && promoProductIds!.contains(p.id)) {
+            // Client-side promo filter
+            if (widget.promoProductIds != null || widget.promoCategoryIds != null) {
+              localProducts = localProducts.where((p) {
+                if (widget.promoProductIds != null && widget.promoProductIds!.contains(p.id)) {
+                  return true;
+                }
+                if (widget.promoCategoryIds != null &&
+                    p.categoryId != null &&
+                    widget.promoCategoryIds!.contains(p.categoryId!)) {
+                  return true;
+                }
+                return false;
+              }).toList();
+            }
+
+            // 1. Client-side search
+            var filteredProducts = localProducts.where((p) {
+              if (widget.searchQuery.isNotEmpty) {
+                final q = widget.searchQuery.toLowerCase();
+                final name = (p.name ?? '').toLowerCase();
+                final sku = (p.sku ?? '').toLowerCase();
+                if (!name.contains(q) && !sku.contains(q)) {
+                  return false;
+                }
+              }
               return true;
+            }).toList();
+
+            // 2. Sort
+            if (widget.filterType == "Recent" && widget.recentProductIds != null) {
+              // Filter to only show products that were sold in this session
+              filteredProducts = filteredProducts
+                  .where((p) => widget.recentProductIds!.contains(p.id))
+                  .toList();
+
+              // Sort by the order in recentProductIds (maintains "most recently sold" first)
+              filteredProducts.sort((a, b) {
+                final indexA = widget.recentProductIds!.indexOf(a.id);
+                final indexB = widget.recentProductIds!.indexOf(b.id);
+                return indexA.compareTo(indexB);
+              });
+            } else if (widget.filterType == "Recent") {
+              // Fallback to createdAt if no session data (old behavior or just in case)
+              filteredProducts.sort((a, b) {
+                final da = a.createdAt ?? DateTime(2000);
+                final db = b.createdAt ?? DateTime(2000);
+                return db.compareTo(da);
+              });
+            } else if (widget.filterType == "Popular") {
+              // Most total units sold first (real sales data)
+              filteredProducts.sort((a, b) {
+                final soldA = widget.salesMap?[a.id] ?? 0;
+                final soldB = widget.salesMap?[b.id] ?? 0;
+                return soldB.compareTo(soldA);
+              });
             }
-            if (promoCategoryIds != null &&
-                p.categoryId != null &&
-                promoCategoryIds!.contains(p.categoryId!)) {
-              return true;
+
+            if (filteredProducts.isEmpty) {
+              return Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.search_off_rounded,
+                      size: 60,
+                      color: Colors.grey[300],
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      widget.searchQuery.isEmpty
+                          ? "Belum ada produk."
+                          : "Produk tidak ditemukan.",
+                      style: GoogleFonts.openSans(color: Colors.grey[500]),
+                    ),
+                  ],
+                ),
+              );
             }
-            return false;
-          }).toList();
-        }
 
-        // 1. Client-side search
-        var filteredProducts = localProducts.where((p) {
-          if (searchQuery.isNotEmpty) {
-            final q = searchQuery.toLowerCase();
-            final name = (p.name ?? '').toLowerCase();
-            final sku = (p.sku ?? '').toLowerCase();
-            if (!name.contains(q) && !sku.contains(q)) {
-              return false;
-            }
-          }
-          return true;
-        }).toList();
+            final products = filteredProducts;
 
-        // 2. Sort
-        if (filterType == "Recent" && recentProductIds != null) {
-          // Filter to only show products that were sold in this session
-          filteredProducts = filteredProducts
-              .where((p) => recentProductIds!.contains(p.id))
-              .toList();
-
-          // Sort by the order in recentProductIds (maintains "most recently sold" first)
-          filteredProducts.sort((a, b) {
-            final indexA = recentProductIds!.indexOf(a.id);
-            final indexB = recentProductIds!.indexOf(b.id);
-            return indexA.compareTo(indexB);
-          });
-        } else if (filterType == "Recent") {
-          // Fallback to createdAt if no session data (old behavior or just in case)
-          filteredProducts.sort((a, b) {
-            final da = a.createdAt ?? DateTime(2000);
-            final db = b.createdAt ?? DateTime(2000);
-            return db.compareTo(da);
-          });
-        } else if (filterType == "Popular") {
-          // Most total units sold first (real sales data)
-          filteredProducts.sort((a, b) {
-            final soldA = salesMap?[a.id] ?? 0;
-            final soldB = salesMap?[b.id] ?? 0;
-            return soldB.compareTo(soldA);
-          });
-        }
-
-        if (filteredProducts.isEmpty) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  Icons.search_off_rounded,
-                  size: 60,
-                  color: Colors.grey[300],
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  searchQuery.isEmpty
-                      ? "Belum ada produk."
-                      : "Produk tidak ditemukan.",
-                  style: GoogleFonts.openSans(color: Colors.grey[500]),
-                ),
-              ],
-            ),
-          );
-        }
-
-        final products = filteredProducts;
-
-        if (isGridView) {
-          return LayoutBuilder(
-            builder: (context, constraints) {
-              final isWide = constraints.maxWidth >= 500;
-              return GridView.builder(
-                padding: const EdgeInsets.fromLTRB(20, 10, 20, 20),
-                gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
-                  maxCrossAxisExtent: isWide ? 140 : 170,
-                  childAspectRatio: isWide ? 0.58 : 0.60,
-                  crossAxisSpacing: 12,
-                  mainAxisSpacing: 12,
-                ),
+            if (widget.isGridView) {
+              return LayoutBuilder(
+                builder: (context, constraints) {
+                  final isWide = constraints.maxWidth >= 500;
+                  return GridView.builder(
+                    keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+                    padding: const EdgeInsets.fromLTRB(20, 10, 20, 20),
+                    gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+                      maxCrossAxisExtent: isWide ? 140 : 170,
+                      childAspectRatio: isWide ? 0.58 : 0.60,
+                      crossAxisSpacing: 12,
+                      mainAxisSpacing: 12,
+                    ),
+                    itemCount: products.length,
+                    itemBuilder: (context, i) {
+                      final p = products[i];
+                      return _buildGridItem(
+                        context,
+                        p,
+                        isDark,
+                        textHeading,
+                        primaryColor,
+                        isWide,
+                        unitMap,
+                      );
+                    },
+                  );
+                },
+              );
+            } else {
+              return ListView.builder(
+                keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+                padding: const EdgeInsets.fromLTRB(16, 10, 16, 20),
                 itemCount: products.length,
                 itemBuilder: (context, i) {
                   final p = products[i];
-                  return _buildGridItem(
+                  return _buildListItem(
                     context,
                     p,
                     isDark,
                     textHeading,
                     primaryColor,
-                    isWide,
                     unitMap,
                   );
                 },
               );
-            },
-          );
-        } else {
-          return ListView.builder(
-            padding: const EdgeInsets.fromLTRB(16, 10, 16, 20),
-            itemCount: products.length,
-            itemBuilder: (context, i) {
-              final p = products[i];
-              return _buildListItem(
-                context,
-                p,
-                isDark,
-                textHeading,
-                primaryColor,
-                unitMap,
-              );
-            },
-          );
-        }
-      },
-    );
+            }
+          },
+        );
       },
     );
   }
@@ -246,22 +291,38 @@ class ProductGrid extends StatelessWidget {
     final double stockQty = p.stockQuantity ?? 0.0;
     final bool isOutOfStock = isStockManaged && stockQty <= 0;
 
+    final supplier = _productSupplierMap[p.id];
+    final bool isSupplierProduct = supplier != null;
+    final bool isPenitipProduct = isSupplierProduct &&
+        ((supplier.notes ?? '').contains('[Titip]') ||
+         (supplier.address ?? '').contains('[Titip]') ||
+         (supplier.notes ?? '').toLowerCase().contains('penitip'));
+    final supplierColor = isPenitipProduct ? const Color(0xFFEA580C) : const Color(0xFFF59E0B);
+
     return Opacity(
       opacity: isOutOfStock ? 0.6 : 1.0,
       child: Container(
         decoration: BoxDecoration(
           color: isDark ? const Color(0xFF2C2C2E) : Colors.white,
           borderRadius: BorderRadius.circular(isWide ? 10 : 16),
+          border: isSupplierProduct
+              ? Border.all(color: supplierColor, width: 2.0)
+              : Border.all(
+                  color: isDark ? Colors.white10 : Colors.black.withValues(alpha: 0.06),
+                  width: 1.0,
+                ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.05),
-              blurRadius: 10,
+              color: isSupplierProduct
+                  ? supplierColor.withValues(alpha: 0.22)
+                  : Colors.black.withValues(alpha: 0.05),
+              blurRadius: isSupplierProduct ? 12 : 10,
               offset: const Offset(0, 4),
             ),
           ],
         ),
         child: InkWell(
-          onTap: isOutOfStock ? null : () => onItemTap(p),
+          onTap: isOutOfStock ? null : () => widget.onItemTap(p),
           borderRadius: BorderRadius.circular(isWide ? 10 : 16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -273,7 +334,50 @@ class ProductGrid extends StatelessWidget {
                   children: [
                     _buildImage(p, isDark, isWide),
                     _buildPromoBadge(context, p, p.id),
-                    if (overlayBuilder != null) overlayBuilder!(context, p),
+                    if (isSupplierProduct)
+                      Positioned(
+                        top: 6,
+                        right: 6,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: supplierColor,
+                            borderRadius: BorderRadius.circular(6),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.25),
+                                blurRadius: 4,
+                                offset: const Offset(0, 1),
+                              ),
+                            ],
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                isPenitipProduct ? Icons.handshake_rounded : Icons.local_shipping_rounded,
+                                size: 10,
+                                color: Colors.white,
+                              ),
+                              const SizedBox(width: 3),
+                              ConstrainedBox(
+                                constraints: BoxConstraints(maxWidth: isWide ? 65 : 85),
+                                child: Text(
+                                  isPenitipProduct ? "Titip: ${supplier.name}" : supplier.name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: GoogleFonts.plusJakartaSans(
+                                    color: Colors.white,
+                                    fontSize: isWide ? 8.5 : 9.5,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    if (widget.overlayBuilder != null) widget.overlayBuilder!(context, p),
                   ],
                 ),
               ),
@@ -324,6 +428,29 @@ class ProductGrid extends StatelessWidget {
                                   fontWeight: FontWeight.w600,
                                 ),
                               ),
+                            if (isSupplierProduct)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 1.5),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(Icons.local_shipping_outlined, size: 9, color: Color(0xFFD97706)),
+                                    const SizedBox(width: 2.5),
+                                    Flexible(
+                                      child: Text(
+                                        supplier.name,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: GoogleFonts.plusJakartaSans(
+                                          fontSize: isWide ? 8.5 : 9,
+                                          fontWeight: FontWeight.w700,
+                                          color: const Color(0xFFD97706),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
                           ],
                         ),
                       ),
@@ -368,6 +495,14 @@ class ProductGrid extends StatelessWidget {
     final double stockQty = p.stockQuantity ?? 0.0;
     final bool isOutOfStock = isStockManaged && stockQty <= 0;
 
+    final supplier = _productSupplierMap[p.id];
+    final bool isSupplierProduct = supplier != null;
+    final bool isPenitipProduct = isSupplierProduct &&
+        ((supplier.notes ?? '').contains('[Titip]') ||
+         (supplier.address ?? '').contains('[Titip]') ||
+         (supplier.notes ?? '').toLowerCase().contains('penitip'));
+    final supplierColor = isPenitipProduct ? const Color(0xFFEA580C) : const Color(0xFFF59E0B);
+
     return Opacity(
       opacity: isOutOfStock ? 0.6 : 1.0,
       child: Container(
@@ -375,16 +510,23 @@ class ProductGrid extends StatelessWidget {
         decoration: BoxDecoration(
           color: isDark ? const Color(0xFF2C2C2E) : Colors.white,
           borderRadius: BorderRadius.circular(16),
+          border: isSupplierProduct
+              ? Border.all(color: supplierColor, width: 2.0)
+              : Border.all(
+                  color: isDark ? Colors.white10 : Colors.black.withValues(alpha: 0.06),
+                ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.05),
-              blurRadius: 8,
+              color: isSupplierProduct
+                  ? supplierColor.withValues(alpha: 0.18)
+                  : Colors.black.withValues(alpha: 0.05),
+              blurRadius: isSupplierProduct ? 10 : 8,
               offset: const Offset(0, 2),
             ),
           ],
         ),
         child: InkWell(
-          onTap: isOutOfStock ? null : () => onItemTap(p),
+          onTap: isOutOfStock ? null : () => widget.onItemTap(p),
           borderRadius: BorderRadius.circular(16),
           child: Padding(
             padding: const EdgeInsets.all(12),
@@ -419,15 +561,49 @@ class ProductGrid extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        p.name ?? 'Tanpa Nama',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: GoogleFonts.plusJakartaSans(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                          color: textHeading,
-                        ),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              p.name ?? 'Tanpa Nama',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: GoogleFonts.plusJakartaSans(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                                color: textHeading,
+                              ),
+                            ),
+                          ),
+                          if (isSupplierProduct)
+                            Container(
+                              margin: const EdgeInsets.only(left: 6),
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2.5),
+                              decoration: BoxDecoration(
+                                color: supplierColor,
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    isPenitipProduct ? Icons.handshake_rounded : Icons.local_shipping_rounded,
+                                    size: 10,
+                                    color: Colors.white,
+                                  ),
+                                  const SizedBox(width: 3),
+                                  Text(
+                                    isPenitipProduct ? "Titip: ${supplier.name}" : supplier.name,
+                                    style: GoogleFonts.plusJakartaSans(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w700,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                        ],
                       ),
                       const SizedBox(height: 4),
                       Text(
@@ -530,7 +706,7 @@ class ProductGrid extends StatelessWidget {
     Color primaryColor,
     bool isWide,
   ) {
-    if (actionBuilder != null) return actionBuilder!(context, p);
+    if (widget.actionBuilder != null) return widget.actionBuilder!(context, p);
 
     return Container(
       width: isWide ? 26 : 32,
@@ -547,4 +723,3 @@ class ProductGrid extends StatelessWidget {
     );
   }
 }
-

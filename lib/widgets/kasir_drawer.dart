@@ -40,7 +40,7 @@ class _KasirDrawerState extends State<KasirDrawer> {
       builder: (ctx) => KasirDialog(
         title: "Ubah Nama",
         icon: Icons.edit_rounded,
-        iconColor: const Color(0xFF00BF63),
+        iconColor: const Color(0xFF2CAED2),
         content: Padding(
           padding: const EdgeInsets.only(top: 12),
           child: TextField(
@@ -80,7 +80,7 @@ class _KasirDrawerState extends State<KasirDrawer> {
   Widget build(BuildContext context) {
     final isDark = ThemeController.instance.isDarkMode;
     final bgColor = isDark ? const Color(0xFF1A1C1E) : Colors.white;
-    const accentColor = Color(0xFF00BF63);
+    const accentColor = Color(0xFF2CAED2);
 
     final adminCtrl = context.watch<AdminController>();
     final role = adminCtrl.role;
@@ -125,7 +125,7 @@ class _KasirDrawerState extends State<KasirDrawer> {
                       label: SettingsController.instance.getString('beranda'),
                       isSelected: widget.currentRoute == '/kasir',
                       accentColor: accentColor,
-                      itemColor: const Color(0xFF00BF63),
+                      itemColor: const Color(0xFF2CAED2),
                       onTap: () {
                         Navigator.pop(context);
                         if (widget.onIndexSelected != null) {
@@ -454,7 +454,7 @@ class _KasirDrawerState extends State<KasirDrawer> {
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     border: Border.all(
-                      color: const Color(0xFF00BF63),
+                      color: const Color(0xFF2CAED2),
                       width: 2,
                     ),
                     boxShadow: [
@@ -487,7 +487,7 @@ class _KasirDrawerState extends State<KasirDrawer> {
                   child: Container(
                     padding: const EdgeInsets.all(6),
                     decoration: const BoxDecoration(
-                      color: Color(0xFF00BF63),
+                      color: Color(0xFF2CAED2),
                       shape: BoxShape.circle,
                     ),
                     child: const Icon(
@@ -527,7 +527,7 @@ class _KasirDrawerState extends State<KasirDrawer> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
             decoration: BoxDecoration(
-              color: const Color(0xFF00BF63).withValues(alpha: 0.1),
+              color: const Color(0xFF2CAED2).withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(20),
             ),
             child: Text(
@@ -535,7 +535,7 @@ class _KasirDrawerState extends State<KasirDrawer> {
               style: GoogleFonts.openSans(
                 fontSize: 10,
                 fontWeight: FontWeight.w600,
-                color: const Color(0xFF00BF63),
+                color: const Color(0xFF2CAED2),
                 letterSpacing: 1,
               ),
             ),

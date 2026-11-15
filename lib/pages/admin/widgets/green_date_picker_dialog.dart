@@ -31,7 +31,7 @@ class _GreenDatePickerDialogState extends State<GreenDatePickerDialog> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    const greenColor = Color(0xFF00BF63);
+    const greenColor = Color(0xFF2CAED2);
 
     return Dialog(
       backgroundColor: isDark ? const Color(0xFF1E293B) : Colors.white,
@@ -193,7 +193,7 @@ class _GreenDateRangePickerDialogState extends State<GreenDateRangePickerDialog>
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    const greenColor = Color(0xFF00BF63);
+    const greenColor = Color(0xFF2CAED2);
     final activeDate = _isPickingStart ? _startDate : _endDate;
 
     return Dialog(

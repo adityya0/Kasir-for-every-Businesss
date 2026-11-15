@@ -38,11 +38,11 @@ class CustomToast {
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 decoration: BoxDecoration(
-                  color: isError ? Colors.redAccent : const Color(0xFF00BF63),
+                  color: isError ? Colors.redAccent : const Color(0xFF2CAED2),
                   borderRadius: BorderRadius.circular(16),
                   boxShadow: [
                     BoxShadow(
-                      color: (isError ? Colors.redAccent : const Color(0xFF00BF63)).withValues(alpha: 0.3),
+                      color: (isError ? Colors.redAccent : const Color(0xFF2CAED2)).withValues(alpha: 0.3),
                       blurRadius: 12,
                       offset: const Offset(0, 6),
                     ),

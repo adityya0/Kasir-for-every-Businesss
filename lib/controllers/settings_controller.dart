@@ -43,7 +43,7 @@ class SettingsController {
   static const String _showFilterTabsKey = 'show_filter_tabs';
 
   // Keyboard/Numpad display option
-  final ValueNotifier<bool> showNumpad = ValueNotifier(false);
+  final ValueNotifier<bool> showNumpad = ValueNotifier(true);
   static const String _showNumpadKey = 'show_numpad';
 
   // Auto focus / auto open keyboard on kasir search bar
@@ -57,10 +57,10 @@ class SettingsController {
   final ValueNotifier<bool> featureLoyaltyEnabled = ValueNotifier(true);
   final ValueNotifier<bool> featureHutangEnabled = ValueNotifier(false);
   final ValueNotifier<bool> featurePelangganEnabled = ValueNotifier(true);
-  final ValueNotifier<bool> featurePisahBillEnabled = ValueNotifier(true);
-  final ValueNotifier<bool> featureSplitPayEnabled = ValueNotifier(true);
+  final ValueNotifier<bool> featurePisahBillEnabled = ValueNotifier(false);
+  final ValueNotifier<bool> featureSplitPayEnabled = ValueNotifier(false);
   final ValueNotifier<bool> featureKaryawanEnabled = ValueNotifier(false);
-  final ValueNotifier<bool> featureAntreanPesananEnabled = ValueNotifier(true);
+  final ValueNotifier<bool> featureAntreanPesananEnabled = ValueNotifier(false);
 
   static const String _featureGrosirKey = 'feature_grosir_enabled';
   static const String _featureMejaKey = 'feature_meja_enabled';
@@ -292,8 +292,24 @@ class SettingsController {
     // Load Filter tabs visibility
     showFilterTabs.value = prefs.getBool(_showFilterTabsKey) ?? true;
 
+    // Ensure default settings match exact configuration requested (defaults_applied_v2)
+    final bool defaultsV2Applied = prefs.getBool('defaults_applied_v2') ?? false;
+    if (!defaultsV2Applied) {
+      await prefs.setBool(_featureMejaKey, false);
+      await prefs.setBool(_pajakEnabledKey, false);
+      await prefs.setBool(_featureLoyaltyKey, true);
+      await prefs.setBool(_featurePelangganKey, true);
+      await prefs.setBool(_featurePisahBillKey, false);
+      await prefs.setBool(_featureSplitPayKey, false);
+      await prefs.setBool(_featureKaryawanKey, false);
+      await prefs.setBool(_featureAntreanPesananKey, false);
+      await prefs.setBool(_showNumpadKey, true);
+      await prefs.setBool(_autoFocusKasirSearchKey, false);
+      await prefs.setBool('defaults_applied_v2', true);
+    }
+
     // Load Numpad visibility
-    showNumpad.value = prefs.getBool(_showNumpadKey) ?? false;
+    showNumpad.value = prefs.getBool(_showNumpadKey) ?? true;
 
     // Load Kasir Search auto focus
     autoFocusKasirSearch.value = prefs.getBool(_autoFocusKasirSearchKey) ?? false;
@@ -305,10 +321,10 @@ class SettingsController {
     featureLoyaltyEnabled.value = prefs.getBool(_featureLoyaltyKey) ?? true;
     featureHutangEnabled.value = prefs.getBool(_featureHutangKey) ?? false;
     featurePelangganEnabled.value = prefs.getBool(_featurePelangganKey) ?? true;
-    featurePisahBillEnabled.value = prefs.getBool(_featurePisahBillKey) ?? true;
-    featureSplitPayEnabled.value = prefs.getBool(_featureSplitPayKey) ?? true;
+    featurePisahBillEnabled.value = prefs.getBool(_featurePisahBillKey) ?? false;
+    featureSplitPayEnabled.value = prefs.getBool(_featureSplitPayKey) ?? false;
     featureKaryawanEnabled.value = prefs.getBool(_featureKaryawanKey) ?? false;
-    featureAntreanPesananEnabled.value = prefs.getBool(_featureAntreanPesananKey) ?? true;
+    featureAntreanPesananEnabled.value = prefs.getBool(_featureAntreanPesananKey) ?? false;
 
     // Load Receipt Settings
     receiptShowLogo.value = prefs.getBool(_receiptShowLogoKey) ?? true;

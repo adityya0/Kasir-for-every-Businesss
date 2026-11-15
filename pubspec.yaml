@@ -1,8 +1,8 @@
 name: kasir_bersama
-description: "Point of Sale system for OMNI POS"
+description: "Point of Sale system for FLASH COIN LAUNDRY"
 publish_to: 'none'
 
-version: 1.0.0+1
+version: 1.1.1+12
 
 environment:
   sdk: ^3.10.3
@@ -82,12 +82,12 @@ flutter:
     - assets/products/
 
 flutter_native_splash:
-  color: "#194439"
+  color: "#ffffff"
   image: "assets/logo/splash_logo.png"
   
   android_12:
     image: "assets/logo/splash_logo.png"
-    color: "#194439"
+    color: "#ffffff"
 
   android: true
   ios: true

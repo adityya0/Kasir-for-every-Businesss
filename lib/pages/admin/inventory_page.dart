@@ -18,7 +18,6 @@ import '../../controllers/settings_controller.dart';
 import '../../widgets/skeleton_loader.dart';
 import 'category_page.dart';
 import 'report/profit_loss_page.dart';
-import 'trends_page.dart';
 
 class _StockCardEntry {
   final DateTime date;
@@ -61,7 +60,6 @@ class _InventoryPageState extends State<InventoryPage> {
   List<Product> _products = [];
   List<Product> _filteredProducts = [];
   bool _isLoading = true;
-  late int _activeTopTab;
 
   final currencyFormat = NumberFormat.currency(
     locale: 'id',
@@ -73,17 +71,15 @@ class _InventoryPageState extends State<InventoryPage> {
   Map<String, String> _unitCodes = {};
   String? _selectedCategoryId; // null means "All"
 
-  // Stock Filter: 'all', 'limited', 'unlimited'
-  String _stockFilter = 'all';
+  // Supplier Filter
+  List<Supplier> _suppliers = [];
+  String? _selectedSupplierId; // null means "All Suppliers"
 
-  // Sort: 'name_asc', 'stock_asc', 'stock_desc', 'price_asc', 'price_desc'
-  String _sortBy = 'name_asc';
   late BulkImportService _importService;
 
   @override
   void initState() {
     super.initState();
-    _activeTopTab = widget.initialTabIndex;
     final db = Provider.of<AppDatabase>(context, listen: false);
     _importService = BulkImportService(db);
     _fetchData();
@@ -126,12 +122,14 @@ class _InventoryPageState extends State<InventoryPage> {
                 )
                 ..orderBy([(t) => drift.OrderingTerm.asc(t.name)]))
               .get();
+      final suppliersData = await SupplierService(db).getSuppliers(storeId);
 
       if (mounted) {
         setState(() {
           _categories = categoriesData;
           _unitCodes = {for (final u in unitsData) u.id: u.code};
           _products = productsData;
+          _suppliers = suppliersData;
           _applyFilters();
           _isLoading = false;
         });
@@ -155,8 +153,25 @@ class _InventoryPageState extends State<InventoryPage> {
 
   void _applyFilters() {
     final query = _searchController.text.toLowerCase();
+
+    // Find matching product IDs for supplier filter if applied
+    Set<String>? supplierProductIds;
+    if (_selectedSupplierId != null && _selectedSupplierId!.isNotEmpty && _selectedSupplierId != 'all') {
+      final matchingSup = _suppliers.where((s) => s.id == _selectedSupplierId).firstOrNull;
+      if (matchingSup != null) {
+        supplierProductIds = {
+          ...matchingSup.productUsualStock.keys,
+          ...matchingSup.productPrices.keys,
+        };
+      }
+    }
+
     setState(() {
       final list = _products.where((product) {
+        if (supplierProductIds != null && !supplierProductIds.contains(product.id)) {
+          return false;
+        }
+
         final name = product.name.toString().toLowerCase();
         final sku = (product.sku ?? '').toString().toLowerCase();
         final matchesSearch = name.contains(query) || sku.contains(query);
@@ -165,31 +180,16 @@ class _InventoryPageState extends State<InventoryPage> {
         final matchesCategory =
             _selectedCategoryId == null || categoryId == _selectedCategoryId;
 
-        bool matchesStock = true;
-        final isManaged = product.isStockManaged == true;
-
-        if (_stockFilter == 'limited') {
-          matchesStock = isManaged;
-        } else if (_stockFilter == 'unlimited') {
-          matchesStock = !isManaged;
-        }
-
-        return matchesSearch && matchesCategory && matchesStock;
+        return matchesSearch && matchesCategory;
       }).toList();
 
-      // Apply Sort
+      // Selalu urutkan menu dengan stok paling sedikit/terendah di atas
       list.sort((a, b) {
-        if (_sortBy == 'stock_asc') {
-          return (a.stockQuantity ?? 0).compareTo(b.stockQuantity ?? 0);
-        } else if (_sortBy == 'stock_desc') {
-          return (b.stockQuantity ?? 0).compareTo(a.stockQuantity ?? 0);
-        } else if (_sortBy == 'price_asc') {
-          return (a.salePrice ?? 0).compareTo(b.salePrice ?? 0);
-        } else if (_sortBy == 'price_desc') {
-          return (b.salePrice ?? 0).compareTo(a.salePrice ?? 0);
-        } else {
-          return (a.name ?? '').compareTo(b.name ?? '');
-        }
+        final aStock = a.isStockManaged ? (a.stockQuantity ?? 0.0) : double.infinity;
+        final bStock = b.isStockManaged ? (b.stockQuantity ?? 0.0) : double.infinity;
+        final stockComp = aStock.compareTo(bStock);
+        if (stockComp != 0) return stockComp;
+        return (a.name ?? '').compareTo(b.name ?? '');
       });
 
       _filteredProducts = list;
@@ -356,12 +356,12 @@ class _InventoryPageState extends State<InventoryPage> {
                           Container(
                             padding: const EdgeInsets.all(6),
                             decoration: BoxDecoration(
-                              color: const Color(0xFF00BF63).withValues(alpha: 0.1),
+                              color: const Color(0xFF2CAED2).withValues(alpha: 0.1),
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: const Icon(
                               Icons.bolt_rounded,
-                              color: Color(0xFF00BF63),
+                              color: Color(0xFF2CAED2),
                               size: 20,
                             ),
                           ),
@@ -467,7 +467,6 @@ class _InventoryPageState extends State<InventoryPage> {
                               color: const Color(0xFF0D9488),
                               isDark: isDark,
                               onTap: () {
-                                Navigator.pop(ctx);
                                 _restockAll();
                               },
                             ),
@@ -478,7 +477,6 @@ class _InventoryPageState extends State<InventoryPage> {
                               color: const Color(0xFF0284C7),
                               isDark: isDark,
                               onTap: () {
-                                Navigator.pop(ctx);
                                 _addFixedStockToAll();
                               },
                             ),
@@ -489,7 +487,6 @@ class _InventoryPageState extends State<InventoryPage> {
                               color: const Color(0xFFDC2626),
                               isDark: isDark,
                               onTap: () {
-                                Navigator.pop(ctx);
                                 _emptyAllStock();
                               },
                             ),
@@ -498,10 +495,9 @@ class _InventoryPageState extends State<InventoryPage> {
                             icon: Icons.cloud_download_outlined,
                             label: "Ekspor ke Excel",
                             subtitle: "Export semua data produk",
-                            color: const Color(0xFF00BF63),
+                            color: const Color(0xFF2CAED2),
                             isDark: isDark,
                             onTap: () {
-                              Navigator.pop(ctx);
                               _handleExport();
                             },
                           ),
@@ -512,7 +508,6 @@ class _InventoryPageState extends State<InventoryPage> {
                             color: const Color(0xFF2563EB),
                             isDark: isDark,
                             onTap: () {
-                              Navigator.pop(ctx);
                               _handleBulkImport();
                             },
                           ),
@@ -523,7 +518,6 @@ class _InventoryPageState extends State<InventoryPage> {
                             color: const Color(0xFFD97706),
                             isDark: isDark,
                             onTap: () {
-                              Navigator.pop(ctx);
                               _handleDownloadTemplate();
                             },
                           ),
@@ -534,7 +528,6 @@ class _InventoryPageState extends State<InventoryPage> {
                             color: const Color(0xFF64748B),
                             isDark: isDark,
                             onTap: () {
-                              Navigator.pop(ctx);
                               _showInfoHelp();
                             },
                           ),
@@ -786,7 +779,7 @@ class _InventoryPageState extends State<InventoryPage> {
       builder: (ctx) => KasirDialog(
         title: "Restock Massal",
         icon: Icons.playlist_add_check_rounded,
-        iconColor: const Color(0xFF00BF63),
+        iconColor: const Color(0xFF2CAED2),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -811,7 +804,7 @@ class _InventoryPageState extends State<InventoryPage> {
               title: "Penuhi ke Target Stok",
               subtitle: "Genapkan stok di bawah batas minimal",
               onTap: () => Navigator.pop(ctx, 'target'),
-              color: const Color(0xFF00BF63),
+              color: const Color(0xFF2CAED2),
             ),
           ],
         ),
@@ -1064,7 +1057,7 @@ class _InventoryPageState extends State<InventoryPage> {
                         content: Text(
                           "Berhasil restock +${amount % 1 == 0 ? amount.toInt() : amount} ke ${targetProducts.length} produk di '${currentCategory.name ?? "Kategori"}'!",
                         ),
-                        backgroundColor: const Color(0xFF00BF63),
+                        backgroundColor: const Color(0xFF2CAED2),
                       ),
                     );
                   }
@@ -1160,7 +1153,7 @@ class _InventoryPageState extends State<InventoryPage> {
             return KasirDialog(
               title: "Penuhi ke Target Stok",
               icon: Icons.track_changes_rounded,
-              iconColor: const Color(0xFF00BF63),
+              iconColor: const Color(0xFF2CAED2),
               content: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -1187,10 +1180,10 @@ class _InventoryPageState extends State<InventoryPage> {
                         child: Container(
                           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                           decoration: BoxDecoration(
-                            color: const Color(0xFF00BF63).withValues(alpha: 0.08),
+                            color: const Color(0xFF2CAED2).withValues(alpha: 0.08),
                             borderRadius: BorderRadius.circular(20),
                             border: Border.all(
-                              color: const Color(0xFF00BF63).withValues(alpha: 0.25),
+                              color: const Color(0xFF2CAED2).withValues(alpha: 0.25),
                             ),
                           ),
                           child: Text(
@@ -1198,7 +1191,7 @@ class _InventoryPageState extends State<InventoryPage> {
                             style: GoogleFonts.plusJakartaSans(
                               fontSize: 12,
                               fontWeight: FontWeight.w700,
-                              color: const Color(0xFF00BF63),
+                              color: const Color(0xFF2CAED2),
                             ),
                           ),
                         ),
@@ -1209,10 +1202,10 @@ class _InventoryPageState extends State<InventoryPage> {
                   Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF00BF63).withValues(alpha: 0.08),
+                      color: const Color(0xFF2CAED2).withValues(alpha: 0.08),
                       borderRadius: BorderRadius.circular(14),
                       border: Border.all(
-                        color: const Color(0xFF00BF63).withValues(alpha: 0.15),
+                        color: const Color(0xFF2CAED2).withValues(alpha: 0.15),
                       ),
                     ),
                     child: Row(
@@ -1220,7 +1213,7 @@ class _InventoryPageState extends State<InventoryPage> {
                         const Icon(
                           Icons.info_outline_rounded,
                           size: 18,
-                          color: Color(0xFF00BF63),
+                          color: Color(0xFF2CAED2),
                         ),
                         const SizedBox(width: 10),
                         Expanded(
@@ -1270,7 +1263,7 @@ class _InventoryPageState extends State<InventoryPage> {
                         content: Text(
                           "Berhasil menggenapkan stok $updateCount produk ke target $target.",
                         ),
-                        backgroundColor: const Color(0xFF00BF63),
+                        backgroundColor: const Color(0xFF2CAED2),
                       ),
                     );
                   }
@@ -1407,7 +1400,7 @@ class _InventoryPageState extends State<InventoryPage> {
                         content: Text(
                           "Berhasil menambah +${amount % 1 == 0 ? amount.toInt() : amount} ke seluruh ${activeProducts.length} produk.",
                         ),
-                        backgroundColor: const Color(0xFF00BF63),
+                        backgroundColor: const Color(0xFF2CAED2),
                       ),
                     );
                   }
@@ -1429,6 +1422,7 @@ class _InventoryPageState extends State<InventoryPage> {
     required String label,
     required String hint,
     required IconData prefixIcon,
+    ValueChanged<String>? onChanged,
   }) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return Column(
@@ -1444,6 +1438,7 @@ class _InventoryPageState extends State<InventoryPage> {
           keyboardType: TextInputType.number,
           autofocus: true,
           style: GoogleFonts.openSans(),
+          onChanged: onChanged,
           decoration: InputDecoration(
             hintText: hint,
             prefixIcon: Icon(prefixIcon, size: 20, color: Colors.grey),
@@ -1461,10 +1456,181 @@ class _InventoryPageState extends State<InventoryPage> {
     );
   }
 
+  Future<void> _showQuickRestockDialog(Product product) async {
+    final currentStock = product.stockQuantity ?? 0.0;
+    final unit = _getUnitLabel(product);
+    final controller = TextEditingController(text: "10");
+
+    await showDialog(
+      context: context,
+      builder: (ctx) {
+        final isDark = Theme.of(ctx).brightness == Brightness.dark;
+        return StatefulBuilder(
+          builder: (dialogCtx, setDialogState) {
+            final addQty = double.tryParse(controller.text) ?? 0.0;
+            final finalStock = currentStock + addQty;
+
+            return KasirDialog(
+              title: "Restock ${product.name}",
+              icon: Icons.add_business_rounded,
+              iconColor: const Color(0xFF2CAED2),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: isDark ? const Color(0xFF0F172A) : const Color(0xFFF1F5F9),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          "Stok Saat Ini",
+                          style: GoogleFonts.plusJakartaSans(
+                            fontSize: 12.5,
+                            color: isDark ? Colors.white70 : const Color(0xFF64748B),
+                          ),
+                        ),
+                        Text(
+                          "${_formatQty(currentStock)} $unit",
+                          style: GoogleFonts.plusJakartaSans(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: isDark ? Colors.white : const Color(0xFF1E293B),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  _buildDialogTextField(
+                    controller: controller,
+                    label: "Jumlah Tambahan Stok ($unit)",
+                    hint: "Misal: 10",
+                    prefixIcon: Icons.add_box_rounded,
+                    onChanged: (_) => setDialogState(() {}),
+                  ),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 6,
+                    children: [5, 10, 20, 50, 100].map((preset) {
+                      return InkWell(
+                        onTap: () {
+                          setDialogState(() {
+                            controller.text = preset.toString();
+                          });
+                        },
+                        borderRadius: BorderRadius.circular(20),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF2CAED2).withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                              color: const Color(0xFF2CAED2).withValues(alpha: 0.3),
+                            ),
+                          ),
+                          child: Text(
+                            "+$preset",
+                            style: GoogleFonts.plusJakartaSans(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: const Color(0xFF2CAED2),
+                            ),
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 14),
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF10B981).withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          "Estimasi Stok Baru:",
+                          style: GoogleFonts.plusJakartaSans(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: const Color(0xFF10B981),
+                          ),
+                        ),
+                        Text(
+                          "${_formatQty(finalStock)} $unit",
+                          style: GoogleFonts.plusJakartaSans(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800,
+                            color: const Color(0xFF10B981),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              primaryActionLabel: "Restock Sekarang",
+              onPrimaryAction: () async {
+                final qtyToAdd = double.tryParse(controller.text) ?? 0.0;
+                if (qtyToAdd <= 0) return;
+                Navigator.pop(ctx);
+                final db = Provider.of<AppDatabase>(context, listen: false);
+                final admin = Provider.of<AdminController>(context, listen: false);
+                final storeId = admin.storeId ?? '';
+
+                final newQty = currentStock + qtyToAdd;
+                await (db.update(db.products)..where((t) => t.id.equals(product.id))).write(
+                  ProductsCompanion(
+                    stockQuantity: drift.Value(newQty),
+                    isStockManaged: const drift.Value(true),
+                    lastUpdated: drift.Value(DateTime.now()),
+                  ),
+                );
+
+                final prefs = await SharedPreferences.getInstance();
+                final logsKey = 'stock_opname_logs_$storeId';
+                final logs = prefs.getStringList(logsKey) ?? [];
+                final rsCode = 'RS-${(logs.length + 1).toString().padLeft(4, '0')}';
+                logs.add(jsonEncode({
+                  'id': const Uuid().v4(),
+                  'code': rsCode,
+                  'productId': product.id,
+                  'qtyDelta': qtyToAdd,
+                  'notes': 'Restock stok',
+                  'createdAt': DateTime.now().toIso8601String(),
+                }));
+                await prefs.setStringList(logsKey, logs);
+
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text("✓ Berhasil restock +${_formatQty(qtyToAdd)} $unit ke ${product.name}!"),
+                      backgroundColor: const Color(0xFF2CAED2),
+                    ),
+                  );
+                  _fetchData();
+                }
+              },
+              secondaryActionLabel: "Batal",
+            );
+          },
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    const primaryGreen = Color(0xFF00BF63);
+    const primaryGreen = Color(0xFF2CAED2);
 
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
@@ -1524,7 +1690,7 @@ class _InventoryPageState extends State<InventoryPage> {
               child: IconButton(
                 icon: const Icon(
                   Icons.bolt_rounded,
-                  color: Color(0xFF00BF63),
+                  color: Color(0xFF2CAED2),
                   size: 24,
                 ),
                 tooltip: "Pintasan Cepat Produk",
@@ -1534,258 +1700,12 @@ class _InventoryPageState extends State<InventoryPage> {
           ),
         ],
       ),
-      body: Column(
-        children: [
-          // Sub-nav switcher: [ 📦 Daftar Produk ]  [ 📈 Tren Terlaris ]
-          Container(
-            color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
-            padding: const EdgeInsets.fromLTRB(16, 6, 16, 8),
-            child: Container(
-              height: 38,
-              decoration: BoxDecoration(
-                color: isDark ? const Color(0xFF27272A) : const Color(0xFFF1F5F9),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: InkWell(
-                      onTap: () {
-                        if (_activeTopTab != 0) setState(() => _activeTopTab = 0);
-                      },
-                      borderRadius: BorderRadius.circular(8),
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 180),
-                        margin: const EdgeInsets.all(2.5),
-                        alignment: Alignment.center,
-                        decoration: BoxDecoration(
-                          color: _activeTopTab == 0
-                              ? (isDark ? const Color(0xFF18181B) : Colors.white)
-                              : Colors.transparent,
-                          borderRadius: BorderRadius.circular(8),
-                          boxShadow: _activeTopTab == 0
-                              ? [
-                                  BoxShadow(
-                                    color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.05),
-                                    blurRadius: 4,
-                                    offset: const Offset(0, 1),
-                                  ),
-                                ]
-                              : null,
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              Icons.inventory_2_outlined,
-                              size: 15,
-                              color: _activeTopTab == 0
-                                  ? const Color(0xFF00BF63)
-                                  : (isDark ? Colors.white60 : const Color(0xFF64748B)),
-                            ),
-                            const SizedBox(width: 6),
-                            Text(
-                              "Daftar Produk",
-                              style: GoogleFonts.plusJakartaSans(
-                                fontSize: 12,
-                                fontWeight: _activeTopTab == 0 ? FontWeight.w700 : FontWeight.w600,
-                                color: _activeTopTab == 0
-                                    ? (isDark ? Colors.white : const Color(0xFF0F172A))
-                                    : (isDark ? Colors.white60 : const Color(0xFF64748B)),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                  Expanded(
-                    child: InkWell(
-                      onTap: () {
-                        if (_activeTopTab != 1) setState(() => _activeTopTab = 1);
-                      },
-                      borderRadius: BorderRadius.circular(8),
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 180),
-                        margin: const EdgeInsets.all(2.5),
-                        alignment: Alignment.center,
-                        decoration: BoxDecoration(
-                          color: _activeTopTab == 1
-                              ? (isDark ? const Color(0xFF18181B) : Colors.white)
-                              : Colors.transparent,
-                          borderRadius: BorderRadius.circular(8),
-                          boxShadow: _activeTopTab == 1
-                              ? [
-                                  BoxShadow(
-                                    color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.05),
-                                    blurRadius: 4,
-                                    offset: const Offset(0, 1),
-                                  ),
-                                ]
-                              : null,
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              Icons.trending_up_rounded,
-                              size: 16,
-                              color: _activeTopTab == 1
-                                  ? const Color(0xFF00BF63)
-                                  : (isDark ? Colors.white60 : const Color(0xFF64748B)),
-                            ),
-                            const SizedBox(width: 6),
-                            Text(
-                              "Tren Terlaris",
-                              style: GoogleFonts.plusJakartaSans(
-                                fontSize: 12,
-                                fontWeight: _activeTopTab == 1 ? FontWeight.w700 : FontWeight.w600,
-                                color: _activeTopTab == 1
-                                    ? (isDark ? Colors.white : const Color(0xFF0F172A))
-                                    : (isDark ? Colors.white60 : const Color(0xFF64748B)),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          Expanded(
-            child: _activeTopTab == 0
-                ? Column(
-                    children: [
-                      // Top Header Container (Solid background with bottom grey border outline)
-                      Container(
-                        decoration: BoxDecoration(
-                          color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
-                          border: Border(
-                            bottom: BorderSide(
-                              color: isDark ? const Color(0xFF374151) : const Color(0xFFCBD5E1),
-                              width: 1.2,
-                            ),
-                          ),
-                        ),
-                        child: Column(
-                          children: [
-                            // Search Bar, Filter & Add (+) Button
-                            Padding(
-                              padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
-                              child: Row(
-                                children: [
-                                  Expanded(
-                                    child: BigSearchBar(
-                                      controller: _searchController,
-                                      hintText: "Cari barang...",
-                                      onChanged: (val) {},
-                                      onClear: () {
-                                        _searchController.clear();
-                                      },
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  _buildFilterButton(isDark),
-                                  const SizedBox(width: 8),
-                                  Material(
-                                    color: const Color(0xFF00BF63),
-                                    borderRadius: BorderRadius.circular(14),
-                                    child: InkWell(
-                                      onTap: () => _openProductForm(),
-                                      borderRadius: BorderRadius.circular(14),
-                                      child: const SizedBox(
-                                        width: 48,
-                                        height: 48,
-                                        child: Icon(
-                                          Icons.add_rounded,
-                                          color: Colors.white,
-                                          size: 26,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-
-                            // Categories List
-                            SizedBox(
-                              height: 42,
-                              child: ListView.separated(
-                                padding: const EdgeInsets.symmetric(horizontal: 16),
-                                scrollDirection: Axis.horizontal,
-                                itemCount: _categories.length + 1,
-                                separatorBuilder: (c, i) =>
-                                    const SizedBox(width: 8),
-                                itemBuilder: (context, index) {
-                                  final isAll = index == 0;
-                                  final cat = isAll ? null : _categories[index - 1];
-                                  final isSelected = isAll
-                                      ? _selectedCategoryId == null
-                                      : _selectedCategoryId == cat?.id;
-
-                                  return ChoiceChip(
-                                    label: Text(isAll ? "Semua" : (cat?.name ?? "-")),
-                                    selected: isSelected,
-                                    onSelected: (_) =>
-                                        _selectCategory(isAll ? null : cat?.id),
-                                    selectedColor: const Color(0xFF00BF63),
-                                    backgroundColor: isDark
-                                        ? const Color(0xFF2A2A2D)
-                                        : Colors.white,
-                                    labelStyle: GoogleFonts.plusJakartaSans(
-                                      color: isSelected
-                                          ? Colors.white
-                                          : (isDark
-                                              ? Colors.white70
-                                              : const Color(0xFF334155)),
-                                      fontWeight: isSelected
-                                          ? FontWeight.w600
-                                          : FontWeight.w500,
-                                      fontSize: 12.5,
-                                    ),
-                                    side: BorderSide(
-                                      color: isSelected
-                                          ? const Color(0xFF00BF63)
-                                          : (isDark
-                                              ? const Color(0xFF374151)
-                                              : const Color(0xFFCBD5E1)),
-                                      width: 1.2,
-                                    ),
-                                    visualDensity: VisualDensity.compact,
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(20),
-                                    ),
-                                  );
-                                },
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                          ],
-                        ),
-                      ),
-
-                      // Product List Area (Unified Daftar Barang Card)
-                      Expanded(
-                        child: RefreshIndicator(
-                          onRefresh: _fetchData,
-                          color: primaryGreen,
-                          backgroundColor: isDark ? const Color(0xFF2C2C2E) : Colors.white,
-                          strokeWidth: 3,
-                          child: _buildProductListBody(isDark),
-                        ),
-                      ),
-                    ],
-                  )
-                : TrendsPage(
-                    storeId: Provider.of<AdminController>(context, listen: false).storeId ?? 'default_store',
-                    onNavigateToIndex: widget.onNavigateToIndex ?? (idx) {},
-                    embedded: true,
-                  ),
-          ),
-        ],
+      body: RefreshIndicator(
+        onRefresh: _fetchData,
+        color: primaryGreen,
+        backgroundColor: isDark ? const Color(0xFF2C2C2E) : Colors.white,
+        strokeWidth: 3,
+        child: _buildProductListBody(isDark),
       ),
     );
   }
@@ -1826,9 +1746,178 @@ class _InventoryPageState extends State<InventoryPage> {
     return qty * unitVal;
   }
 
+  Widget _buildTopFilterHeader(bool isDark) {
+    return Container(
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+        border: Border(
+          bottom: BorderSide(
+            color: isDark ? const Color(0xFF374151) : const Color(0xFFCBD5E1),
+            width: 1.2,
+          ),
+        ),
+      ),
+      child: Column(
+        children: [
+          // Search Bar & Add (+) Button
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+            child: Row(
+              children: [
+                Expanded(
+                  child: BigSearchBar(
+                    controller: _searchController,
+                    hintText: "Cari barang...",
+                    onChanged: (val) {},
+                    onClear: () {
+                      _searchController.clear();
+                    },
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Material(
+                  color: const Color(0xFF2CAED2),
+                  borderRadius: BorderRadius.circular(14),
+                  child: InkWell(
+                    onTap: () => _openProductForm(),
+                    borderRadius: BorderRadius.circular(14),
+                    child: const SizedBox(
+                      width: 48,
+                      height: 48,
+                      child: Icon(
+                        Icons.add_rounded,
+                        color: Colors.white,
+                        size: 26,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // Categories List
+          SizedBox(
+            height: 42,
+            child: ListView.separated(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              scrollDirection: Axis.horizontal,
+              itemCount: _categories.length + 1,
+              separatorBuilder: (c, i) => const SizedBox(width: 8),
+              itemBuilder: (context, index) {
+                final isAll = index == 0;
+                final cat = isAll ? null : _categories[index - 1];
+                final isSelected = isAll
+                    ? _selectedCategoryId == null
+                    : _selectedCategoryId == cat?.id;
+
+                return ChoiceChip(
+                  label: Text(isAll ? "Semua" : (cat?.name ?? "-")),
+                  selected: isSelected,
+                  onSelected: (_) => _selectCategory(isAll ? null : cat?.id),
+                  selectedColor: const Color(0xFF2CAED2),
+                  backgroundColor: isDark ? const Color(0xFF2A2A2D) : Colors.white,
+                  labelStyle: GoogleFonts.plusJakartaSans(
+                    color: isSelected
+                        ? Colors.white
+                        : (isDark ? Colors.white70 : const Color(0xFF334155)),
+                    fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+                    fontSize: 12.5,
+                  ),
+                  side: BorderSide(
+                    color: isSelected
+                        ? const Color(0xFF2CAED2)
+                        : (isDark ? const Color(0xFF374151) : const Color(0xFFCBD5E1)),
+                    width: 1.2,
+                  ),
+                  visualDensity: VisualDensity.compact,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                );
+              },
+            ),
+          ),
+          if (_suppliers.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            // Supplier Filter Horizontal List
+            SizedBox(
+              height: 36,
+              child: ListView.separated(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                scrollDirection: Axis.horizontal,
+                itemCount: _suppliers.length + 1,
+                separatorBuilder: (c, i) => const SizedBox(width: 6),
+                itemBuilder: (context, index) {
+                  final isAll = index == 0;
+                  final sup = isAll ? null : _suppliers[index - 1];
+                  final isSelected = isAll
+                      ? _selectedSupplierId == null
+                      : _selectedSupplierId == sup?.id;
+
+                  return FilterChip(
+                    label: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.local_shipping_outlined,
+                          size: 13,
+                          color: isSelected ? Colors.white : const Color(0xFFF59E0B),
+                        ),
+                        const SizedBox(width: 4),
+                        Text(isAll ? "Semua Supplier" : (sup?.name ?? "-")),
+                      ],
+                    ),
+                    selected: isSelected,
+                    onSelected: (_) {
+                      setState(() {
+                        _selectedSupplierId = isAll ? null : sup?.id;
+                        _applyFilters();
+                      });
+                    },
+                    selectedColor: const Color(0xFFF59E0B),
+                    backgroundColor: isDark ? const Color(0xFF2A2A2D) : Colors.white,
+                    labelStyle: GoogleFonts.plusJakartaSans(
+                      color: isSelected
+                          ? Colors.white
+                          : (isDark ? Colors.white70 : const Color(0xFF334155)),
+                      fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+                      fontSize: 12,
+                    ),
+                    side: BorderSide(
+                      color: isSelected
+                          ? const Color(0xFFF59E0B)
+                          : (isDark ? const Color(0xFF374151) : const Color(0xFFCBD5E1)),
+                      width: 1.1,
+                    ),
+                    visualDensity: VisualDensity.compact,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+          const SizedBox(height: 12),
+        ],
+      ),
+    );
+  }
+
   Widget _buildProductListBody(bool isDark) {
     if (_isLoading) {
-      return const SkeletonListLoader();
+      return ListView(
+        padding: EdgeInsets.zero,
+        children: [
+          _buildTopFilterHeader(isDark),
+          const SizedBox(height: 14),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16),
+            child: SkeletonListLoader(),
+          ),
+        ],
+      );
     }
 
     double totalStockValue = 0.0;
@@ -1837,15 +1926,19 @@ class _InventoryPageState extends State<InventoryPage> {
     }
 
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 40),
+      padding: EdgeInsets.zero,
       children: [
-        Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 900),
-            child: Container(
-              decoration: BoxDecoration(
-                color: isDark ? const Color(0xFF1E293B) : Colors.white,
-                borderRadius: BorderRadius.circular(16),
+        _buildTopFilterHeader(isDark),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 40),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 900),
+              child: Container(
+                clipBehavior: Clip.antiAlias,
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF1E293B) : Colors.white,
+                  borderRadius: BorderRadius.circular(16),
                 border: Border.all(
                   color: isDark ? Colors.white12 : const Color(0xFFE2E8F0),
                 ),
@@ -1860,25 +1953,24 @@ class _InventoryPageState extends State<InventoryPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Header: Daftar Barang [count] (Kiri) | Nilai stok: Rp ... (Kanan)
+                  // Header: Baris 1 (Daftar Barang + Kuantitas) & Baris 2 (Nilai Stok Penuh)
                   Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Row(
-                          mainAxisSize: MainAxisSize.min,
                           children: [
                             Container(
                               padding: const EdgeInsets.all(6),
                               decoration: BoxDecoration(
-                                color: const Color(0xFF00BF63).withValues(alpha: isDark ? 0.2 : 0.1),
+                                color: const Color(0xFF2CAED2).withValues(alpha: isDark ? 0.2 : 0.1),
                                 borderRadius: BorderRadius.circular(8),
                               ),
                               child: const Icon(
                                 Icons.inventory_2_rounded,
                                 size: 16,
-                                color: Color(0xFF00BF63),
+                                color: Color(0xFF2CAED2),
                               ),
                             ),
                             const SizedBox(width: 8),
@@ -1908,40 +2000,37 @@ class _InventoryPageState extends State<InventoryPage> {
                             ),
                           ],
                         ),
-                        Flexible(
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF00BF63).withValues(alpha: isDark ? 0.16 : 0.08),
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(
-                                color: const Color(0xFF00BF63).withValues(alpha: 0.25),
-                                width: 0.8,
-                              ),
+                        const SizedBox(height: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4.5),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF2CAED2).withValues(alpha: isDark ? 0.16 : 0.08),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: const Color(0xFF2CAED2).withValues(alpha: 0.25),
+                              width: 0.8,
                             ),
-                            child: RichText(
-                              overflow: TextOverflow.ellipsis,
-                              text: TextSpan(
-                                children: [
-                                  TextSpan(
-                                    text: "Nilai stok: ",
-                                    style: GoogleFonts.plusJakartaSans(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w500,
-                                      color: isDark ? const Color(0xFFA7F3D0) : const Color(0xFF047857),
-                                    ),
-                                  ),
-                                  TextSpan(
-                                    text: currencyFormat.format(totalStockValue),
-                                    style: GoogleFonts.plusJakartaSans(
-                                      fontSize: 12.5,
-                                      fontWeight: FontWeight.w800,
-                                      color: isDark ? const Color(0xFF00BF63) : const Color(0xFF047857),
-                                    ),
-                                  ),
-                                ],
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                "Nilai stok: ",
+                                style: GoogleFonts.plusJakartaSans(
+                                  fontSize: 11.5,
+                                  fontWeight: FontWeight.w500,
+                                  color: isDark ? const Color(0xFFA7F3D0) : const Color(0xFF047857),
+                                ),
                               ),
-                            ),
+                              Text(
+                                currencyFormat.format(totalStockValue),
+                                style: GoogleFonts.plusJakartaSans(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w800,
+                                  color: isDark ? const Color(0xFF2CAED2) : const Color(0xFF047857),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ],
@@ -1984,7 +2073,60 @@ class _InventoryPageState extends State<InventoryPage> {
                       final product = _filteredProducts[index];
                       return Column(
                         children: [
-                          _buildSimpleProductRow(product, isDark),
+                          Dismissible(
+                            key: ValueKey("prod_${product.id}"),
+                            direction: DismissDirection.horizontal,
+                            confirmDismiss: (direction) async {
+                              if (direction == DismissDirection.endToStart) {
+                                // Slide ke kiri -> Restock pop up
+                                _showQuickRestockDialog(product);
+                              } else if (direction == DismissDirection.startToEnd) {
+                                // Slide ke kanan -> Halaman edit produk
+                                _openProductForm(product: product);
+                              }
+                              return false;
+                            },
+                            background: Container(
+                              alignment: Alignment.centerLeft,
+                              padding: const EdgeInsets.symmetric(horizontal: 20),
+                              color: const Color(0xFF2CAED2),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.edit_rounded, color: Colors.white, size: 22),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    "Edit Produk",
+                                    style: GoogleFonts.plusJakartaSans(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            secondaryBackground: Container(
+                              alignment: Alignment.centerRight,
+                              padding: const EdgeInsets.symmetric(horizontal: 20),
+                              color: const Color(0xFF10B981),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.end,
+                                children: [
+                                  Text(
+                                    "Restock",
+                                    style: GoogleFonts.plusJakartaSans(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  const Icon(Icons.add_business_rounded, color: Colors.white, size: 22),
+                                ],
+                              ),
+                            ),
+                            child: _buildSimpleProductRow(product, isDark),
+                          ),
                           if (index < _filteredProducts.length - 1)
                             Divider(
                               height: 1,
@@ -1998,8 +2140,9 @@ class _InventoryPageState extends State<InventoryPage> {
             ),
           ),
         ),
-      ],
-    );
+      ),
+    ],
+  );
   }
 
   Widget _buildSimpleProductRow(Product product, bool isDark) {
@@ -2013,8 +2156,10 @@ class _InventoryPageState extends State<InventoryPage> {
         : "∞ $unit";
     final isLowStock = product.isStockManaged && qty < 5;
 
-    return InkWell(
-      onTap: () => _showProductDetailSheet(product),
+    return Material(
+      color: isDark ? const Color(0xFF1E293B) : Colors.white,
+      child: InkWell(
+        onTap: () => _showProductDetailSheet(product),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         child: Row(
@@ -2174,7 +2319,7 @@ class _InventoryPageState extends State<InventoryPage> {
                   style: GoogleFonts.plusJakartaSans(
                     fontSize: 14.5,
                     fontWeight: FontWeight.w800,
-                    color: const Color(0xFF00BF63),
+                    color: const Color(0xFF2CAED2),
                   ),
                 ),
                 const SizedBox(height: 4),
@@ -2187,6 +2332,7 @@ class _InventoryPageState extends State<InventoryPage> {
             ),
           ],
         ),
+      ),
       ),
     );
   }
@@ -2944,6 +3090,41 @@ class _InventoryPageState extends State<InventoryPage> {
                               ),
                             ),
                           ),
+                          // Quick increment suggestion chips (+1, +5, +10, +20, +50, +100)
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 6,
+                            children: [1, 5, 10, 20, 50, 100].map((step) {
+                              return InkWell(
+                                onTap: () {
+                                  final cur = double.tryParse(physicalCtrl.text.trim()) ?? 0.0;
+                                  final nextVal = cur + step;
+                                  physicalCtrl.text = _formatQty(nextVal);
+                                  setModalState(() {});
+                                },
+                                borderRadius: BorderRadius.circular(8),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF2CAED2).withValues(alpha: 0.12),
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(
+                                      color: const Color(0xFF2CAED2).withValues(alpha: 0.3),
+                                    ),
+                                  ),
+                                  child: Text(
+                                    "+$step",
+                                    style: GoogleFonts.plusJakartaSans(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w700,
+                                      color: const Color(0xFF2CAED2),
+                                    ),
+                                  ),
+                                ),
+                              );
+                            }).toList(),
+                          ),
                           const SizedBox(height: 8),
                           Text(
                             "Selisih opname: ${diff >= 0 ? '+' : ''}${_formatQty(diff)} $unit",
@@ -3083,184 +3264,13 @@ class _InventoryPageState extends State<InventoryPage> {
     return updatedProduct;
   }
 
-  Widget _buildFilterButton(bool isDark) {
-    return Container(
-      decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: isDark ? 0.3 : 0.04),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
-        border: Border.all(
-          color: isDark ? Colors.white10 : Colors.grey.withValues(alpha: 0.1),
-        ),
-      ),
-      child: PopupMenuButton<String>(
-        offset: const Offset(0, 52),
-        icon: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 250),
-          transitionBuilder: (child, anim) => ScaleTransition(
-            scale: anim,
-            child: FadeTransition(opacity: anim, child: child),
-          ),
-          child: Icon(
-            _stockFilter != 'all' || _sortBy != 'name_asc'
-                ? Icons.filter_list
-                : Icons.tune,
-            key: ValueKey("${_stockFilter}_$_sortBy"),
-            color: _stockFilter != 'all' || _sortBy != 'name_asc'
-                ? const Color(0xFF00BF63)
-                : (isDark ? Colors.white70 : Colors.grey[700]),
-          ),
-        ),
-        tooltip: 'Filter & Urutkan',
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-        onSelected: (val) {
-          setState(() {
-            if (val.startsWith('stock:')) {
-              _stockFilter = val.replaceFirst('stock:', '');
-            } else if (val.startsWith('sort:')) {
-              _sortBy = val.replaceFirst('sort:', '');
-            }
-            _applyFilters();
-          });
-        },
-        itemBuilder: (ctx) => [
-          _buildMenuSectionHeader('STATUS STOK'),
-          _buildMenuItem(
-            'stock:all',
-            Icons.grid_view,
-            'Semua Produk',
-            group: 'stock',
-          ),
-          _buildMenuItem(
-            'stock:limited',
-            Icons.inventory_2_outlined,
-            'Stok Terbatas',
-            group: 'stock',
-          ),
-          _buildMenuItem(
-            'stock:unlimited',
-            Icons.all_inclusive,
-            'Stok Unlimited',
-            group: 'stock',
-          ),
-          const PopupMenuDivider(height: 16),
-          _buildMenuSectionHeader('URUTKAN BERDASARKAN'),
-          _buildMenuItem(
-            'sort:name_asc',
-            Icons.sort_by_alpha,
-            'Nama (A-Z)',
-            group: 'sort',
-          ),
-          _buildMenuItem(
-            'sort:stock_asc',
-            Icons.trending_up,
-            'Stok Terendah',
-            group: 'sort',
-          ),
-          _buildMenuItem(
-            'sort:stock_desc',
-            Icons.trending_down,
-            'Stok Tertinggi',
-            group: 'sort',
-          ),
-          _buildMenuItem(
-            'sort:price_asc',
-            Icons.arrow_upward,
-            'Harga Termurah',
-            group: 'sort',
-          ),
-          _buildMenuItem(
-            'sort:price_desc',
-            Icons.arrow_downward,
-            'Harga Termahal',
-            group: 'sort',
-          ),
-        ],
-      ),
-    );
-  }
-
-  PopupMenuItem<String> _buildMenuSectionHeader(String title) {
-    return PopupMenuItem<String>(
-      enabled: false,
-      height: 32,
-      child: Text(
-        title,
-        style: GoogleFonts.openSans(
-          fontSize: 10,
-          fontWeight: FontWeight.w600,
-          color: Colors.grey[500],
-          letterSpacing: 1.2,
-        ),
-      ),
-    );
-  }
-
-  PopupMenuItem<String> _buildMenuItem(
-    String value,
-    IconData icon,
-    String label, {
-    required String group,
-  }) {
-    final bool isSelected = (group == 'stock')
-        ? _stockFilter == value.replaceFirst('stock:', '')
-        : _sortBy == value.replaceFirst('sort:', '');
-
-    const primaryGreen = Color(0xFF00BF63);
-
-    return PopupMenuItem(
-      value: value,
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(6),
-            decoration: BoxDecoration(
-              color: isSelected
-                  ? primaryGreen.withValues(alpha: 0.1)
-                  : Colors.transparent,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Icon(
-              icon,
-              size: 16,
-              color: isSelected ? primaryGreen : Colors.grey[600],
-            ),
-          ),
-          const SizedBox(width: 12),
-          Text(
-            label,
-            style: GoogleFonts.openSans(
-              fontSize: 14,
-              fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-              color: isSelected ? primaryGreen : null,
-            ),
-          ),
-          if (isSelected) ...[
-            const Spacer(),
-            const Icon(
-              Icons.check_circle_rounded,
-              size: 16,
-              color: primaryGreen,
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
   void _showInfoHelp() {
     showDialog(
       context: context,
       builder: (ctx) => KasirDialog(
         title: "Kelola Inventaris",
         icon: Icons.inventory_2,
-        iconColor: const Color(0xFF00BF63),
+        iconColor: const Color(0xFF2CAED2),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -3296,7 +3306,7 @@ class _InventoryPageState extends State<InventoryPage> {
           style: GoogleFonts.plusJakartaSans(
             fontWeight: FontWeight.w600,
             fontSize: 14,
-            color: const Color(0xFF00BF63),
+            color: const Color(0xFF2CAED2),
           ),
         ),
         Text(

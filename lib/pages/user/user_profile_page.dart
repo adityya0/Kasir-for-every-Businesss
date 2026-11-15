@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path/path.dart' as p;
@@ -6,6 +6,8 @@ import 'package:provider/provider.dart';
 import '../../controllers/admin_controller.dart';
 import '../../services/platform/file_manager.dart';
 import '../../widgets/kasir_drawer.dart';
+import '../../services/security_pin_service.dart';
+import '../../widgets/security_pin_dialog.dart';
 
 class UserProfilePage extends StatefulWidget {
   final VoidCallback? onMenuPressed;
@@ -24,6 +26,18 @@ class UserProfilePage extends StatefulWidget {
 
 class _UserProfilePageState extends State<UserProfilePage> {
   bool _isLoading = false;
+  bool _isPinActive = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPinState();
+  }
+
+  Future<void> _loadPinState() async {
+    final active = await SecurityPinService().isPinEnabled();
+    if (mounted) setState(() => _isPinActive = active);
+  }
 
   void _showAvatarSourceDialog() {
     showModalBottomSheet(
@@ -79,7 +93,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
     required String label,
     required VoidCallback onTap,
   }) {
-    const primaryColor = Color(0xFF00BF63);
+    const primaryColor = Color(0xFF2CAED2);
     return GestureDetector(
       onTap: onTap,
       child: Column(
@@ -186,7 +200,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF00BF63),
+              backgroundColor: const Color(0xFF2CAED2),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(10),
               ),
@@ -216,7 +230,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
     final adminCtrl = context.watch<AdminController>();
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    const primaryColor = Color(0xFF00BF63);
+    const primaryColor = Color(0xFF2CAED2);
 
     final content = LayoutBuilder(
       builder: (context, constraints) {
@@ -233,6 +247,8 @@ class _UserProfilePageState extends State<UserProfilePage> {
           child: Column(
             children: [
               _buildProfileCard(isDark, adminCtrl, primaryColor),
+              const SizedBox(height: 24),
+              _buildSecurityCard(isDark, primaryColor),
               const SizedBox(height: 24),
               _buildPermissionsCard(isDark, adminCtrl, primaryColor),
               const SizedBox(height: 40),
@@ -451,6 +467,74 @@ class _UserProfilePageState extends State<UserProfilePage> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildSecurityCard(bool isDark, Color primaryColor) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: ListTile(
+        contentPadding: EdgeInsets.zero,
+        leading: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: primaryColor.withValues(alpha: 0.1),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(Icons.shield_outlined, color: primaryColor, size: 24),
+        ),
+        title: Text(
+          "PIN Otorisasi Hapus Transaksi",
+          style: GoogleFonts.plusJakartaSans(
+            fontWeight: FontWeight.w700,
+            fontSize: 15,
+            color: isDark ? Colors.white : const Color(0xFF0F172A),
+          ),
+        ),
+        subtitle: Text(
+          _isPinActive
+              ? "Status: Aktif (penghapusan transaksi dilindungi PIN)"
+              : "Status: Nonaktif (belum diatur sandi pengaman)",
+          style: GoogleFonts.openSans(
+            fontSize: 12,
+            color: isDark ? Colors.white60 : const Color(0xFF64748B),
+          ),
+        ),
+        trailing: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+          decoration: BoxDecoration(
+            color: _isPinActive
+                ? const Color(0xFF10B981).withValues(alpha: 0.12)
+                : Colors.grey.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Text(
+            _isPinActive ? "AKTIF" : "NONAKTIF",
+            style: GoogleFonts.plusJakartaSans(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              color: _isPinActive ? const Color(0xFF10B981) : Colors.grey,
+            ),
+          ),
+        ),
+        onTap: () async {
+          await SecurityPinDialog.showManagePinModal(
+            context,
+            onStateChanged: _loadPinState,
+          );
+        },
+      ),
     );
   }
 

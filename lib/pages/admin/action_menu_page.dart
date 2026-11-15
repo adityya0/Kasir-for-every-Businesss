@@ -175,7 +175,7 @@ class ActionMenuPage extends StatelessWidget {
                     _buildSettingsActionItem(
                       label: "Export Keuangan All-Time",
                       icon: Icons.note_add_outlined,
-                      color: const Color(0xFF00BF63),
+                      color: const Color(0xFF2CAED2),
                       onTap: () => _handleComprehensiveExport(context),
                       isDark: isDark,
                     ),

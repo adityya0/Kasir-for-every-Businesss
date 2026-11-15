@@ -85,7 +85,7 @@ class AnalyticsController extends ChangeNotifier {
   List<Map<String, dynamic>> _chartData = [];
   List<Map<String, dynamic>> get chartData => _chartData;
 
-  ChartRange _selectedRange = ChartRange.sevenDays;
+  ChartRange _selectedRange = ChartRange.today;
   ChartRange get selectedRange => _selectedRange;
 
   List<Map<String, dynamic>> _topProducts = [];
@@ -214,15 +214,15 @@ class AnalyticsController extends ChangeNotifier {
 
     try {
       await Future.wait([
-        _fetchTotalSales(),
-        _fetchPeriodicData(),
-        _fetchChartData(),
-        _fetchCounts(),
-        _fetchTopProducts(),
-        _fetchTopTables(),
-        _fetchLowStockProducts(),
-        _fetchTotalDebt(),
-        _fetchInventoryValuation(),
+        _fetchTotalSales().catchError((e) => debugPrint("Analytics error _fetchTotalSales: $e")),
+        _fetchPeriodicData().catchError((e) => debugPrint("Analytics error _fetchPeriodicData: $e")),
+        _fetchChartData().catchError((e) => debugPrint("Analytics error _fetchChartData: $e")),
+        _fetchCounts().catchError((e) => debugPrint("Analytics error _fetchCounts: $e")),
+        _fetchTopProducts().catchError((e) => debugPrint("Analytics error _fetchTopProducts: $e")),
+        _fetchTopTables().catchError((e) => debugPrint("Analytics error _fetchTopTables: $e")),
+        _fetchLowStockProducts().catchError((e) => debugPrint("Analytics error _fetchLowStockProducts: $e")),
+        _fetchTotalDebt().catchError((e) => debugPrint("Analytics error _fetchTotalDebt: $e")),
+        _fetchInventoryValuation().catchError((e) => debugPrint("Analytics error _fetchInventoryValuation: $e")),
       ]);
     } catch (e) {
       debugPrint("AnalyticsController: Error refreshing data: $e");
@@ -321,7 +321,7 @@ class AnalyticsController extends ChangeNotifier {
       final item = row.readTableOrNull(_db.transactionItems);
       final product = row.readTableOrNull(_db.products);
 
-      final date = tx.createdAt!;
+      final date = tx.createdAt ?? DateTime.now();
       final amount = tx.totalAmount ?? 0;
       final txId = tx.id;
 
@@ -439,7 +439,7 @@ class AnalyticsController extends ChangeNotifier {
     _allTimeExpenseCount = 0;
 
     for (var exp in exps) {
-      final date = exp.date!;
+      final date = exp.date ?? DateTime.now();
       final amount = exp.amount ?? 0;
       final cat = exp.category.toLowerCase().trim();
       final notes = (exp.notes ?? '').toLowerCase().trim();
@@ -459,9 +459,13 @@ class AnalyticsController extends ChangeNotifier {
           cat.contains('prive') ||
           cat.contains('tarik') ||
           cat.contains('transfer') ||
+          cat.contains('hutang') ||
+          cat.contains('pelunasan') ||
           notes.contains('stok awal') ||
           notes.contains('penyesuaian stok') ||
-          notes.contains('modal awal');
+          notes.contains('modal awal') ||
+          notes.contains('bayar hutang') ||
+          notes.contains('pelunasan');
 
       if (isNonOperational) continue;
 

@@ -29,7 +29,7 @@ class _PrinterSettingsPageState extends State<PrinterSettingsPage> {
   bool _isScanning = false;
   bool _isConnecting = false;
 
-  static const Color primaryColor = Color(0xFF00BF63);
+  static const Color primaryColor = Color(0xFF2CAED2);
 
   @override
   void initState() {

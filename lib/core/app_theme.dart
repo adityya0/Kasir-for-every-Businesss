@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 
 class AppTheme {
-  // OMNI POS - Vibrant Green Theme
-  static const Color primaryColor = Color(0xFF00BF63);      // Vibrant Green (Brand Logo)
-  static const Color primaryLight = Color(0xFF2EE589);      // Bright Leaf Green
-  static const Color primaryDark = Color(0xFF0D7A4E);       // Deep Forest Green
-  static const Color secondaryColor = Color(0xFF10B981);    // Emerald accent
+  // FLASH COIN LAUNDRY - Vibrant Sky Cyan/Blue Theme (from logo #2CAED2)
+  static const Color primaryColor = Color(0xFF2CAED2);      // Vibrant Cyan Blue (Brand Logo)
+  static const Color primaryLight = Color(0xFF5ED0EE);      // Bright Sky Blue
+  static const Color primaryDark = Color(0xFF1B8CAE);       // Deep Ocean Blue
+  static const Color secondaryColor = Color(0xFF0284C7);    // Sky Blue accent
   static const Color backgroundColor = Color(0xFFF8F9FD);   // Clean crisp background
   static const Color surfaceColor = Colors.white;
 
@@ -25,8 +25,8 @@ class AppTheme {
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
     colors: [
-      Color(0xFF00BF63),  // Vibrant Green
-      Color(0xFF10B981),  // Emerald Green
+      Color(0xFF2CAED2),  // Vibrant Cyan Blue
+      Color(0xFF0284C7),  // Sky Blue
     ],
   );
 

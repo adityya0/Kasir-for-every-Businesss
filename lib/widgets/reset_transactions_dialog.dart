@@ -5,6 +5,7 @@ import '../services/app_database.dart';
 import '../services/report_service.dart';
 import '../controllers/analytics_controller.dart';
 import 'kasir_dialog.dart';
+import 'security_pin_dialog.dart';
 
 class ResetTransactionsDialog extends StatefulWidget {
   final String storeId;
@@ -65,6 +66,14 @@ class _ResetTransactionsDialogState extends State<ResetTransactionsDialog> {
   }
 
   Future<void> _executeReset() async {
+    final authorized = await SecurityPinDialog.authorize(
+      context,
+      title: "Otorisasi PIN Pemilik",
+      message: "Tindakan reset akan menghapus seluruh data transaksi. Masukkan PIN keamanan toko.",
+      confirmButtonLabel: "Verifikasi & Reset",
+    );
+    if (!authorized || !mounted) return;
+
     setState(() => _isLoading = true);
     try {
       final db = context.read<AppDatabase>();

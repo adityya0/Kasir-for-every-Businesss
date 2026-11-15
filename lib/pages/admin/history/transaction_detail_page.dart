@@ -1,4 +1,4 @@
-﻿import 'dart:convert';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
@@ -13,6 +13,7 @@ import '../../../services/bluetooth_printer_service.dart';
 import '../../../services/order_service.dart';
 import '../../../services/app_database.dart';
 import '../../../controllers/analytics_controller.dart';
+import '../../../widgets/security_pin_dialog.dart';
 
 class TransactionDetailPage extends StatelessWidget {
   final Map<String, dynamic> transaction;
@@ -124,12 +125,12 @@ class TransactionDetailPage extends StatelessWidget {
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF00BF63).withValues(alpha: 0.1),
+                      color: const Color(0xFF2CAED2).withValues(alpha: 0.1),
                       shape: BoxShape.circle,
                     ),
                     child: const Icon(
                       Icons.shopping_bag,
-                      color: Color(0xFF00BF63),
+                      color: Color(0xFF2CAED2),
                       size: 32,
                     ),
                   ),
@@ -139,7 +140,7 @@ class TransactionDetailPage extends StatelessWidget {
                     style: GoogleFonts.plusJakartaSans(
                       fontSize: 28,
                       fontWeight: FontWeight.w600,
-                      color: const Color(0xFF00BF63),
+                      color: const Color(0xFF2CAED2),
                     ),
                   ),
                   const SizedBox(height: 8),
@@ -399,7 +400,7 @@ class TransactionDetailPage extends StatelessWidget {
                   ),
                 ),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF00BF63),
+                  backgroundColor: const Color(0xFF2CAED2),
                   foregroundColor: Colors.white,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(16),
@@ -478,8 +479,8 @@ class TransactionDetailPage extends StatelessWidget {
                   ),
                 ),
                 style: OutlinedButton.styleFrom(
-                  foregroundColor: const Color(0xFF00BF63),
-                  side: const BorderSide(color: Color(0xFF00BF63), width: 2),
+                  foregroundColor: const Color(0xFF2CAED2),
+                  side: const BorderSide(color: Color(0xFF2CAED2), width: 2),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(16),
                   ),
@@ -525,7 +526,7 @@ class TransactionDetailPage extends StatelessWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return Row(
       children: [
-        Icon(icon, size: 20, color: const Color(0xFF00BF63)),
+        Icon(icon, size: 20, color: const Color(0xFF2CAED2)),
         const SizedBox(width: 16),
         Text(
           label,
@@ -569,6 +570,14 @@ class TransactionDetailPage extends StatelessWidget {
     );
 
     if (shouldDelete == true && context.mounted) {
+      final authorized = await SecurityPinDialog.authorize(
+        context,
+        title: "Otorisasi PIN Pemilik",
+        message: "Masukkan PIN keamanan toko untuk menghapus transaksi #$shortId.",
+        confirmButtonLabel: "Verifikasi & Hapus",
+      );
+      if (!authorized || !context.mounted) return;
+
       try {
         final db = context.read<AppDatabase>();
         final orderService = OrderService(db);

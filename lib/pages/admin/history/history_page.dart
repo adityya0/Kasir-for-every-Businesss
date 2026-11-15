@@ -167,7 +167,7 @@ class _HistoryPageState extends State<HistoryPage> {
                             value: 'export_excel',
                             child: Row(
                               children: [
-                                const Icon(Icons.table_chart_rounded, color: Color(0xFF00BF63), size: 20),
+                                const Icon(Icons.table_chart_rounded, color: Color(0xFF2CAED2), size: 20),
                                 const SizedBox(width: 10),
                                 Text(
                                   "Ekspor Excel",
@@ -344,7 +344,7 @@ class _HistoryPageState extends State<HistoryPage> {
               'Laporan berhasil disimpan di folder Download\n()',
               style: GoogleFonts.openSans(fontSize: 13, color: Colors.white),
             ),
-            backgroundColor: const Color(0xFF00BF63),
+            backgroundColor: const Color(0xFF2CAED2),
             duration: const Duration(seconds: 6),
             action: (savedPath != null)
                 ? SnackBarAction(

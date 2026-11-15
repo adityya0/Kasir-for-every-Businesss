@@ -25,7 +25,7 @@ class EmployeeManagementPage extends StatefulWidget {
 }
 
 class _EmployeeManagementPageState extends State<EmployeeManagementPage> {
-  static const primaryColor = Color(0xFF00BF63);
+  static const primaryColor = Color(0xFF2CAED2);
   late EmployeeService _employeeService;
   bool _isLoading = true;
   List<Map<String, dynamic>> _employees = [];

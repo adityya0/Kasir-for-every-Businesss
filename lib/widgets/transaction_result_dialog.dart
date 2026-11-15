@@ -216,13 +216,13 @@ class TransactionResultDialog extends StatelessWidget {
                   height: 68,
                   decoration: BoxDecoration(
                     color: isSuccess
-                        ? const Color(0xFF00BF63).withValues(alpha: 0.12)
+                        ? const Color(0xFF2CAED2).withValues(alpha: 0.12)
                         : const Color(0xFFE05260).withValues(alpha: 0.12),
                     shape: BoxShape.circle,
                   ),
                   child: Icon(
                     isSuccess ? Icons.check_circle_rounded : Icons.cancel_rounded,
-                    color: isSuccess ? const Color(0xFF00BF63) : const Color(0xFFE05260),
+                    color: isSuccess ? const Color(0xFF2CAED2) : const Color(0xFFE05260),
                     size: 46,
                   ),
                 ),
@@ -449,8 +449,8 @@ class TransactionResultDialog extends StatelessWidget {
                               ),
                             ),
                             style: OutlinedButton.styleFrom(
-                              foregroundColor: const Color(0xFF00BF63),
-                              side: const BorderSide(color: Color(0xFF00BF63), width: 1.3),
+                              foregroundColor: const Color(0xFF2CAED2),
+                              side: const BorderSide(color: Color(0xFF2CAED2), width: 1.3),
                               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                             ),
                           ),
@@ -468,7 +468,7 @@ class TransactionResultDialog extends StatelessWidget {
                             if (onClose != null) onClose!();
                           },
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: isSuccess ? const Color(0xFF00BF63) : const Color(0xFFE05260),
+                            backgroundColor: isSuccess ? const Color(0xFF2CAED2) : const Color(0xFFE05260),
                             foregroundColor: Colors.white,
                             elevation: 0,
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),

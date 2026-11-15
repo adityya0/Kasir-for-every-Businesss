@@ -217,7 +217,7 @@ class CustomNumpad extends StatelessWidget {
   }
 
   Widget _buildConfirmButton(BuildContext context, double iSize) {
-    const primaryColor = Color(0xFF00BF63);
+    const primaryColor = Color(0xFF2CAED2);
     return Expanded(
       flex: 2,
       child: Container(

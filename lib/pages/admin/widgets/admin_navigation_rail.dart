@@ -34,7 +34,7 @@ class AdminNavigationRail extends StatelessWidget {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final bgColor = isDark ? const Color(0xFF1A1C1E) : Colors.white;
-    const accentColor = Color(0xFF00BF63); // Brand sage green
+    const accentColor = Color(0xFF2CAED2); // Brand sage green
     final settings = SettingsController.instance;
 
     return ValueListenableBuilder<bool>(

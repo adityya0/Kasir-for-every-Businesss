@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 enum OrderNumpadMode { qty, disc, price }
@@ -29,14 +29,16 @@ class OrderNumpad extends StatelessWidget {
     final defaultBtnColor = isDark
         ? Colors.white.withValues(alpha: 0.05)
         : Colors.grey[100]!;
-    const activeBtnColor = Color(0xFF00BF63);
+    const activeBtnColor = Color(0xFF2CAED2);
     final defaultTextColor = isDark ? Colors.white : Colors.black87;
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final double slotWidth = constraints.maxWidth / 4;
-        final double slotHeight = (constraints.maxHeight / 4).clamp(35, 55);
-        final double fontSize = (slotWidth * 0.22).clamp(14, 18);
+        final double availableH = constraints.maxHeight.isFinite && constraints.maxHeight > 0
+            ? constraints.maxHeight
+            : 200.0;
+        final double slotHeight = (availableH / 4).clamp(16.0, 55.0);
+        final double fontSize = (slotHeight * 0.45).clamp(10.0, 18.0);
         final double totalHeight = slotHeight * 4;
 
         return SizedBox(
@@ -234,7 +236,7 @@ class OrderNumpad extends StatelessWidget {
             onTap: onTap ?? () => this.onTap(value),
             child: Center(
               child: icon != null
-                  ? Icon(icon, color: tColor, size: fSize * 1.2)
+                  ? Icon(icon, color: tColor, size: (fSize * 1.2).clamp(12.0, 24.0))
                   : Text(
                       value,
                       style: GoogleFonts.plusJakartaSans(

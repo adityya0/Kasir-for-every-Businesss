@@ -90,7 +90,7 @@ class _LaporanPageState extends State<LaporanPage> {
               'Laporan berhasil disimpan di folder Download\n($filename)',
               style: GoogleFonts.openSans(fontSize: 13, color: Colors.white),
             ),
-            backgroundColor: const Color(0xFF00BF63),
+            backgroundColor: const Color(0xFF2CAED2),
             duration: const Duration(seconds: 6),
             action: (savedPath != null)
                 ? SnackBarAction(

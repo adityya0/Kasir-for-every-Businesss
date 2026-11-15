@@ -29,7 +29,7 @@ class _UnitManagementPageState extends State<UnitManagementPage> {
   String _searchQuery = '';
   final TextEditingController _searchController = TextEditingController();
 
-  static const Color _primaryColor = Color(0xFF00BF63);
+  static const Color _primaryColor = Color(0xFF2CAED2);
 
   @override
   void initState() {

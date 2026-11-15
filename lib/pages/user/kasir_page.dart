@@ -16,6 +16,7 @@ import 'widgets/product_option_modal.dart';
 import 'widgets/payment_success_dialog.dart';
 import '../../core/app_theme.dart';
 import '../../widgets/big_search_bar.dart';
+import '../../services/payment_method_service.dart';
 import '../../services/app_database.dart';
 import '../../services/platform/file_manager.dart';
 import '../admin/report/expense_management_page.dart';
@@ -63,9 +64,9 @@ class _KasirPageState extends State<KasirPage> {
   Map<String, int> _salesMap = {};
 
   static const _promoColors = [
-    Color(0xFF00BF63), // Brand
-    Color(0xFF10B981), // Brand Light
-    Color(0xFF8B1A1A), // Brand Dark
+    Color(0xFF2CAED2), // Brand
+    Color(0xFF5ED0EE), // Brand Light
+    Color(0xFF1B8CAE), // Brand Dark
     Color(0xFF384333),
     Color(0xFF4A5744),
   ];
@@ -298,7 +299,7 @@ class _KasirPageState extends State<KasirPage> {
       child: IconButton(
         icon: const Icon(
           Icons.bolt_rounded,
-          color: Color(0xFF00BF63),
+          color: Color(0xFF2CAED2),
           size: 24,
         ),
         onPressed: () => _showKasirQuickShortcutsSheet(context, isDark),
@@ -346,10 +347,10 @@ class _KasirPageState extends State<KasirPage> {
                       Container(
                         padding: const EdgeInsets.all(6),
                         decoration: BoxDecoration(
-                          color: const Color(0xFF00BF63).withValues(alpha: 0.1),
+                          color: const Color(0xFF2CAED2).withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(8),
                         ),
-                        child: const Icon(Icons.bolt_rounded, color: Color(0xFF00BF63), size: 20),
+                        child: const Icon(Icons.bolt_rounded, color: Color(0xFF2CAED2), size: 20),
                       ),
                       const SizedBox(width: 10),
                       Column(
@@ -1061,7 +1062,35 @@ class _KasirPageState extends State<KasirPage> {
       );
 
       try {
-        analyticsCtrl?.refreshData();
+        if (analyticsCtrl != null) {
+          analyticsCtrl.init(effectiveStoreId);
+        }
+      } catch (_) {}
+
+      try {
+        final pmService = PaymentMethodService(db);
+        if (splitPayments != null && splitPayments.isNotEmpty) {
+          for (final sp in splitPayments) {
+            final m = (sp['method'] ?? 'Kas').toString();
+            final amt = (sp['amount'] as num?)?.toDouble() ?? 0.0;
+            if (amt > 0) {
+              await pmService.updateIncrementalBalance(
+                storeId: effectiveStoreId,
+                methodIdOrName: m,
+                delta: amt,
+              );
+            }
+          }
+        } else {
+          final effectivePaid = status == 'debt' ? _cashReceived : finalTotal;
+          if (effectivePaid > 0) {
+            await pmService.updateIncrementalBalance(
+              storeId: effectiveStoreId,
+              methodIdOrName: _selectedPaymentMethod,
+              delta: effectivePaid,
+            );
+          }
+        }
       } catch (_) {}
 
       // Update Table Status to occupied
@@ -1233,7 +1262,9 @@ class _KasirPageState extends State<KasirPage> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    final isWide = MediaQuery.of(context).size.width >= 1024;
+    final screenSize = MediaQuery.of(context).size;
+    final isWide = screenSize.width >= 720;
+    final isShortHeight = screenSize.height < 520;
     final adminCtrl = context.watch<AdminController>();
 
     if (adminCtrl.storeId != null && adminCtrl.storeId != _storeId) {
@@ -1289,6 +1320,7 @@ class _KasirPageState extends State<KasirPage> {
         }
       },
       child: Scaffold(
+        resizeToAvoidBottomInset: false,
         drawer: null,
         appBar: isWide
             ? null
@@ -1377,7 +1409,7 @@ class _KasirPageState extends State<KasirPage> {
                                             ),
                                           ),
                                         ),
-                                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                                        padding: EdgeInsets.symmetric(horizontal: 24, vertical: isShortHeight ? 6 : 14),
                                         child: LayoutBuilder(
                                           builder: (context, headerConstraints) {
                                             const double minHeaderWidth = 750;
@@ -1618,7 +1650,7 @@ class _KasirPageState extends State<KasirPage> {
                                         builder: (context, show, _) {
                                           if (!show) return const SizedBox.shrink();
                                           return Padding(
-                                            padding: const EdgeInsets.fromLTRB(24, 8, 24, 4),
+                                            padding: EdgeInsets.fromLTRB(24, isShortHeight ? 2 : 8, 24, isShortHeight ? 2 : 4),
                                             child: Row(
                                               children: [
                                                 _buildFilterTab("Popular", _selectedFilter == "Popular"),
@@ -1636,7 +1668,7 @@ class _KasirPageState extends State<KasirPage> {
                                             ValueListenableBuilder<bool>(
                                               valueListenable: SettingsController.instance.showFilterTabs,
                                               builder: (context, show, _) {
-                                                if (!show) return const SizedBox.shrink();
+                                                if (!show || isShortHeight) return const SizedBox.shrink();
                                                 return _buildNewArrivalsStrip();
                                               },
                                             ),
@@ -1987,7 +2019,7 @@ class _KasirPageState extends State<KasirPage> {
   }
 
   Widget _buildFilterTab(String label, bool isActive) {
-    const primaryColor = Color(0xFF00BF63);
+    const primaryColor = Color(0xFF2CAED2);
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return InkWell(
@@ -2045,13 +2077,13 @@ class _KasirPageState extends State<KasirPage> {
             style: GoogleFonts.plusJakartaSans(
               fontSize: 13,
               fontWeight: FontWeight.w700,
-              color: const Color(0xFF00BF63),
+              color: const Color(0xFF2CAED2),
             ),
           ),
           dropdownColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
           icon: const Icon(
             Icons.keyboard_arrow_down_rounded,
-            color: Color(0xFF00BF63),
+            color: Color(0xFF2CAED2),
             size: 20,
           ),
           items: _categories.map((String cat) {
@@ -2063,7 +2095,7 @@ class _KasirPageState extends State<KasirPage> {
                 style: GoogleFonts.plusJakartaSans(
                   fontSize: 13,
                   fontWeight: isSel ? FontWeight.w700 : FontWeight.w600,
-                  color: const Color(0xFF00BF63),
+                  color: const Color(0xFF2CAED2),
                 ),
               ),
             );

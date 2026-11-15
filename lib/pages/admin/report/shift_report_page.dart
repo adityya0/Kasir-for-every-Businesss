@@ -58,7 +58,7 @@ class _ShiftReportPageState extends State<ShiftReportPage> {
         return Theme(
           data: Theme.of(context).copyWith(
             colorScheme: const ColorScheme.light(
-              primary: Color(0xFF00BF63),
+              primary: Color(0xFF2CAED2),
               onPrimary: Colors.white,
               onSurface: Colors.black,
             ),
@@ -134,7 +134,7 @@ class _ShiftReportPageState extends State<ShiftReportPage> {
                       _fetchShifts();
                     },
                     backgroundColor: const Color(
-                      0xFF00BF63,
+                      0xFF2CAED2,
                     ).withValues(alpha: 0.1),
                     side: BorderSide.none,
                   ),

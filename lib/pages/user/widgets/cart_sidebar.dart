@@ -475,6 +475,7 @@ class _CartSidebarState extends State<CartSidebar> {
                         constraints.maxWidth >= 600 ||
                         MediaQuery.of(context).size.width >= 720;
                     final isNarrow = constraints.maxWidth < 320;
+                    final isShort = constraints.maxHeight < 520;
 
                     return Container(
                       decoration: BoxDecoration(
@@ -486,11 +487,11 @@ class _CartSidebarState extends State<CartSidebar> {
                         ),
                       ),
                       child: SafeArea(
-                        top: !isDesktop,
-                        bottom: !isDesktop,
+                        top: !isDesktop && !isShort,
+                        bottom: !isDesktop && !isShort,
                         child: Column(
                           children: [
-                            _buildHeader(isDark, primaryColor, isDesktop, isNarrow),
+                            _buildHeader(isDark, primaryColor, isDesktop, isNarrow, isShort: isShort),
                             Expanded(
                               child: _isPaymentMode
                                   ? _buildPaymentView(
@@ -506,6 +507,7 @@ class _CartSidebarState extends State<CartSidebar> {
                                       pajakName: pajakName,
                                       promoDiscount: promoDiscount,
                                       manualDiscountAmount: manualDiscountAmount,
+                                      isShort: isShort,
                                     )
                                   : _buildCartView(
                                       isDark,
@@ -517,6 +519,8 @@ class _CartSidebarState extends State<CartSidebar> {
                                       pajakName: pajakName,
                                       promoDiscount: promoDiscount,
                                       manualDiscountAmount: manualDiscountAmount,
+                                      isShort: isShort,
+                                      availableHeight: constraints.maxHeight,
                                     ),
                             ),
                           ],
@@ -537,14 +541,15 @@ class _CartSidebarState extends State<CartSidebar> {
     bool isDark,
     Color primaryColor,
     bool isDesktop,
-    bool isNarrow,
-  ) {
+    bool isNarrow, {
+    bool isShort = false,
+  }) {
     return Padding(
       padding: EdgeInsets.fromLTRB(
         isNarrow ? 12 : 24,
-        isDesktop ? 24 : 48, // Added more padding over SafeArea to push it down from the bezel
+        isShort ? 8 : (isDesktop ? 24 : 48), // Reduced in short landscape to avoid overflow
         isNarrow ? 12 : 16,
-        16,
+        isShort ? 8 : 16,
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -754,6 +759,8 @@ class _CartSidebarState extends State<CartSidebar> {
     required String pajakName,
     required double promoDiscount,
     required double manualDiscountAmount,
+    bool isShort = false,
+    double availableHeight = 600,
   }) {
     if (widget.cartItems.isEmpty && !isDesktop) {
       return Center(
@@ -762,13 +769,13 @@ class _CartSidebarState extends State<CartSidebar> {
           children: [
             Icon(
               Icons.shopping_cart_outlined,
-              size: 80,
+              size: isShort ? 24 : 80,
               color: isDark ? Colors.white10 : Colors.grey[200],
             ),
-            const SizedBox(height: 16),
+            SizedBox(height: isShort ? 6 : 16),
             Text(
               "Keranjang kosong",
-              style: GoogleFonts.openSans(color: Colors.grey, fontSize: 16),
+              style: GoogleFonts.openSans(color: Colors.grey, fontSize: isShort ? 12 : 16),
             ),
           ],
         ),
@@ -780,20 +787,20 @@ class _CartSidebarState extends State<CartSidebar> {
         Expanded(
           child: widget.cartItems.isEmpty
               ? Center(
-                  child: Column(
+                  child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Icon(
                         Icons.shopping_cart_outlined,
-                        size: 80,
-                        color: isDark ? Colors.white10 : Colors.grey[200],
+                        size: isShort ? 18 : 36,
+                        color: isDark ? Colors.white24 : Colors.grey[300],
                       ),
-                      const SizedBox(height: 16),
+                      const SizedBox(width: 8),
                       Text(
                         "Keranjang kosong",
                         style: GoogleFonts.openSans(
                           color: Colors.grey,
-                          fontSize: 16,
+                          fontSize: isShort ? 12 : 14,
                         ),
                       ),
                     ],
@@ -803,9 +810,9 @@ class _CartSidebarState extends State<CartSidebar> {
                   controller: _scrollController,
                   padding: EdgeInsets.fromLTRB(
                     isNarrow ? 12 : 24,
-                    16,
+                    isShort ? 8 : 16,
                     isNarrow ? 12 : 24,
-                    24,
+                    isShort ? 8 : 24,
                   ),
                   physics: const BouncingScrollPhysics(),
                   itemCount: widget.cartItems.length,
@@ -1028,7 +1035,18 @@ class _CartSidebarState extends State<CartSidebar> {
                   },
                 ),
         ),
-        _buildSummaryAndNumpad(isDark, primaryColor, total, isDesktop, pajakAmount: pajakAmount, pajakName: pajakName, promoDiscount: promoDiscount, manualDiscountAmount: manualDiscountAmount),
+        _buildSummaryAndNumpad(
+          isDark,
+          primaryColor,
+          total,
+          isDesktop,
+          pajakAmount: pajakAmount,
+          pajakName: pajakName,
+          promoDiscount: promoDiscount,
+          manualDiscountAmount: manualDiscountAmount,
+          isShort: isShort,
+          availableHeight: availableHeight,
+        ),
       ],
     );
   }
@@ -1063,18 +1081,31 @@ class _CartSidebarState extends State<CartSidebar> {
     required String pajakName,
     required double promoDiscount,
     required double manualDiscountAmount,
+    bool isShort = false,
+    double availableHeight = 600,
   }) {
+    final double numpadHeight = isShort ? (availableHeight * 0.32).clamp(76.0, 130.0) : 200.0;
+
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
         const Divider(height: 1),
-        _buildOdooSummary(isDark, primaryColor, total, pajakAmount: pajakAmount, pajakName: pajakName, promoDiscount: promoDiscount, manualDiscountAmount: manualDiscountAmount),
+        _buildOdooSummary(
+          isDark,
+          primaryColor,
+          total,
+          pajakAmount: pajakAmount,
+          pajakName: pajakName,
+          promoDiscount: promoDiscount,
+          manualDiscountAmount: manualDiscountAmount,
+          isShort: isShort,
+        ),
         ValueListenableBuilder<bool>(
           valueListenable: SettingsController.instance.showNumpad,
           builder: (context, showNumpad, child) {
             if (!showNumpad) return const SizedBox();
             return SizedBox(
-              height: 200,
+              height: numpadHeight,
               child: OrderNumpad(
                 mode: _numpadMode,
                 onModeChanged: (m) => setState(() {
@@ -1088,7 +1119,7 @@ class _CartSidebarState extends State<CartSidebar> {
             );
           }
         ),
-        _buildCartActionButton(primaryColor, total, isDesktop),
+        _buildCartActionButton(primaryColor, total, isDesktop, isShort: isShort),
       ],
     );
   }
@@ -1096,18 +1127,19 @@ class _CartSidebarState extends State<CartSidebar> {
   Widget _buildCartActionButton(
     Color primaryColor,
     double total,
-    bool isDesktop,
-  ) {
+    bool isDesktop, {
+    bool isShort = false,
+  }) {
     final totalQty = _getCartTotalCount();
     final hasItems = widget.cartItems.isNotEmpty && totalQty > 0;
 
     return Padding(
-      padding: EdgeInsets.fromLTRB(16, 8, 16, isDesktop ? 16 : 8),
+      padding: EdgeInsets.fromLTRB(16, isShort ? 4 : 8, 16, isShort ? 6 : (isDesktop ? 16 : 8)),
       child: Column(
         children: [
           SizedBox(
             width: double.infinity,
-            height: isDesktop ? 52 : 56,
+            height: isShort ? 40 : (isDesktop ? 52 : 56),
             child: ElevatedButton(
               onPressed: hasItems
                   ? () => setState(() {
@@ -1165,12 +1197,13 @@ class _CartSidebarState extends State<CartSidebar> {
     required String pajakName,
     required double promoDiscount,
     required double manualDiscountAmount,
+    bool isShort = false,
   }) {
     final double totalDiscount = promoDiscount + manualDiscountAmount;
     final double subtotalBeforeDiscount = total + totalDiscount - pajakAmount;
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+      padding: EdgeInsets.symmetric(horizontal: isShort ? 16 : 24, vertical: isShort ? 5 : 12),
       color: isDark ? Colors.white.withValues(alpha: 0.02) : Colors.grey[50],
       child: Column(
         children: [
@@ -1639,6 +1672,7 @@ class _CartSidebarState extends State<CartSidebar> {
     required String pajakName,
     required double promoDiscount,
     required double manualDiscountAmount,
+    bool isShort = false,
   }) {
     return Column(
       children: [
@@ -1816,9 +1850,9 @@ class _CartSidebarState extends State<CartSidebar> {
                   builder: (context, showNumpad, child) {
                     if (!showNumpad) return const SizedBox();
                     return Padding(
-                      padding: const EdgeInsets.only(bottom: 10),
+                      padding: EdgeInsets.only(bottom: isShort ? 4 : 10),
                       child: SizedBox(
-                        height: 200,
+                        height: isShort ? 100.0 : 200.0,
                         child: Opacity(
                           opacity: _selectedPaymentMethod == "Tunai" ? 1.0 : 0.5,
                           child: IgnorePointer(
@@ -2392,7 +2426,7 @@ class _CartSidebarState extends State<CartSidebar> {
     final db = context.read<AppDatabase>();
     List<Customer> allCustomers = [];
     List<Customer> filtered = [];
-    const primaryColor = Color(0xFF00BF63);
+    const primaryColor = Color(0xFF2CAED2);
 
     showModalBottomSheet(
       context: context,
@@ -2838,7 +2872,7 @@ class _CartSidebarState extends State<CartSidebar> {
               }
             },
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF00BF63),
+              backgroundColor: const Color(0xFF2CAED2),
               foregroundColor: Colors.white,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(10),

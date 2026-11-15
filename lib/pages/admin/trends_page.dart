@@ -87,7 +87,7 @@ class _TrendsPageState extends State<TrendsPage>
                 await controller.refreshData();
                 _restartAnimation();
               },
-              color: const Color(0xFF00BF63),
+              color: const Color(0xFF2CAED2),
               child: SingleChildScrollView(
                 physics: const AlwaysScrollableScrollPhysics(),
                 padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
@@ -132,7 +132,7 @@ class _TrendsPageState extends State<TrendsPage>
                 await controller.refreshData();
                 _restartAnimation();
               },
-              color: const Color(0xFF00BF63),
+              color: const Color(0xFF2CAED2),
               child: _buildDedicatedLowStockPage(controller, isDark),
             ),
           ],
@@ -158,9 +158,9 @@ class _TrendsPageState extends State<TrendsPage>
                 final lowStockCount = controller.lowStockProducts.length;
                 return TabBar(
                   controller: _tabController,
-                  indicatorColor: const Color(0xFF00BF63),
+                  indicatorColor: const Color(0xFF2CAED2),
                   indicatorWeight: 3,
-                  labelColor: const Color(0xFF00BF63),
+                  labelColor: const Color(0xFF2CAED2),
                   unselectedLabelColor: isDark ? Colors.white60 : const Color(0xFF64748B),
                   labelStyle: GoogleFonts.plusJakartaSans(
                     fontWeight: FontWeight.w700,
@@ -240,9 +240,9 @@ class _TrendsPageState extends State<TrendsPage>
                 final lowStockCount = controller.lowStockProducts.length;
                 return TabBar(
                   controller: _tabController,
-                  indicatorColor: const Color(0xFF00BF63),
+                  indicatorColor: const Color(0xFF2CAED2),
                   indicatorWeight: 3,
-                  labelColor: const Color(0xFF00BF63),
+                  labelColor: const Color(0xFF2CAED2),
                   unselectedLabelColor: isDark ? Colors.white60 : const Color(0xFF64748B),
                   labelStyle: GoogleFonts.plusJakartaSans(
                     fontWeight: FontWeight.w700,
@@ -301,7 +301,7 @@ class _TrendsPageState extends State<TrendsPage>
               child: IconButton(
                 icon: const Icon(
                   Icons.bolt_rounded,
-                  color: Color(0xFF00BF63),
+                  color: Color(0xFF2CAED2),
                   size: 24,
                 ),
                 tooltip: "Pintasan Cepat",
@@ -492,12 +492,12 @@ class _TrendsPageState extends State<TrendsPage>
                             Container(
                               padding: const EdgeInsets.all(6),
                               decoration: BoxDecoration(
-                                color: const Color(0xFF00BF63).withValues(alpha: 0.1),
+                                color: const Color(0xFF2CAED2).withValues(alpha: 0.1),
                                 borderRadius: BorderRadius.circular(8),
                               ),
                               child: const Icon(
                                 Icons.bolt_rounded,
-                                color: Color(0xFF00BF63),
+                                color: Color(0xFF2CAED2),
                                 size: 20,
                               ),
                             ),
@@ -809,12 +809,12 @@ class _TrendsPageState extends State<TrendsPage>
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
         decoration: BoxDecoration(
           color: isSelected
-              ? const Color(0xFF00BF63)
+              ? const Color(0xFF2CAED2)
               : (isDark ? const Color(0xFF27272A) : const Color(0xFFF1F5F9)),
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
             color: isSelected
-                ? const Color(0xFF00BF63)
+                ? const Color(0xFF2CAED2)
                 : (isDark ? const Color(0xFF3F3F46) : const Color(0xFFE2E8F0)),
           ),
         ),
@@ -887,7 +887,7 @@ class _TrendsPageState extends State<TrendsPage>
   }) {
     final isSelected = controller.selectedRange == range;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    const primaryColor = Color(0xFF00BF63);
+    const primaryColor = Color(0xFF2CAED2);
 
     return GestureDetector(
       onTap: () {
@@ -989,7 +989,7 @@ class _TrendsPageState extends State<TrendsPage>
                   const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
               decoration: BoxDecoration(
                 color:
-                    const Color(0xFF00BF63).withValues(alpha: 0.1),
+                    const Color(0xFF2CAED2).withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Row(
@@ -997,7 +997,7 @@ class _TrendsPageState extends State<TrendsPage>
                   const Icon(
                     Icons.trending_up_rounded,
                     size: 14,
-                    color: Color(0xFF00BF63),
+                    color: Color(0xFF2CAED2),
                   ),
                   const SizedBox(width: 4),
                   Text(
@@ -1005,7 +1005,7 @@ class _TrendsPageState extends State<TrendsPage>
                     style: GoogleFonts.openSans(
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
-                      color: const Color(0xFF00BF63),
+                      color: const Color(0xFF2CAED2),
                     ),
                   ),
                 ],
@@ -1056,7 +1056,7 @@ class _TrendsPageState extends State<TrendsPage>
     );
 
     final barColors = [
-      const Color(0xFF00BF63),
+      const Color(0xFF2CAED2),
       const Color(0xFF7C3AED),
       const Color(0xFF0D9488),
       const Color(0xFF2563EB),
@@ -1332,7 +1332,7 @@ class _TrendsPageState extends State<TrendsPage>
         style: GoogleFonts.plusJakartaSans(
           fontWeight: FontWeight.w700,
           fontSize: 16,
-          color: index < 3 ? const Color(0xFF00BF63) : Colors.grey,
+          color: index < 3 ? const Color(0xFF2CAED2) : Colors.grey,
         ),
       ),
     );
@@ -1438,12 +1438,12 @@ class _TrendsPageState extends State<TrendsPage>
                     Container(
                       padding: const EdgeInsets.all(14),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF00BF63).withValues(alpha: 0.12),
+                        color: const Color(0xFF2CAED2).withValues(alpha: 0.12),
                         shape: BoxShape.circle,
                       ),
                       child: const Icon(
                         Icons.check_circle_rounded,
-                        color: Color(0xFF00BF63),
+                        color: Color(0xFF2CAED2),
                         size: 40,
                       ),
                     ),

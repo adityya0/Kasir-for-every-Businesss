@@ -154,7 +154,7 @@ class _BestSellerPageState extends State<BestSellerPage> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    const primaryColor = Color(0xFF00BF63);
+    const primaryColor = Color(0xFF2CAED2);
     final borderColor = isDark ? const Color(0xFF374151) : const Color(0xFFCBD5E1);
 
     final filtered = _allProducts.where((p) {
@@ -505,7 +505,7 @@ class _BestSellerPageState extends State<BestSellerPage> {
             style: GoogleFonts.plusJakartaSans(
               fontSize: 13,
               fontWeight: FontWeight.w800,
-              color: const Color(0xFF00BF63),
+              color: const Color(0xFF2CAED2),
             ),
           ),
         ],

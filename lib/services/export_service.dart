@@ -20,6 +20,8 @@ class ExportService {
     String? periodLabel,
     DateTime? startDate,
     DateTime? endDate,
+    String? supplierName,
+    Map<String, String>? transactionItemsSummary,
   }) async {
     final pdf = pw.Document();
 
@@ -60,6 +62,17 @@ class ExportService {
                       color: PdfColors.grey700,
                     ),
                   ),
+                  if (supplierName != null && supplierName.isNotEmpty) ...[
+                    pw.SizedBox(height: 2),
+                    pw.Text(
+                      "Filter: $supplierName",
+                      style: pw.TextStyle(
+                        fontSize: 11,
+                        fontWeight: pw.FontWeight.bold,
+                        color: PdfColors.teal800,
+                      ),
+                    ),
+                  ],
                 ],
               ),
               pw.Text(
@@ -78,21 +91,44 @@ class ExportService {
           ),
           pw.SizedBox(height: 20),
           pw.TableHelper.fromTextArray(
-            headers: ['Tanggal', 'ID Transaksi', 'Metode', 'Total'],
-            data: transactions.map((tx) {
-              return [
-                DateFormat(
-                  'dd MMM yyyy, HH:mm',
-                ).format(tx.createdAt ?? DateTime.now()),
-                (tx.id).substring(0, 8), // Short ID for table
-                (tx.paymentMethod ?? 'Unknown').toUpperCase(),
-                _currencyFormat.format(tx.totalAmount ?? 0),
-              ];
-            }).toList(),
+            headers: ['Tanggal', 'ID Transaksi', 'Rincian Produk', 'Metode', 'Total'],
+            data: [
+              ...transactions.map((tx) {
+                final itemDesc = transactionItemsSummary?[tx.id] ?? '-';
+                return [
+                  DateFormat(
+                    'dd MMM yyyy, HH:mm',
+                  ).format(tx.createdAt ?? DateTime.now()),
+                  (tx.id.length >= 8 ? tx.id.substring(0, 8) : tx.id),
+                  itemDesc,
+                  (tx.paymentMethod ?? 'Unknown').toUpperCase(),
+                  _currencyFormat.format(tx.totalAmount ?? 0),
+                ];
+              }),
+              [
+                'TOTAL OMZET',
+                '',
+                '',
+                '',
+                _currencyFormat.format(
+                  transactions.fold(
+                    0.0,
+                    (sum, tx) => sum + (tx.totalAmount ?? 0),
+                  ),
+                ),
+              ],
+            ],
+            columnWidths: {
+              0: const pw.FlexColumnWidth(1.6),
+              1: const pw.FlexColumnWidth(1.2),
+              2: const pw.FlexColumnWidth(3.5),
+              3: const pw.FlexColumnWidth(1.2),
+              4: const pw.FlexColumnWidth(1.8),
+            },
             headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold),
             headerDecoration: const pw.BoxDecoration(color: PdfColors.grey300),
             cellAlignment: pw.Alignment.centerLeft,
-            cellAlignments: {3: pw.Alignment.centerRight},
+            cellAlignments: {4: pw.Alignment.centerRight},
           ),
           pw.SizedBox(height: 20),
           pw.Row(
@@ -127,6 +163,8 @@ class ExportService {
     String? periodLabel,
     DateTime? startDate,
     DateTime? endDate,
+    String? supplierName,
+    Map<String, String>? transactionItemsSummary,
   }) async {
     var excel = Excel.createExcel();
     var sheetName = "Transaksi";
@@ -147,6 +185,9 @@ class ExportService {
     // Header Info
     sheet.appendRow([TextCellValue("Laporan Transaksi - $storeName")]);
     sheet.appendRow([TextCellValue("Periode: $periodText")]);
+    if (supplierName != null && supplierName.isNotEmpty) {
+      sheet.appendRow([TextCellValue("Filter: $supplierName")]);
+    }
     sheet.appendRow([
       TextCellValue(
         "Dicetak pada: ${DateFormat('dd MMM yyyy, HH:mm').format(DateTime.now())}",
@@ -158,17 +199,20 @@ class ExportService {
     sheet.appendRow([
       TextCellValue("Tanggal"),
       TextCellValue("ID Transaksi"),
+      TextCellValue("Rincian Produk"),
       TextCellValue("Metode Pembayaran"),
       TextCellValue("Total Amount"),
     ]);
 
     // Data
     for (var tx in transactions) {
+      final itemDesc = transactionItemsSummary?[tx.id] ?? '-';
       sheet.appendRow([
         TextCellValue(
           DateFormat('yyyy-MM-dd HH:mm').format(tx.createdAt ?? DateTime.now()),
         ),
         TextCellValue(tx.id),
+        TextCellValue(itemDesc),
         TextCellValue((tx.paymentMethod ?? 'Unknown').toUpperCase()),
         DoubleCellValue(tx.totalAmount ?? 0.0),
       ]);
@@ -181,6 +225,7 @@ class ExportService {
       (sum, tx) => sum + (tx.totalAmount ?? 0),
     );
     sheet.appendRow([
+      TextCellValue(""),
       TextCellValue(""),
       TextCellValue(""),
       TextCellValue("TOTAL OMZET"),
@@ -335,6 +380,7 @@ class ExportService {
     required List<Expense> expenses,
     List<Map<String, dynamic>>? supplierReports,
     String? periodLabel,
+    Map<String, String>? transactionItemsSummary,
   }) async {
     var excel = Excel.createExcel();
 
@@ -355,7 +401,10 @@ class ExportService {
     summary.appendRow([
       TextCellValue("Laporan Keuangan Komprehensif - $storeName"),
     ]);
-    summary.appendRow([TextCellValue("Periode: Semua Waktu")]);
+    if (supplierReports != null && supplierReports.length == 1) {
+      summary.appendRow([TextCellValue("Filter Supplier: ${supplierReports.first['supplierName'] ?? '-'}")]);
+    }
+    summary.appendRow([TextCellValue(periodLabel != null ? "Periode: $periodLabel" : "Periode: Semua Waktu")]);
     summary.appendRow([]);
     summary.appendRow([TextCellValue("RINGKASAN"), TextCellValue("TOTAL")]);
     summary.appendRow([
@@ -377,19 +426,30 @@ class ExportService {
     txSheet.appendRow([
       TextCellValue("Tanggal"),
       TextCellValue("ID"),
+      TextCellValue("Rincian Produk"),
       TextCellValue("Metode"),
       TextCellValue("Total"),
     ]);
     for (var tx in transactions) {
+      final itemDesc = transactionItemsSummary?[tx.id] ?? '-';
       txSheet.appendRow([
         TextCellValue(
           DateFormat('yyyy-MM-dd HH:mm').format(tx.createdAt ?? DateTime.now()),
         ),
         TextCellValue(tx.id),
+        TextCellValue(itemDesc),
         TextCellValue(tx.paymentMethod ?? '-'),
         DoubleCellValue(tx.totalAmount ?? 0),
       ]);
     }
+    txSheet.appendRow([]);
+    txSheet.appendRow([
+      TextCellValue("TOTAL OMZET"),
+      TextCellValue(""),
+      TextCellValue(""),
+      TextCellValue(""),
+      DoubleCellValue(totalSales),
+    ]);
 
     // 3. Expenses Sheet
     var expSheetName = "Pengeluaran_Detail";
@@ -449,6 +509,7 @@ class ExportService {
     required List<Expense> expenses,
     List<Map<String, dynamic>>? supplierReports,
     String? periodLabel,
+    Map<String, String>? transactionItemsSummary,
   }) async {
     final pdf = pw.Document();
 
@@ -471,14 +532,30 @@ class ExportService {
             child: pw.Row(
               mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
               children: [
-                pw.Text(
-                  periodLabel != null
-                      ? "Laporan Keuangan ($periodLabel)"
-                      : "Laporan Keuangan Keseluruhan",
-                  style: pw.TextStyle(
-                    fontSize: 18,
-                    fontWeight: pw.FontWeight.bold,
-                  ),
+                pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Text(
+                      periodLabel != null
+                          ? "Laporan Keuangan ($periodLabel)"
+                          : "Laporan Keuangan Keseluruhan",
+                      style: pw.TextStyle(
+                        fontSize: 18,
+                        fontWeight: pw.FontWeight.bold,
+                      ),
+                    ),
+                    if (supplierReports != null && supplierReports.length == 1) ...[
+                      pw.SizedBox(height: 3),
+                      pw.Text(
+                        "Supplier: ${supplierReports.first['supplierName'] ?? '-'}",
+                        style: pw.TextStyle(
+                          fontSize: 11,
+                          fontWeight: pw.FontWeight.bold,
+                          color: PdfColors.blueGrey800,
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
                 pw.Text(storeName, style: const pw.TextStyle(fontSize: 12)),
               ],
@@ -541,20 +618,38 @@ class ExportService {
           ),
           pw.SizedBox(height: 10),
           pw.TableHelper.fromTextArray(
-            headers: ['Tanggal', 'ID', 'Metode', 'Total'],
-            data: transactions.map((tx) {
-              return [
-                DateFormat(
-                  'dd/MM/yy HH:mm',
-                ).format(tx.createdAt ?? DateTime.now()),
-                tx.id.substring(0, 8),
-                (tx.paymentMethod ?? '-').toUpperCase(),
-                _currencyFormat.format(tx.totalAmount ?? 0),
-              ];
-            }).toList(),
+            headers: ['Tanggal', 'ID', 'Rincian Produk', 'Metode', 'Total'],
+            data: [
+              ...transactions.map((tx) {
+                final itemDesc = transactionItemsSummary?[tx.id] ?? '-';
+                return [
+                  DateFormat(
+                    'dd/MM/yy HH:mm',
+                  ).format(tx.createdAt ?? DateTime.now()),
+                  tx.id.length >= 8 ? tx.id.substring(0, 8) : tx.id,
+                  itemDesc,
+                  (tx.paymentMethod ?? '-').toUpperCase(),
+                  _currencyFormat.format(tx.totalAmount ?? 0),
+                ];
+              }),
+              [
+                'TOTAL OMZET',
+                '',
+                '',
+                '',
+                _currencyFormat.format(totalSales),
+              ],
+            ],
+            columnWidths: {
+              0: const pw.FlexColumnWidth(1.6),
+              1: const pw.FlexColumnWidth(1.2),
+              2: const pw.FlexColumnWidth(3.5),
+              3: const pw.FlexColumnWidth(1.2),
+              4: const pw.FlexColumnWidth(1.8),
+            },
             headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold),
             cellAlignment: pw.Alignment.centerLeft,
-            cellAlignments: {3: pw.Alignment.centerRight},
+            cellAlignments: {4: pw.Alignment.centerRight},
           ),
           pw.SizedBox(height: 30),
 
@@ -640,11 +735,20 @@ class ExportService {
     required double totalExpenses,
     required double netProfit,
     required int txCount,
+    String? periodLabel,
+    String? supplierName,
   }) {
     final fmt = DateFormat('yyyy-MM-dd');
     final sb = StringBuffer();
     sb.writeln('"Laporan Laba Rugi - $storeName"');
-    sb.writeln('"Periode:","${fmt.format(startDate)} s/d ${fmt.format(endDate)}"');
+    if (supplierName != null && supplierName.isNotEmpty) {
+      sb.writeln('"Supplier:","$supplierName"');
+    }
+    if (periodLabel != null && periodLabel.isNotEmpty) {
+      sb.writeln('"Periode:","$periodLabel"');
+    } else {
+      sb.writeln('"Periode:","${fmt.format(startDate)} s/d ${fmt.format(endDate)}"');
+    }
     sb.writeln('');
     sb.writeln('"RINGKASAN","Jumlah (Rp)"');
     sb.writeln('"Total Penjualan / Omzet",$sales');
@@ -682,10 +786,14 @@ class ExportService {
     required double totalCashOut,
     required double netCashFlow,
     String? accountBalancesNote,
+    String? supplierName,
   }) {
     final fmt = DateFormat('yyyy-MM-dd');
     final sb = StringBuffer();
     sb.writeln('"Laporan Arus Kas - $storeName"');
+    if (supplierName != null && supplierName.isNotEmpty) {
+      sb.writeln('"Filter Supplier:","$supplierName"');
+    }
     sb.writeln('"Periode:","${fmt.format(startDate)} s/d ${fmt.format(endDate)}"');
     sb.writeln('');
     sb.writeln('"Pos Arus Kas","Jumlah (Rp)"');
@@ -750,6 +858,7 @@ class ExportService {
     required double totalCashOut,
     required double netCashFlow,
     String? accountBalancesNote,
+    String? supplierName,
   }) async {
     final pdf = pw.Document();
     final fmt = DateFormat('yyyy-MM-dd');
@@ -793,6 +902,17 @@ class ExportService {
             ),
             pw.SizedBox(height: 4),
             pw.Text(storeName, style: const pw.TextStyle(fontSize: 14)),
+            if (supplierName != null && supplierName.isNotEmpty) ...[
+              pw.SizedBox(height: 2),
+              pw.Text(
+                "Filter Supplier: $supplierName",
+                style: pw.TextStyle(
+                  fontSize: 11,
+                  fontWeight: pw.FontWeight.bold,
+                  color: PdfColors.blueGrey800,
+                ),
+              ),
+            ],
             pw.Text(
               "Periode: ${fmt.format(startDate)} s/d ${fmt.format(endDate)}",
               style: const pw.TextStyle(fontSize: 11, color: PdfColors.grey700),
@@ -875,6 +995,7 @@ class ExportService {
     required double totalCashOut,
     required double netCashFlow,
     String? accountBalancesNote,
+    String? supplierName,
   }) async {
     var excel = Excel.createExcel();
     var sheet = excel["Arus_Kas"];
@@ -882,6 +1003,9 @@ class ExportService {
 
     final fmt = DateFormat('yyyy-MM-dd');
     sheet.appendRow([TextCellValue("Laporan Arus Kas - $storeName")]);
+    if (supplierName != null && supplierName.isNotEmpty) {
+      sheet.appendRow([TextCellValue("Filter Supplier: $supplierName")]);
+    }
     sheet.appendRow([TextCellValue("Periode: ${fmt.format(startDate)} s/d ${fmt.format(endDate)}")]);
     sheet.appendRow([]);
     sheet.appendRow([TextCellValue("Pos Arus Kas"), TextCellValue("Jumlah (Rp)")]);
@@ -930,22 +1054,33 @@ class ExportService {
     required DateTime startDate,
     required DateTime endDate,
     required List<Transaction> transactions,
+    String? periodLabel,
+    String? supplierName,
+    Map<String, String>? transactionItemsSummary,
   }) {
     final fmt = DateFormat('yyyy-MM-dd HH:mm');
     final sb = StringBuffer();
     sb.writeln('"Laporan Transaksi - $storeName"');
-    sb.writeln('"Periode:","${DateFormat('yyyy-MM-dd').format(startDate)} s/d ${DateFormat('yyyy-MM-dd').format(endDate)}"');
+    if (supplierName != null && supplierName.isNotEmpty) {
+      sb.writeln('"Filter Supplier:","$supplierName"');
+    }
+    if (periodLabel != null && periodLabel.isNotEmpty) {
+      sb.writeln('"Periode:","$periodLabel"');
+    } else {
+      sb.writeln('"Periode:","${DateFormat('yyyy-MM-dd').format(startDate)} s/d ${DateFormat('yyyy-MM-dd').format(endDate)}"');
+    }
     sb.writeln('');
-    sb.writeln('"Tanggal","ID Transaksi","Metode","Total (Rp)"');
+    sb.writeln('"Tanggal","ID Transaksi","Rincian Produk","Metode","Total (Rp)"');
     for (var tx in transactions) {
       final dt = tx.createdAt != null ? fmt.format(tx.createdAt!) : '-';
+      final itemDesc = (transactionItemsSummary?[tx.id] ?? '-').replaceAll('"', '""');
       final pMethod = (tx.paymentMethod ?? '-').toUpperCase();
       final totalStr = (tx.totalAmount ?? 0).toStringAsFixed(0);
-      sb.writeln('"$dt","${tx.id}","$pMethod",$totalStr');
+      sb.writeln('"$dt","${tx.id}","$itemDesc","$pMethod",$totalStr');
     }
     final total = transactions.fold(0.0, (sum, tx) => sum + (tx.totalAmount ?? 0));
     sb.writeln('');
-    sb.writeln('"TOTAL","","",$total');
+    sb.writeln('"TOTAL","","","",$total');
     return Uint8List.fromList(utf8.encode(sb.toString()));
   }
 
@@ -955,6 +1090,7 @@ class ExportService {
     required List<Expense> expenses,
     List<Map<String, dynamic>>? supplierReports,
     String? periodLabel,
+    Map<String, String>? transactionItemsSummary,
   }) {
     final sb = StringBuffer();
     final totalSales = transactions.fold(0.0, (sum, tx) => sum + (tx.totalAmount ?? 0.0));
@@ -962,6 +1098,12 @@ class ExportService {
     final netProfit = totalSales - totalExpenses;
 
     sb.writeln('"LAPORAN KEUANGAN KESELURUHAN (ALL TIME) - $storeName"');
+    if (supplierReports != null && supplierReports.length == 1) {
+      sb.writeln('"Filter Supplier:","${supplierReports.first['supplierName'] ?? '-'}"');
+    }
+    if (periodLabel != null && periodLabel.isNotEmpty) {
+      sb.writeln('"Periode:","$periodLabel"');
+    }
     sb.writeln('"Dicetak Pada: ${DateFormat('dd/MM/yyyy HH:mm').format(DateTime.now())}"');
     sb.writeln('');
     sb.writeln('"RINGKASAN KEUANGAN"');
@@ -980,14 +1122,16 @@ class ExportService {
     }
     sb.writeln('');
     sb.writeln('"DETAIL PEMASUKAN / PENJUALAN (${transactions.length} Transaksi)"');
-    sb.writeln('"Tanggal","ID Transaksi","Metode Pembayaran","Total"');
+    sb.writeln('"Tanggal","ID Transaksi","Rincian Produk","Metode Pembayaran","Total"');
     for (var tx in transactions) {
       final date = DateFormat('yyyy-MM-dd HH:mm').format(tx.createdAt ?? DateTime.now());
       final id = tx.id;
+      final itemDesc = (transactionItemsSummary?[tx.id] ?? '-').replaceAll('"', '""');
       final method = (tx.paymentMethod ?? '-').toUpperCase();
       final amt = tx.totalAmount ?? 0;
-      sb.writeln('"$date","$id","$method",$amt');
+      sb.writeln('"$date","$id","$itemDesc","$method",$amt');
     }
+    sb.writeln('"TOTAL OMZET","","","",$totalSales');
 
     if (supplierReports != null && supplierReports.isNotEmpty) {
       sb.writeln('');

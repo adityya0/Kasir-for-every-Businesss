@@ -281,7 +281,7 @@ class _FeatureSettingsPageState extends State<FeatureSettingsPage> {
               ),
               CupertinoSwitch(
                 value: value,
-                activeTrackColor: const Color(0xFF00BF63),
+                activeTrackColor: const Color(0xFF2CAED2),
                 onChanged: onChanged,
               ),
             ],

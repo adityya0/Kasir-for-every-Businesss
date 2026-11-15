@@ -1,4 +1,5 @@
 import 'supplier_ledger_page.dart';
+import '../../../widgets/security_pin_dialog.dart';
 
 import 'dart:typed_data';
 
@@ -76,7 +77,7 @@ class _SupplierPageState extends State<SupplierPage> {
 
 
 
-  static const Color primaryGreen = Color(0xFF00BF63);
+  static const Color primaryGreen = Color(0xFF2CAED2);
 
 
 
@@ -4535,6 +4536,14 @@ class _SupplierPageState extends State<SupplierPage> {
 
 
                                           if (confirm == true) {
+                                            if (!ctx.mounted) return;
+                                            final authorized = await SecurityPinDialog.authorize(
+                                              ctx,
+                                              title: "Otorisasi PIN Pemilik",
+                                              message: "Masukkan PIN keamanan untuk menghapus catatan pelunasan hutang ini.",
+                                              confirmButtonLabel: "Verifikasi & Hapus",
+                                            );
+                                            if (!authorized || !mounted) return;
 
                                             await _supplierService.deleteSettlement(storeId, item.id);
 

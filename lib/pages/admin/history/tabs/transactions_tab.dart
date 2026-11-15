@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
@@ -11,6 +11,7 @@ import '../transaction_detail_page.dart';
 import '../../../../services/order_service.dart';
 import '../../../../widgets/kasir_dialog.dart';
 import '../../../../controllers/analytics_controller.dart';
+import '../../../../widgets/security_pin_dialog.dart';
 
 class TransactionsTab extends StatefulWidget {
   final String storeId;
@@ -214,6 +215,14 @@ class TransactionsTabState extends State<TransactionsTab> {
     );
 
     if (shouldDelete == true && mounted) {
+      final authorized = await SecurityPinDialog.authorize(
+        context,
+        title: "Otorisasi PIN Pemilik",
+        message: "Masukkan PIN keamanan toko untuk menghapus transaksi #$shortId.",
+        confirmButtonLabel: "Verifikasi & Hapus",
+      );
+      if (!authorized || !mounted) return;
+
       try {
         final db = context.read<AppDatabase>();
         final orderService = OrderService(db);
@@ -269,16 +278,16 @@ class TransactionsTabState extends State<TransactionsTab> {
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   margin: const EdgeInsets.only(bottom: 10),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF00BF63).withValues(alpha: 0.08),
+                    color: const Color(0xFF2CAED2).withValues(alpha: 0.08),
                     borderRadius: BorderRadius.circular(8),
                     border: Border.all(
-                      color: const Color(0xFF00BF63).withValues(alpha: 0.25),
+                      color: const Color(0xFF2CAED2).withValues(alpha: 0.25),
                       width: 1,
                     ),
                   ),
                   child: Row(
                     children: [
-                      const Icon(Icons.person_outline, size: 16, color: Color(0xFF00BF63)),
+                      const Icon(Icons.person_outline, size: 16, color: Color(0xFF2CAED2)),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
@@ -286,7 +295,7 @@ class TransactionsTabState extends State<TransactionsTab> {
                           style: GoogleFonts.plusJakartaSans(
                             fontSize: 12,
                             fontWeight: FontWeight.w700,
-                            color: const Color(0xFF00BF63),
+                            color: const Color(0xFF2CAED2),
                           ),
                         ),
                       ),
@@ -361,12 +370,12 @@ class TransactionsTabState extends State<TransactionsTab> {
                             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                             decoration: BoxDecoration(
                               color: isSelected
-                                  ? const Color(0xFF00BF63)
+                                  ? const Color(0xFF2CAED2)
                                   : (isDark ? const Color(0xFF1E1E1E) : Colors.white),
                               borderRadius: BorderRadius.circular(8),
                               border: Border.all(
                                 color: isSelected
-                                    ? const Color(0xFF00BF63)
+                                    ? const Color(0xFF2CAED2)
                                     : (isDark ? const Color(0xFF374151) : const Color(0xFFCBD5E1)),
                                 width: 1.2,
                               ),
@@ -439,7 +448,7 @@ class TransactionsTabState extends State<TransactionsTab> {
               ? const Center(child: CupertinoActivityIndicator())
               : RefreshIndicator(
                   onRefresh: _loadTransactions,
-                  color: const Color(0xFF00BF63),
+                  color: const Color(0xFF2CAED2),
                   child: ListView(
                     padding: const EdgeInsets.symmetric(horizontal: 20),
                     children: [
@@ -587,12 +596,12 @@ class TransactionsTabState extends State<TransactionsTab> {
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF00BF63).withValues(alpha: 0.1),
+                  color: const Color(0xFF2CAED2).withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: const Icon(
                   Icons.receipt_long_rounded,
-                  color: Color(0xFF00BF63),
+                  color: Color(0xFF2CAED2),
                   size: 20,
                 ),
               ),
@@ -626,7 +635,7 @@ class TransactionsTabState extends State<TransactionsTab> {
             style: GoogleFonts.plusJakartaSans(
               fontSize: 17,
               fontWeight: FontWeight.w800,
-              color: const Color(0xFF00BF63),
+              color: const Color(0xFF2CAED2),
             ),
           ),
         ],

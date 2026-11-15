@@ -10,10 +10,11 @@ import 'package:share_plus/share_plus.dart';
 import '../services/app_database.dart';
 import '../services/order_service.dart';
 import '../services/supplier_service.dart';
-import '../services/receipt_service.dart';
 import '../services/bluetooth_printer_service.dart';
 import 'kasir_dialog.dart';
 import 'transaction_result_dialog.dart';
+import 'security_pin_dialog.dart';
+import '../pages/other/printer_settings_page.dart';
 
 enum ActivityDetailType {
   penjualan,
@@ -217,7 +218,7 @@ class _ActivityDetailSheetWidgetState extends State<_ActivityDetailSheetWidget> 
       buffer.writeln("📝 *Catatan:* ${widget.notes!.trim()}");
     }
     buffer.writeln("─────────────────────────");
-    buffer.writeln("Dikirim melalui *OMNI POS* 🙏");
+    buffer.writeln("Dikirim melalui *FLASH COIN LAUNDRY* 🙏");
 
     final text = buffer.toString();
 
@@ -237,7 +238,7 @@ class _ActivityDetailSheetWidgetState extends State<_ActivityDetailSheetWidget> 
                 ),
               ],
             ),
-            backgroundColor: Color(0xFF00BF63),
+            backgroundColor: Color(0xFF2CAED2),
             behavior: SnackBarBehavior.floating,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.all(Radius.circular(10))),
             duration: Duration(seconds: 2),
@@ -325,7 +326,7 @@ class _ActivityDetailSheetWidgetState extends State<_ActivityDetailSheetWidget> 
               ),
             ],
           ),
-          backgroundColor: const Color(0xFF00BF63),
+          backgroundColor: const Color(0xFF2CAED2),
           behavior: SnackBarBehavior.floating,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           duration: const Duration(seconds: 3),
@@ -335,10 +336,9 @@ class _ActivityDetailSheetWidgetState extends State<_ActivityDetailSheetWidget> 
   }
 
   Future<void> _printReceipt() async {
-    final receiptService = ReceiptService();
     final bluetoothService = BluetoothPrinterService();
 
-    const storeName = "OMNI POS";
+    const storeName = "FLASH COIN LAUNDRY";
     final transactionId = widget.code;
 
     List<Map<String, dynamic>> itemsList = [];
@@ -360,10 +360,19 @@ class _ActivityDetailSheetWidgetState extends State<_ActivityDetailSheetWidget> 
           'total': i.subtotal,
         });
       }
+    } else {
+      // Transaksi Buku Kas (Setor Modal, Biaya, Prive/Tarik Tunai, Transfer, Bayar Hutang, dll.)
+      itemsList.add({
+        'name': widget.title.isNotEmpty ? widget.title : (widget.categoryName ?? 'Transaksi Kas'),
+        'quantity': 1.0,
+        'price': widget.amount,
+        'total': widget.amount,
+      });
     }
 
-    // Try thermal printer first if connected
-    if (bluetoothService.isConnected) {
+    // Periksa status koneksi printer Bluetooth
+    final isLiveConnected = (await bluetoothService.isConnectedStatus ?? false) || bluetoothService.isConnected;
+    if (isLiveConnected) {
       try {
         await bluetoothService.printReceipt(
           storeName: storeName,
@@ -375,12 +384,21 @@ class _ActivityDetailSheetWidgetState extends State<_ActivityDetailSheetWidget> 
           cashReceived: widget.paidAmount ?? widget.amount,
           change: ((widget.paidAmount ?? widget.amount) - widget.amount).clamp(0.0, double.infinity),
           paymentMethod: widget.accountName ?? "Kas",
-          customerName: widget.contactName,
+          customerName: widget.contactName ?? (widget.title.isNotEmpty ? widget.title : null),
           isDebt: widget.isDebt,
         );
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("✓ Sedang mencetak struk thermal...")),
+            const SnackBar(
+              content: Row(
+                children: [
+                  Icon(Icons.check_circle_rounded, color: Colors.white, size: 18),
+                  SizedBox(width: 8),
+                  Text("Sedang mencetak struk thermal..."),
+                ],
+              ),
+              backgroundColor: Color(0xFF0D9488),
+            ),
           );
         }
         return;
@@ -389,22 +407,128 @@ class _ActivityDetailSheetWidgetState extends State<_ActivityDetailSheetWidget> 
       }
     }
 
-    // Fallback: PDF sharing
-    await receiptService.shareReceiptPdf(
-      storeName: storeName,
-      transactionId: transactionId,
-      createdAt: widget.date,
-      items: itemsList,
-      subtotal: widget.amount,
-      discount: 0.0,
-      pajakAmount: 0.0,
-      pajakName: 'PPN',
-      totalAmount: widget.amount,
-      cashReceived: widget.paidAmount ?? widget.amount,
-      change: ((widget.paidAmount ?? widget.amount) - widget.amount).clamp(0.0, double.infinity),
-      paymentMethod: widget.accountName ?? "Kas",
-      customerName: widget.contactName,
-      isDebt: widget.isDebt,
+    // Jika printer belum terhubung: tampilkan pop-up di tengah layar
+    if (mounted) {
+      _showPrinterNotConnectedDialog();
+    }
+  }
+
+  void _showPrinterNotConnectedDialog() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    showDialog(
+      context: context,
+      builder: (dialogCtx) => Dialog(
+        backgroundColor: isDark ? const Color(0xFF1E293B) : Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        insetPadding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 360),
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Baris Atas: Icon status & Cross (X) icon untuk tutup pop up
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(9),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFEF4444).withValues(alpha: 0.12),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.print_disabled_rounded,
+                        color: Color(0xFFEF4444),
+                        size: 24,
+                      ),
+                    ),
+                    InkWell(
+                      onTap: () => Navigator.pop(dialogCtx),
+                      borderRadius: BorderRadius.circular(20),
+                      child: Container(
+                        padding: const EdgeInsets.all(6),
+                        decoration: BoxDecoration(
+                          color: isDark ? Colors.white10 : const Color(0xFFF1F5F9),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          Icons.close_rounded,
+                          size: 18,
+                          color: isDark ? Colors.white70 : const Color(0xFF64748B),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+
+                // Notifikasi Belum Tersambung
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    "Printer Belum Tersambung",
+                    style: GoogleFonts.plusJakartaSans(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: isDark ? Colors.white : const Color(0xFF0F172A),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    "Tidak ada printer thermal Bluetooth yang terhubung saat ini. Silakan hubungkan printer untuk mencetak struk fisik.",
+                    style: GoogleFonts.plusJakartaSans(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w400,
+                      color: isDark ? Colors.white70 : const Color(0xFF64748B),
+                      height: 1.4,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 20),
+
+                // Tombol Arahkan ke Halaman Printer
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: () {
+                      Navigator.pop(dialogCtx);
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (c) => const PrinterSettingsPage(showSidebar: false),
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.bluetooth_searching_rounded, size: 18),
+                    label: Text(
+                      "Hubungkan Printer",
+                      style: GoogleFonts.plusJakartaSans(
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF2CAED2),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      elevation: 0,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -425,6 +549,14 @@ class _ActivityDetailSheetWidgetState extends State<_ActivityDetailSheetWidget> 
     );
 
     if (confirmed != true || !mounted) return;
+
+    final authorized = await SecurityPinDialog.authorize(
+      context,
+      title: "Otorisasi PIN Pemilik",
+      message: "Masukkan PIN keamanan toko untuk membatalkan/menghapus transaksi ${widget.code}.",
+      confirmButtonLabel: "Verifikasi & Batalkan",
+    );
+    if (!authorized || !mounted) return;
 
     final db = context.read<AppDatabase>();
     final orderService = OrderService(db);
@@ -479,7 +611,7 @@ class _ActivityDetailSheetWidgetState extends State<_ActivityDetailSheetWidget> 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text("✓ ${widget.title} ${widget.code} berhasil dibatalkan"),
-            backgroundColor: const Color(0xFF00BF63),
+            backgroundColor: const Color(0xFF2CAED2),
           ),
         );
       }
@@ -598,7 +730,7 @@ class _ActivityDetailSheetWidgetState extends State<_ActivityDetailSheetWidget> 
                             width: double.infinity,
                             child: ElevatedButton.icon(
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF00BF63),
+                                backgroundColor: const Color(0xFF2CAED2),
                                 foregroundColor: Colors.white,
                                 padding: const EdgeInsets.symmetric(vertical: 14),
                                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -644,7 +776,7 @@ class _ActivityDetailSheetWidgetState extends State<_ActivityDetailSheetWidget> 
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     SnackBar(
                                       content: Text("✓ Retur $qty pcs ${selectedItem.productName} berhasil dicatat, stok otomatis dikembalikan"),
-                                      backgroundColor: const Color(0xFF00BF63),
+                                      backgroundColor: const Color(0xFF2CAED2),
                                     ),
                                   );
                                 }
@@ -819,7 +951,7 @@ class _ActivityDetailSheetWidgetState extends State<_ActivityDetailSheetWidget> 
                             width: double.infinity,
                             child: ElevatedButton.icon(
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF00BF63),
+                                backgroundColor: const Color(0xFF2CAED2),
                                 foregroundColor: Colors.white,
                                 padding: const EdgeInsets.symmetric(vertical: 14),
                                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -933,7 +1065,7 @@ class _ActivityDetailSheetWidgetState extends State<_ActivityDetailSheetWidget> 
       case ActivityDetailType.penjualan:
       case ActivityDetailType.setorModal:
       case ActivityDetailType.pemasukanLain:
-        return const Color(0xFF00BF63);
+        return const Color(0xFF2CAED2);
       case ActivityDetailType.pembelian:
         return const Color(0xFFD97706);
       case ActivityDetailType.retur:
@@ -1109,7 +1241,7 @@ class _ActivityDetailSheetWidgetState extends State<_ActivityDetailSheetWidget> 
                                   SnackBar(
                                     content: Text("✓ Kode ${widget.code} disalin"),
                                     duration: const Duration(seconds: 1),
-                                    backgroundColor: const Color(0xFF00BF63),
+                                    backgroundColor: const Color(0xFF2CAED2),
                                     behavior: SnackBarBehavior.floating,
                                   ),
                                 );
@@ -1599,7 +1731,7 @@ class _ActivityDetailSheetWidgetState extends State<_ActivityDetailSheetWidget> 
         child: ElevatedButton(
           onPressed: () => Navigator.pop(context),
           style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFF00BF63),
+            backgroundColor: const Color(0xFF2CAED2),
             foregroundColor: Colors.white,
             padding: const EdgeInsets.symmetric(vertical: 14),
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -1694,7 +1826,7 @@ class _ActivityDetailSheetWidgetState extends State<_ActivityDetailSheetWidget> 
                 ),
               ),
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF00BF63),
+                backgroundColor: const Color(0xFF2CAED2),
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -1705,10 +1837,10 @@ class _ActivityDetailSheetWidgetState extends State<_ActivityDetailSheetWidget> 
         ],
       );
     } else {
-      // Bayar Hutang, Biaya, Terima Piutang, dll.
+      // Transaksi Kas: Setor Modal, Biaya, Prive, Transfer, Bayar Hutang, Terima Piutang, dll.
       return Row(
-        mainAxisAlignment: MainAxisAlignment.end,
         children: [
+          // 1. Batalkan Button
           ElevatedButton.icon(
             onPressed: _handleCancel,
             icon: const Icon(Icons.delete_outline_rounded, size: 17),
@@ -1719,24 +1851,59 @@ class _ActivityDetailSheetWidgetState extends State<_ActivityDetailSheetWidget> 
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFFE05260),
               foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 13),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               elevation: 0,
             ),
           ),
-          const SizedBox(width: 10),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF00BF63),
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 13),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              elevation: 0,
+          const SizedBox(width: 8),
+
+          // 2. Share to WhatsApp & Copy Details Button
+          Tooltip(
+            message: "Kirim ke WhatsApp / Bagikan (Tahan untuk salin)",
+            child: InkWell(
+              onTap: () => _handleShareToWhatsApp(openWhatsApp: true),
+              onLongPress: () => _handleShareToWhatsApp(openWhatsApp: false),
+              borderRadius: BorderRadius.circular(12),
+              child: Container(
+                width: 46,
+                height: 46,
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF064E3B).withValues(alpha: 0.35) : const Color(0xFFE8F5E9),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: const Color(0xFF25D366).withValues(alpha: 0.4),
+                  ),
+                ),
+                child: const Icon(
+                  Icons.share_rounded,
+                  color: Color(0xFF16A34A),
+                  size: 20,
+                ),
+              ),
             ),
-            child: Text(
-              "Tutup",
-              style: GoogleFonts.plusJakartaSans(fontSize: 13.5, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(width: 8),
+
+          // 3. Cetak Button
+          Expanded(
+            child: ElevatedButton.icon(
+              onPressed: _printReceipt,
+              icon: const Icon(Icons.print_rounded, size: 18),
+              label: Text(
+                "Cetak",
+                style: GoogleFonts.plusJakartaSans(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF2CAED2),
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                elevation: 0,
+              ),
             ),
           ),
         ],

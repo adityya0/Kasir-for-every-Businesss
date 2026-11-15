@@ -59,7 +59,7 @@ class _ProductFormSheetState extends State<ProductFormSheet> {
   bool _enableVariants = false;
   List<Map<String, dynamic>> _productOptions = [];
 
-  final Color _primaryColor = const Color(0xFF00BF63);
+  final Color _primaryColor = const Color(0xFF2CAED2);
   
   // Wholesale Pricing
   List<Map<String, dynamic>> _wholesalePrices = [];
@@ -195,7 +195,7 @@ class _ProductFormSheetState extends State<ProductFormSheet> {
     }
   }
 
-  Future<void> _addNewSupplier() async {
+  Future<void> _addNewSupplier({bool isPenitip = false}) async {
     final db = Provider.of<AppDatabase>(context, listen: false);
     final nameCtrl = TextEditingController();
     final phoneCtrl = TextEditingController();
@@ -206,7 +206,7 @@ class _ProductFormSheetState extends State<ProductFormSheet> {
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Text(
-          "Tambah Supplier Baru",
+          isPenitip ? "Tambah Penitip Baru" : "Tambah Supplier Baru",
           style: GoogleFonts.plusJakartaSans(fontSize: 16, fontWeight: FontWeight.w700),
         ),
         content: SingleChildScrollView(
@@ -214,13 +214,16 @@ class _ProductFormSheetState extends State<ProductFormSheet> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text("Nama Supplier *", style: GoogleFonts.plusJakartaSans(fontSize: 12, fontWeight: FontWeight.w600)),
+              Text(
+                isPenitip ? "Nama Penitip *" : "Nama Supplier *",
+                style: GoogleFonts.plusJakartaSans(fontSize: 12, fontWeight: FontWeight.w600),
+              ),
               const SizedBox(height: 6),
               TextField(
                 controller: nameCtrl,
                 autofocus: true,
                 decoration: InputDecoration(
-                  hintText: "Contoh: CV Sumber Berkah",
+                  hintText: isPenitip ? "Contoh: Bu Ani / Titip Snack" : "Contoh: CV Sumber Berkah",
                   fillColor: Colors.grey.withValues(alpha: 0.1),
                   filled: true,
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
@@ -242,12 +245,12 @@ class _ProductFormSheetState extends State<ProductFormSheet> {
                 ),
               ),
               const SizedBox(height: 12),
-              Text("Alamat Supplier (Opsional)", style: GoogleFonts.plusJakartaSans(fontSize: 12, fontWeight: FontWeight.w600)),
+              Text("Alamat / Catatan (Opsional)", style: GoogleFonts.plusJakartaSans(fontSize: 12, fontWeight: FontWeight.w600)),
               const SizedBox(height: 6),
               TextField(
                 controller: addressCtrl,
                 decoration: InputDecoration(
-                  hintText: "Contoh: Jl. Industri No. 45",
+                  hintText: isPenitip ? "Contoh: Titip jual 20 bungkus" : "Contoh: Jl. Industri No. 45",
                   fillColor: Colors.grey.withValues(alpha: 0.1),
                   filled: true,
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
@@ -264,14 +267,17 @@ class _ProductFormSheetState extends State<ProductFormSheet> {
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
-              backgroundColor: _primaryColor,
+              backgroundColor: isPenitip ? const Color(0xFFD97706) : _primaryColor,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
             ),
             onPressed: () {
               if (nameCtrl.text.trim().isEmpty) return;
               Navigator.pop(ctx, true);
             },
-            child: const Text("Simpan Supplier", style: TextStyle(color: Colors.white)),
+            child: Text(
+              isPenitip ? "Simpan Penitip" : "Simpan Supplier",
+              style: const TextStyle(color: Colors.white),
+            ),
           ),
         ],
       ),
@@ -280,11 +286,16 @@ class _ProductFormSheetState extends State<ProductFormSheet> {
     if (created == true && nameCtrl.text.trim().isNotEmpty) {
       try {
         final supplierService = SupplierService(db);
+        final rawNotes = addressCtrl.text.trim();
+        final combinedNotes = isPenitip
+            ? (rawNotes.isEmpty ? '[Titip] Barang Titipan' : '[Titip] $rawNotes')
+            : rawNotes;
         final newSup = await supplierService.addSupplier(
           storeId: widget.storeId,
           name: nameCtrl.text.trim(),
           phone: phoneCtrl.text.trim(),
           address: addressCtrl.text.trim(),
+          notes: combinedNotes,
         );
 
         if (!mounted) return;
@@ -300,8 +311,12 @@ class _ProductFormSheetState extends State<ProductFormSheet> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text("Supplier '${newSup.name}' berhasil ditambahkan!"),
-              backgroundColor: _primaryColor,
+              content: Text(
+                isPenitip
+                    ? "Penitip '${newSup.name}' berhasil ditambahkan!"
+                    : "Supplier '${newSup.name}' berhasil ditambahkan!",
+              ),
+              backgroundColor: isPenitip ? const Color(0xFFD97706) : _primaryColor,
             ),
           );
         }
@@ -310,7 +325,7 @@ class _ProductFormSheetState extends State<ProductFormSheet> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text("Gagal menambahkan supplier: $e"),
+              content: Text("Gagal menambahkan: $e"),
               backgroundColor: Colors.red,
             ),
           );
@@ -2041,20 +2056,56 @@ class _ProductFormSheetState extends State<ProductFormSheet> {
             DropdownMenuItem<String?>(
               value: null,
               child: Text(
-                "Tanpa Supplier",
+                "Produk Toko",
                 style: GoogleFonts.plusJakartaSans(fontSize: 13, color: textColor),
               ),
             ),
             ..._availableSuppliers.map((sup) {
+              final bool isTitip = (sup.notes ?? '').contains('[Titip]') ||
+                  (sup.address ?? '').contains('[Titip]') ||
+                  (sup.notes ?? '').toLowerCase().contains('penitip');
               return DropdownMenuItem<String?>(
                 value: sup.id,
-                child: Text(
-                  sup.name,
-                  style: GoogleFonts.plusJakartaSans(fontSize: 13, color: textColor),
-                  overflow: TextOverflow.ellipsis,
+                child: Row(
+                  children: [
+                    Icon(
+                      isTitip ? Icons.handshake_outlined : Icons.local_shipping_outlined,
+                      size: 15,
+                      color: isTitip ? const Color(0xFFD97706) : const Color(0xFF0D9488),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        isTitip ? "${sup.name} (Penitip / Titipan)" : sup.name,
+                        style: GoogleFonts.plusJakartaSans(
+                          fontSize: 13,
+                          fontWeight: isTitip ? FontWeight.w700 : FontWeight.w600,
+                          color: isTitip ? const Color(0xFFD97706) : textColor,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
                 ),
               );
             }),
+            DropdownMenuItem<String?>(
+              value: "NEW_PENITIP",
+              child: Row(
+                children: [
+                  const Icon(Icons.handshake_outlined, color: Color(0xFFD97706), size: 16),
+                  const SizedBox(width: 6),
+                  Text(
+                    "Tambah Penitip Baru (Titipan)",
+                    style: GoogleFonts.plusJakartaSans(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w700,
+                      color: const Color(0xFFD97706),
+                    ),
+                  ),
+                ],
+              ),
+            ),
             DropdownMenuItem<String?>(
               value: "NEW_SUPPLIER",
               child: Row(
@@ -2074,8 +2125,10 @@ class _ProductFormSheetState extends State<ProductFormSheet> {
             ),
           ],
           onChanged: (val) {
-            if (val == "NEW_SUPPLIER") {
-              _addNewSupplier();
+            if (val == "NEW_PENITIP") {
+              _addNewSupplier(isPenitip: true);
+            } else if (val == "NEW_SUPPLIER") {
+              _addNewSupplier(isPenitip: false);
             } else {
               setState(() => _selectedSupplierId = val);
             }

@@ -37,6 +37,7 @@ import 'backup_restore_page.dart';
 import '../other/terms_conditions_page.dart';
 import '../../widgets/kasir_dialog.dart';
 import '../../services/activation_service.dart';
+import '../../core/app_theme.dart';
 
 class AdminPage extends StatefulWidget {
   const AdminPage({super.key});
@@ -209,6 +210,7 @@ class _AdminPageState extends State<AdminPage> {
       child: LayoutBuilder(
         builder: (context, constraints) {
           final isWide = constraints.maxWidth >= 900;
+          final isShort = constraints.maxHeight < 520;
           final content = _getSelectedPage(controller);
 
           return Scaffold(
@@ -244,14 +246,14 @@ class _AdminPageState extends State<AdminPage> {
                     duration: const Duration(milliseconds: 300),
                     child: content,
                   ),
-            bottomNavigationBar: isWide ? null : _buildBottomNavBar(theme, isDark, primaryColor),
+            bottomNavigationBar: isWide ? null : _buildBottomNavBar(theme, isDark, primaryColor, isShort: isShort),
           );
         },
       ),
     );
   }
 
-  Widget _buildBottomNavBar(ThemeData theme, bool isDark, Color primaryColor) {
+  Widget _buildBottomNavBar(ThemeData theme, bool isDark, Color primaryColor, {bool isShort = false}) {
     final activeGreen = primaryColor;
     return Container(
       decoration: BoxDecoration(
@@ -297,7 +299,8 @@ class _AdminPageState extends State<AdminPage> {
           ),
         ),
         child: NavigationBar(
-          height: 60,
+          height: isShort ? 46 : 60,
+          labelBehavior: isShort ? NavigationDestinationLabelBehavior.onlyShowSelected : NavigationDestinationLabelBehavior.alwaysShow,
           selectedIndex: _getBottomNavIndex(),
           onDestinationSelected: _onBottomNavItemTapped,
           destinations: const [
@@ -704,7 +707,7 @@ class _QuickMenuPage extends StatelessWidget {
                 icon: Icons.description_outlined,
                 isDark: isDark,
               ),
-              _buildVersionTile(isDark),
+              _buildVersionTile(context, isDark),
               _buildLogoutTile(isDark),
             ]),
             const SizedBox(height: 40),
@@ -807,8 +810,9 @@ class _QuickMenuPage extends StatelessWidget {
     );
   }
 
-  Widget _buildVersionTile(bool isDark) {
+  Widget _buildVersionTile(BuildContext context, bool isDark) {
     return ListTile(
+      onTap: () => _showAppInfoDialog(context, isDark),
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       leading: Icon(
         Icons.info_outline_rounded,
@@ -823,13 +827,114 @@ class _QuickMenuPage extends StatelessWidget {
           color: isDark ? Colors.white : Colors.black87,
         ),
       ),
-      trailing: Text(
-        "1.0.0",
-        style: GoogleFonts.robotoMono(
-          fontSize: 14,
-          fontWeight: FontWeight.w600,
-          color: isDark ? Colors.white38 : Colors.grey,
+      subtitle: Text(
+        "Status: Terbaru & Siap Pakai",
+        style: GoogleFonts.openSans(
+          fontSize: 12,
+          color: Colors.green,
+          fontWeight: FontWeight.w500,
         ),
+      ),
+      trailing: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(
+          color: isDark ? Colors.white10 : Colors.grey.shade100,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: isDark ? Colors.white12 : Colors.grey.shade300),
+        ),
+        child: Text(
+          "v1.1.1+12",
+          style: GoogleFonts.robotoMono(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: isDark ? Colors.white70 : Colors.black87,
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showAppInfoDialog(BuildContext context, bool isDark) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        contentPadding: const EdgeInsets.fromLTRB(24, 20, 24, 16),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppTheme.primaryColor.withValues(alpha: 0.1),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.rocket_launch_rounded, color: AppTheme.primaryColor, size: 32),
+            ),
+            const SizedBox(height: 14),
+            Text(
+              "POS Kasir & Dropship",
+              style: GoogleFonts.plusJakartaSans(
+                fontSize: 17,
+                fontWeight: FontWeight.w700,
+                color: isDark ? Colors.white : Colors.black87,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              "Versi 1.1.1 (Build 12) • Stable Release",
+              style: GoogleFonts.openSans(
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+                color: Colors.green,
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Divider(height: 1),
+            const SizedBox(height: 12),
+            _buildInfoRow("Arsitektur", "Offline-First (SQLite Drift)", isDark),
+            _buildInfoRow("Modul", "Kasir, Dropship, Keuangan, Struk", isDark),
+            _buildInfoRow("Status Sistem", "Aktif & Berjalan Normal", isDark),
+            _buildInfoRow("Terakhir Diperbarui", "November 2026", isDark),
+          ],
+        ),
+        actions: [
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.primaryColor,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                padding: const EdgeInsets.symmetric(vertical: 12),
+              ),
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text("Tutup", style: TextStyle(fontWeight: FontWeight.w600)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInfoRow(String label, String value, bool isDark) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: GoogleFonts.openSans(fontSize: 12, color: isDark ? Colors.white60 : Colors.black54)),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              value,
+              textAlign: TextAlign.end,
+              style: GoogleFonts.openSans(fontSize: 12, fontWeight: FontWeight.w600, color: isDark ? Colors.white : Colors.black87),
+            ),
+          ),
+        ],
       ),
     );
   }

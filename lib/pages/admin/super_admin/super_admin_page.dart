@@ -108,7 +108,7 @@ class _SuperAdminPageState extends State<SuperAdminPage> {
         title: "Keluar dari Super Admin?",
         message: "Anda akan keluar dari sesi Super Admin dan kembali ke layar login.",
         icon: Icons.logout_rounded,
-        iconColor: const Color(0xFF00BF63),
+        iconColor: const Color(0xFF2CAED2),
         primaryActionLabel: "Keluar",
         onPrimaryAction: () => Navigator.pop(ctx, true),
         secondaryActionLabel: "Batal",
@@ -258,8 +258,8 @@ class _SuperAdminPageState extends State<SuperAdminPage> {
                     child: DropdownButtonHideUnderline(
                       child: DropdownButton<String>(
                         dropdownColor: Colors.white,
-                        style: GoogleFonts.plusJakartaSans(color: const Color(0xFF00BF63), fontWeight: FontWeight.w600, fontSize: 13),
-                        icon: const Icon(Icons.arrow_drop_down_rounded, color: Color(0xFF00BF63)),
+                        style: GoogleFonts.plusJakartaSans(color: const Color(0xFF2CAED2), fontWeight: FontWeight.w600, fontSize: 13),
+                        icon: const Icon(Icons.arrow_drop_down_rounded, color: Color(0xFF2CAED2)),
                         value: selectedRole,
                         isExpanded: true,
                         items: hasAdmin
@@ -423,8 +423,8 @@ class _SuperAdminPageState extends State<SuperAdminPage> {
                     child: DropdownButtonHideUnderline(
                       child: DropdownButton<String>(
                         dropdownColor: Colors.white,
-                        style: GoogleFonts.plusJakartaSans(color: const Color(0xFF00BF63), fontWeight: FontWeight.w600, fontSize: 13),
-                        icon: const Icon(Icons.arrow_drop_down_rounded, color: Color(0xFF00BF63)),
+                        style: GoogleFonts.plusJakartaSans(color: const Color(0xFF2CAED2), fontWeight: FontWeight.w600, fontSize: 13),
+                        icon: const Icon(Icons.arrow_drop_down_rounded, color: Color(0xFF2CAED2)),
                         value: isSuper
                             ? SuperAdminService.roleSuperAdmin
                             : (selectedRole == 'admin' || selectedRole == 'owner' ? 'admin' : 'cashier'),

@@ -12,7 +12,8 @@ import '../../services/app_database.dart';
 import '../../services/activation_service.dart';
 import '../../services/supabase_auth_service.dart';
 import '../../widgets/kasir_dialog.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import '../../services/security_pin_service.dart';
+import '../../widgets/security_pin_dialog.dart';
 
 class ProfilePage extends StatefulWidget {
   final String storeId;
@@ -29,7 +30,7 @@ class _ProfilePageState extends State<ProfilePage> {
   String? _storeLogo;
   bool _isPinActive = false;
 
-  final Color _primaryColor = const Color(0xFF00BF63);
+  final Color _primaryColor = const Color(0xFF2CAED2);
 
   @override
   void initState() {
@@ -46,13 +47,11 @@ class _ProfilePageState extends State<ProfilePage> {
     }
 
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final pin = prefs.getString('pin_code') ?? '';
-      final pinEnabled = prefs.getBool('offline_pin_enabled') ?? pin.isNotEmpty;
+      final pinActive = await SecurityPinService().isPinEnabled();
 
       if (mounted) {
         setState(() {
-          _isPinActive = pinEnabled && pin.isNotEmpty;
+          _isPinActive = pinActive;
           _storeName = adminCtrl.storeName;
           _storeLogo = adminCtrl.storeLogo;
         });
@@ -267,303 +266,13 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
-  // ── Fitur Pengaturan PIN Offline & Keamanan ──────────────────────
+  // ── Fitur Pengaturan PIN Keamanan & Otorisasi Transaksi ──────────
   Future<void> _showManagePinModal() async {
-    final db = context.read<AppDatabase>();
-    final prefs = await SharedPreferences.getInstance();
-    bool enablePin = prefs.getBool('offline_pin_enabled') ?? false;
-    final existingPin = prefs.getString('pin_code') ?? '';
-    final pinCtrl = TextEditingController(text: existingPin);
-    final confirmPinCtrl = TextEditingController(text: existingPin);
-
-    if (!mounted) return;
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) {
-        bool isSaving = false;
-        String? errText;
-        bool obscurePin = true;
-
-        return StatefulBuilder(
-          builder: (modalCtx, setModalState) {
-            final bottomInset = MediaQuery.of(ctx).viewInsets.bottom;
-            return Container(
-              margin: EdgeInsets.only(bottom: bottomInset),
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
-              decoration: BoxDecoration(
-                color: isDark ? const Color(0xFF1E293B) : Colors.white,
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-              ),
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Center(
-                      child: Container(
-                        width: 40,
-                        height: 4,
-                        decoration: BoxDecoration(
-                          color: Colors.grey.shade400,
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                            color: _primaryColor.withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Icon(Icons.pin_outlined, color: _primaryColor, size: 24),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                "Atur PIN Keamanan (Offline)",
-                                style: GoogleFonts.plusJakartaSans(
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 16,
-                                  color: isDark ? Colors.white : const Color(0xFF0F172A),
-                                ),
-                              ),
-                              Text(
-                                "Kunci bersifat opsional / dapat dinonaktifkan",
-                                style: GoogleFonts.openSans(
-                                  fontSize: 12,
-                                  color: isDark ? Colors.white60 : const Color(0xFF64748B),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.close_rounded, color: Colors.grey),
-                          onPressed: () => Navigator.pop(ctx),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    // Toggle Switch PIN Aktif / Opsional
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: isDark ? const Color(0xFF334155) : const Color(0xFFF1F5F9),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: isDark ? Colors.white12 : const Color(0xFFE2E8F0)),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            enablePin ? Icons.lock_rounded : Icons.lock_open_rounded,
-                            color: enablePin ? _primaryColor : Colors.grey,
-                            size: 20,
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Text(
-                              enablePin ? "Kunci PIN Aktif" : "Kunci PIN Dinonaktifkan (Bebas Masuk)",
-                              style: GoogleFonts.plusJakartaSans(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                                color: isDark ? Colors.white : const Color(0xFF0F172A),
-                              ),
-                            ),
-                          ),
-                          Switch(
-                            value: enablePin,
-                            activeThumbColor: _primaryColor,
-                            onChanged: (val) {
-                              setModalState(() {
-                                enablePin = val;
-                                errText = null;
-                              });
-                            },
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    if (enablePin) ...[
-                      Text(
-                        "Masukkan 4-6 digit angka untuk mengunci aplikasi dan menu sensitif (Arus Kas, Pembelian, dll).",
-                        style: GoogleFonts.openSans(
-                          fontSize: 12.5,
-                          color: isDark ? Colors.white70 : const Color(0xFF475569),
-                          height: 1.4,
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                      TextField(
-                        controller: pinCtrl,
-                        keyboardType: TextInputType.number,
-                        maxLength: 6,
-                        obscureText: obscurePin,
-                        textAlign: TextAlign.center,
-                        style: GoogleFonts.plusJakartaSans(
-                          fontSize: 22,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 8,
-                          color: isDark ? Colors.white : const Color(0xFF1E293B),
-                        ),
-                        decoration: InputDecoration(
-                          hintText: "PIN Baru",
-                          hintStyle: GoogleFonts.plusJakartaSans(letterSpacing: 2, color: Colors.grey.shade400, fontSize: 14),
-                          counterText: "",
-                          filled: true,
-                          fillColor: isDark ? const Color(0xFF334155) : const Color(0xFFF8FAFC),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            borderSide: BorderSide(color: isDark ? const Color(0xFF475569) : const Color(0xFFCBD5E1)),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: confirmPinCtrl,
-                        keyboardType: TextInputType.number,
-                        maxLength: 6,
-                        obscureText: obscurePin,
-                        textAlign: TextAlign.center,
-                        style: GoogleFonts.plusJakartaSans(
-                          fontSize: 22,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 8,
-                          color: isDark ? Colors.white : const Color(0xFF1E293B),
-                        ),
-                        decoration: InputDecoration(
-                          hintText: "Konfirmasi PIN",
-                          hintStyle: GoogleFonts.plusJakartaSans(letterSpacing: 2, color: Colors.grey.shade400, fontSize: 14),
-                          counterText: "",
-                          suffixIcon: IconButton(
-                            icon: Icon(obscurePin ? Icons.visibility_off : Icons.visibility, color: Colors.grey, size: 20),
-                            onPressed: () => setModalState(() => obscurePin = !obscurePin),
-                          ),
-                          filled: true,
-                          fillColor: isDark ? const Color(0xFF334155) : const Color(0xFFF8FAFC),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            borderSide: BorderSide(color: isDark ? const Color(0xFF475569) : const Color(0xFFCBD5E1)),
-                          ),
-                        ),
-                      ),
-                    ] else ...[
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: isDark ? Colors.white.withValues(alpha: 0.05) : const Color(0xFFF8FAFC),
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: isDark ? Colors.white10 : const Color(0xFFE2E8F0)),
-                        ),
-                        child: Text(
-                          "Aplikasi tidak akan meminta PIN saat dibuka atau saat membuka menu sensitif. Anda dapat mengaktifkannya kembali kapan saja.",
-                          style: GoogleFonts.openSans(
-                            fontSize: 12.5,
-                            color: isDark ? Colors.white60 : const Color(0xFF64748B),
-                            height: 1.4,
-                          ),
-                        ),
-                      ),
-                    ],
-                    if (errText != null) ...[
-                      const SizedBox(height: 10),
-                      Text(errText!, style: GoogleFonts.plusJakartaSans(color: Colors.red, fontSize: 12)),
-                    ],
-                    const SizedBox(height: 20),
-                    SizedBox(
-                      width: double.infinity,
-                      height: 48,
-                      child: ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: _primaryColor,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        ),
-                        onPressed: isSaving
-                            ? null
-                            : () async {
-                                final pin = pinCtrl.text.trim();
-                                final conf = confirmPinCtrl.text.trim();
-
-                                if (enablePin) {
-                                  if (pin.length < 4 || pin.length > 6) {
-                                    setModalState(() => errText = "PIN harus terdiri dari 4 sampai 6 digit angka.");
-                                    return;
-                                  }
-                                  if (pin != conf) {
-                                    setModalState(() => errText = "Konfirmasi PIN tidak cocok.");
-                                    return;
-                                  }
-                                }
-
-                                setModalState(() {
-                                  isSaving = true;
-                                  errText = null;
-                                });
-
-                                final scaffoldMessenger = ScaffoldMessenger.of(context);
-                                try {
-                                  await SupabaseAuthService().updateOfflinePin(
-                                    pinCode: enablePin ? pin : null,
-                                    localDb: db,
-                                  );
-
-                                  if (mounted) {
-                                    setState(() {
-                                      _isPinActive = enablePin;
-                                    });
-                                    if (modalCtx.mounted) Navigator.pop(modalCtx);
-                                    scaffoldMessenger.showSnackBar(
-                                      SnackBar(
-                                        content: Text(
-                                          enablePin
-                                              ? "PIN Keamanan Offline berhasil disimpan & aktif!"
-                                              : "PIN Keamanan dinonaktifkan (bebas tanpa PIN).",
-                                          style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w600),
-                                        ),
-                                        backgroundColor: _primaryColor,
-                                      ),
-                                    );
-                                  }
-                                } catch (e) {
-                                  setModalState(() {
-                                    isSaving = false;
-                                    errText = "Gagal menyimpan PIN: $e";
-                                  });
-                                }
-                              },
-                        child: isSaving
-                            ? const SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
-                              )
-                            : Text(
-                                "Simpan Pengaturan PIN",
-                                style: GoogleFonts.plusJakartaSans(
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 14,
-                                  color: Colors.white,
-                                ),
-                              ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
-        );
+    await SecurityPinDialog.showManagePinModal(
+      context,
+      onStateChanged: () async {
+        final pinActive = await SecurityPinService().isPinEnabled();
+        if (mounted) setState(() => _isPinActive = pinActive);
       },
     );
   }
@@ -765,7 +474,7 @@ class _ProfilePageState extends State<ProfilePage> {
                 "✓ Berhasil! Semua data toko telah di-reset total menjadi 0.",
                 style: TextStyle(fontWeight: FontWeight.w600),
               ),
-              backgroundColor: Color(0xFF00BF63),
+              backgroundColor: Color(0xFF2CAED2),
               duration: Duration(seconds: 3),
             ),
           );
@@ -877,7 +586,7 @@ class _ProfilePageState extends State<ProfilePage> {
         ),
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator(color: Color(0xFF00BF63)))
+          ? const Center(child: CircularProgressIndicator(color: Color(0xFF2CAED2)))
           : SingleChildScrollView(
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
               child: Center(
@@ -975,11 +684,28 @@ class _ProfilePageState extends State<ProfilePage> {
                         child: Column(
                           children: [
                             _buildActionTile(
-                              icon: Icons.pin_outlined,
-                              title: "Atur PIN Keamanan (Offline & Arus Kas)",
+                              icon: Icons.shield_outlined,
+                              title: "PIN Otorisasi Hapus Transaksi",
                               subtitle: _isPinActive
-                                  ? "Status: Aktif (aplikasi & menu dilindungi PIN)"
-                                  : "Status: Dinonaktifkan (bebas masuk tanpa PIN)",
+                                  ? "Status: Aktif (penghapusan transaksi dilindungi PIN)"
+                                  : "Status: Nonaktif (belum diatur sandi pengaman)",
+                              trailing: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: _isPinActive
+                                      ? const Color(0xFF10B981).withValues(alpha: 0.12)
+                                      : Colors.grey.withValues(alpha: 0.12),
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: Text(
+                                  _isPinActive ? "AKTIF" : "NONAKTIF",
+                                  style: GoogleFonts.plusJakartaSans(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                    color: _isPinActive ? const Color(0xFF10B981) : Colors.grey,
+                                  ),
+                                ),
+                              ),
                               isDark: isDark,
                               onTap: _showManagePinModal,
                             ),

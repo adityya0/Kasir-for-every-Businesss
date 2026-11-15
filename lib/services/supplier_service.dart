@@ -1407,6 +1407,7 @@ class SupplierService {
             storeId,
             selectedPm,
             actualPaid,
+            category: 'Pembelian Stok',
             notes: 'Pembelian Stok Supplier: ${sup.name} ($txNo)${effectiveStatus == 'hutang' ? ' [Bayar Sebagian]' : ' [Lunas]'}',
           );
         }
@@ -1506,6 +1507,7 @@ class SupplierService {
           storeId,
           selectedPm,
           amount,
+          category: 'Bayar Hutang',
           notes: 'Bayar Hutang Supplier: ${sup.name} ($txNo)',
         );
       } else {

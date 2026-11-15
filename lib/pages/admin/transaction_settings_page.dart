@@ -20,7 +20,7 @@ class TransactionSettingsPage extends StatefulWidget {
 }
 
 class _TransactionSettingsPageState extends State<TransactionSettingsPage> {
-  static const primaryColor = Color(0xFF00BF63); // Steak Asri Red
+  static const primaryColor = Color(0xFF2CAED2); // Steak Asri Red
 
   late TextEditingController _nameController;
   late TextEditingController _rateController;

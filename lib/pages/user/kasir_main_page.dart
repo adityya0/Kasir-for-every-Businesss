@@ -272,7 +272,7 @@ class _KasirMainPageState extends State<KasirMainPage> {
     required int currentIndex,
   }) {
     final isSelected = currentIndex == index;
-    const accentColor = Color(0xFF00BF63);
+    const accentColor = Color(0xFF2CAED2);
     final color = isSelected ? accentColor : const Color(0xFF94A3B8);
 
     return GestureDetector(
@@ -306,7 +306,7 @@ class _KasirMainPageState extends State<KasirMainPage> {
   // ─── Employee Wide Screen Rail (Tablet/Desktop) ─────────────────────────
   Widget _buildEmployeeWideRail(AdminController adminCtrl) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    const accentColor = Color(0xFF00BF63);
+    const accentColor = Color(0xFF2CAED2);
 
     return Container(
       width: 220,
@@ -414,7 +414,7 @@ class _KasirMainPageState extends State<KasirMainPage> {
     required String label,
   }) {
     final isSelected = _selectedIndex == index;
-    const accentColor = Color(0xFF00BF63);
+    const accentColor = Color(0xFF2CAED2);
 
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),

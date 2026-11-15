@@ -19,6 +19,7 @@ class _UnifiedContactItem {
   final String phone;
   final String addressOrNotes;
   final bool isSupplier;
+  final bool isPenitip;
   final double piutang;
   final double hutang;
   final Customer? customerSource;
@@ -30,6 +31,7 @@ class _UnifiedContactItem {
     required this.phone,
     required this.addressOrNotes,
     required this.isSupplier,
+    this.isPenitip = false,
     required this.piutang,
     required this.hutang,
     this.customerSource,
@@ -92,8 +94,8 @@ class CustomerPage extends StatefulWidget {
 }
 
 class _CustomerPageState extends State<CustomerPage> {
-  static const Color _primaryGreen = Color(0xFF00BF63);
-  static const Color _accentGreen = Color(0xFF00BF63);
+  static const Color _primaryGreen = Color(0xFF2CAED2);
+  static const Color _accentGreen = Color(0xFF2CAED2);
 
   final NumberFormat _currencyFormat = NumberFormat.currency(
     locale: 'id_ID',
@@ -255,12 +257,17 @@ class _CustomerPageState extends State<CustomerPage> {
         }
         final baseNotes = (s.address ?? s.notes ?? '').trim();
         final combinedNotes = baseNotes.isNotEmpty ? baseNotes : latestTxNote;
+        final bool isPenitip = (s.notes ?? '').contains('[Titip]') ||
+            (s.address ?? '').contains('[Titip]') ||
+            (s.notes ?? '').toLowerCase().contains('penitip') ||
+            (s.address ?? '').toLowerCase().contains('penitip');
         unified.add(_UnifiedContactItem(
           id: s.id,
           name: s.name.trim(),
           phone: (s.phone ?? '').trim(),
           addressOrNotes: combinedNotes,
-          isSupplier: true,
+          isSupplier: !isPenitip,
+          isPenitip: isPenitip,
           piutang: 0.0,
           hutang: sHutang,
           supplierSource: s,
@@ -296,8 +303,9 @@ class _CustomerPageState extends State<CustomerPage> {
 
   List<_UnifiedContactItem> get _filteredContacts {
     return _allContacts.where((item) {
-      if (_roleFilter == 'Pelanggan' && item.isSupplier) return false;
-      if (_roleFilter == 'Supplier' && !item.isSupplier) return false;
+      if (_roleFilter == 'Pelanggan' && (item.isSupplier || item.isPenitip)) return false;
+      if (_roleFilter == 'Supplier' && (!item.isSupplier || item.isPenitip)) return false;
+      if (_roleFilter == 'Penitip' && !item.isPenitip) return false;
       if (_searchQuery.isNotEmpty) {
         final q = _searchQuery.toLowerCase();
         final matchName = item.name.toLowerCase().contains(q);
@@ -600,6 +608,8 @@ class _CustomerPageState extends State<CustomerPage> {
                             _buildRoleFilterPill("Pelanggan", isDark),
                             const SizedBox(width: 8),
                             _buildRoleFilterPill("Supplier", isDark),
+                            const SizedBox(width: 8),
+                            _buildRoleFilterPill("Penitip", isDark),
                           ],
                         ),
                       ),
@@ -750,38 +760,47 @@ class _CustomerPageState extends State<CustomerPage> {
                               child: Row(
                                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                 children: [
-                                  Row(
-                                    children: [
-                                      Text(
-                                        _roleFilter == 'Pelanggan'
-                                            ? "Daftar Pelanggan"
-                                            : (_roleFilter == 'Supplier'
-                                                ? "Daftar Supplier"
-                                                : "Pelanggan & Supplier"),
-                                        style: GoogleFonts.plusJakartaSans(
-                                          fontSize: 14.5,
-                                          fontWeight: FontWeight.w700,
-                                          color: isDark ? Colors.white : const Color(0xFF0F172A),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2.5),
-                                        decoration: BoxDecoration(
-                                          color: _primaryGreen.withValues(alpha: isDark ? 0.2 : 0.1),
-                                          borderRadius: BorderRadius.circular(10),
-                                        ),
-                                        child: Text(
-                                          "${filtered.length} Kontak",
-                                          style: GoogleFonts.plusJakartaSans(
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.w700,
-                                            color: _primaryGreen,
+                                  Expanded(
+                                    child: Row(
+                                      children: [
+                                        Flexible(
+                                          child: Text(
+                                            _roleFilter == 'Pelanggan'
+                                                ? "Daftar Pelanggan"
+                                                : (_roleFilter == 'Supplier'
+                                                    ? "Daftar Supplier"
+                                                    : (_roleFilter == 'Penitip'
+                                                        ? "Daftar Penitip"
+                                                        : "Semua Kontak")),
+                                            style: GoogleFonts.plusJakartaSans(
+                                              fontSize: 14.5,
+                                              fontWeight: FontWeight.w700,
+                                              color: isDark ? Colors.white : const Color(0xFF0F172A),
+                                            ),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
                                           ),
                                         ),
-                                      ),
-                                    ],
+                                        const SizedBox(width: 8),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2.5),
+                                          decoration: BoxDecoration(
+                                            color: _primaryGreen.withValues(alpha: isDark ? 0.2 : 0.1),
+                                            borderRadius: BorderRadius.circular(10),
+                                          ),
+                                          child: Text(
+                                            "${filtered.length} Kontak",
+                                            style: GoogleFonts.plusJakartaSans(
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.w700,
+                                              color: _primaryGreen,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                   ),
+                                  const SizedBox(width: 8),
                                   InkWell(
                                     onTap: () => _showAddOrEditContactSheet(),
                                     borderRadius: BorderRadius.circular(8),
@@ -895,17 +914,26 @@ class _CustomerPageState extends State<CustomerPage> {
 
   Widget _buildContactRow(_UnifiedContactItem contact, bool isDark) {
     final isSup = contact.isSupplier;
-    final avatarBg = isSup
-        ? (isDark ? const Color(0xFF0369A1).withValues(alpha: 0.2) : const Color(0xFFE0F2FE))
-        : (isDark ? const Color(0xFF00BF63).withValues(alpha: 0.2) : const Color(0xFFECFDF5));
-    final avatarColor = isSup ? const Color(0xFF0284C7) : const Color(0xFF00BF63);
+    final isPenitip = contact.isPenitip;
+    final avatarBg = isPenitip
+        ? (isDark ? const Color(0xFFD97706).withValues(alpha: 0.2) : const Color(0xFFFEF3C7))
+        : (isSup
+            ? (isDark ? const Color(0xFF0369A1).withValues(alpha: 0.2) : const Color(0xFFE0F2FE))
+            : (isDark ? const Color(0xFF2CAED2).withValues(alpha: 0.2) : const Color(0xFFECFDF5)));
+    final avatarColor = isPenitip
+        ? const Color(0xFFD97706)
+        : (isSup ? const Color(0xFF0284C7) : const Color(0xFF2CAED2));
 
-    final double balanceValue = isSup ? contact.hutang : contact.piutang;
-    final String balanceCaption = isSup
-        ? (contact.hutang > 0 ? "Hutang Toko" : "Lunas")
-        : (contact.piutang > 0 ? "Piutang" : "Lunas");
+    final double balanceValue = (isSup || isPenitip) ? contact.hutang : contact.piutang;
+    final String balanceCaption = isPenitip
+        ? (contact.hutang > 0 ? "Titipan Belum Disetor" : "Lunas")
+        : (isSup
+            ? (contact.hutang > 0 ? "Hutang Toko" : "Lunas")
+            : (contact.piutang > 0 ? "Piutang" : "Lunas"));
     final Color balanceColor = balanceValue > 0
-        ? (isSup ? const Color(0xFFE05260) : const Color(0xFF00BF63))
+        ? (isPenitip
+            ? const Color(0xFFD97706)
+            : (isSup ? const Color(0xFFE05260) : const Color(0xFF2CAED2)))
         : (isDark ? Colors.white54 : const Color(0xFF94A3B8));
 
     return Material(
@@ -926,7 +954,9 @@ class _CustomerPageState extends State<CustomerPage> {
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Icon(
-                  isSup ? Icons.storefront_rounded : Icons.person_rounded,
+                  isPenitip
+                      ? Icons.handshake_outlined
+                      : (isSup ? Icons.storefront_rounded : Icons.person_rounded),
                   size: 20,
                   color: avatarColor,
                 ),
@@ -960,7 +990,7 @@ class _CustomerPageState extends State<CustomerPage> {
                             borderRadius: BorderRadius.circular(5),
                           ),
                           child: Text(
-                            isSup ? "SUPPLIER" : "PELANGGAN",
+                            isPenitip ? "PENITIP" : (isSup ? "SUPPLIER" : "PELANGGAN"),
                             style: GoogleFonts.plusJakartaSans(
                               fontSize: 8.5,
                               fontWeight: FontWeight.w700,
@@ -1122,9 +1152,14 @@ class _CustomerPageState extends State<CustomerPage> {
               orElse: () => initialContact,
             );
             final isSup = contact.isSupplier;
-            final badgeBg = isSup ? const Color(0xFFE0F2FE) : const Color(0xFFD1FAE5);
-            final badgeText = isSup ? const Color(0xFF0369A1) : const Color(0xFF047857);
-            final badgeLabel = isSup ? "SUPPLIER" : "PELANGGAN";
+            final isPenitip = contact.isPenitip;
+            final badgeBg = isPenitip
+                ? const Color(0xFFFEF3C7)
+                : (isSup ? const Color(0xFFE0F2FE) : const Color(0xFFD1FAE5));
+            final badgeText = isPenitip
+                ? const Color(0xFFB45309)
+                : (isSup ? const Color(0xFF0369A1) : const Color(0xFF047857));
+            final badgeLabel = isPenitip ? "PENITIP (TITIPAN)" : (isSup ? "SUPPLIER" : "PELANGGAN");
             final history = _buildHistoryForContact(contact);
             final dayFormat = DateFormat('EEE, d MMM yyyy', 'id_ID');
 
@@ -1244,7 +1279,7 @@ class _CustomerPageState extends State<CustomerPage> {
                               ),
                               const SizedBox(height: 10),
                               _buildDetailInfoRow(
-                                label: "HUTANG",
+                                label: isPenitip ? "DANA TITIPAN" : "HUTANG",
                                 isDark: isDark,
                                 valueWidget: Text(
                                   _currencyFormat.format(contact.hutang),
@@ -1252,7 +1287,7 @@ class _CustomerPageState extends State<CustomerPage> {
                                     fontSize: 15,
                                     fontWeight: FontWeight.w800,
                                     color: contact.hutang > 0
-                                        ? const Color(0xFFE05260)
+                                        ? (isPenitip ? const Color(0xFFD97706) : const Color(0xFFE05260))
                                         : (isDark ? Colors.white : const Color(0xFF0F172A)),
                                   ),
                                 ),
@@ -1264,26 +1299,32 @@ class _CustomerPageState extends State<CustomerPage> {
                                 valueWidget: Container(
                                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                                   decoration: BoxDecoration(
-                                    color: (isSup ? contact.hutang : contact.piutang) > 0
-                                        ? (isSup
-                                            ? (isDark ? const Color(0xFF881337).withValues(alpha: 0.35) : const Color(0xFFFFF1F2))
-                                            : (isDark ? const Color(0xFF78350F).withValues(alpha: 0.35) : const Color(0xFFFEF3C7)))
+                                    color: (isSup || isPenitip ? contact.hutang : contact.piutang) > 0
+                                        ? (isPenitip
+                                            ? (isDark ? const Color(0xFF78350F).withValues(alpha: 0.35) : const Color(0xFFFEF3C7))
+                                            : (isSup
+                                                ? (isDark ? const Color(0xFF881337).withValues(alpha: 0.35) : const Color(0xFFFFF1F2))
+                                                : (isDark ? const Color(0xFF78350F).withValues(alpha: 0.35) : const Color(0xFFFEF3C7))))
                                         : (isDark ? const Color(0xFF064E3B).withValues(alpha: 0.35) : const Color(0xFFECFDF5)),
                                     borderRadius: BorderRadius.circular(8),
                                   ),
                                   child: Text(
-                                    isSup
+                                    isPenitip
                                         ? (contact.hutang > 0
-                                            ? "Toko Berhutang: ${_currencyFormat.format(contact.hutang)}"
-                                            : "✓ Lunas (Tidak Ada Hutang)")
-                                        : (contact.piutang > 0
-                                            ? "Piutang Berjalan: ${_currencyFormat.format(contact.piutang)}"
-                                            : "✓ Lunas (Tidak Ada Piutang)"),
+                                            ? "Dana Titipan Belum Disetor: ${_currencyFormat.format(contact.hutang)}"
+                                            : "✓ Lunas (Semua Dana Titipan Sudah Disetor)")
+                                        : (isSup
+                                            ? (contact.hutang > 0
+                                                ? "Toko Berhutang: ${_currencyFormat.format(contact.hutang)}"
+                                                : "✓ Lunas (Tidak Ada Hutang)")
+                                            : (contact.piutang > 0
+                                                ? "Piutang Berjalan: ${_currencyFormat.format(contact.piutang)}"
+                                                : "✓ Lunas (Tidak Ada Piutang)")),
                                     style: GoogleFonts.plusJakartaSans(
                                       fontSize: 12,
                                       fontWeight: FontWeight.w700,
-                                      color: (isSup ? contact.hutang : contact.piutang) > 0
-                                        ? (isSup ? const Color(0xFFE05260) : const Color(0xFFD97706))
+                                      color: (isSup || isPenitip ? contact.hutang : contact.piutang) > 0
+                                        ? (isPenitip ? const Color(0xFFD97706) : (isSup ? const Color(0xFFE05260) : const Color(0xFFD97706)))
                                         : const Color(0xFF047857),
                                     ),
                                   ),
@@ -1312,7 +1353,7 @@ class _CustomerPageState extends State<CustomerPage> {
                                 runSpacing: 10,
                                 crossAxisAlignment: WrapCrossAlignment.center,
                                 children: [
-                                  if (isSup && contact.supplierSource != null)
+                                  if ((isSup || isPenitip) && contact.supplierSource != null)
                                     InkWell(
                                       onTap: () async {
                                         await _showBayarHutangSupplierSheet(contact.supplierSource!);
@@ -1322,7 +1363,7 @@ class _CustomerPageState extends State<CustomerPage> {
                                       child: Container(
                                         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                                         decoration: BoxDecoration(
-                                          color: const Color(0xFFE5A923),
+                                          color: isPenitip ? const Color(0xFFD97706) : const Color(0xFFE5A923),
                                           borderRadius: BorderRadius.circular(11),
                                           border: Border.all(
                                             color: const Color(0xFF78350F),
@@ -1332,18 +1373,18 @@ class _CustomerPageState extends State<CustomerPage> {
                                         child: Row(
                                           mainAxisSize: MainAxisSize.min,
                                           children: [
-                                            const Icon(
-                                              Icons.credit_card_rounded,
+                                            Icon(
+                                              isPenitip ? Icons.handshake_outlined : Icons.credit_card_rounded,
                                               size: 17,
-                                              color: Color(0xFF0F172A),
+                                              color: isPenitip ? Colors.white : const Color(0xFF0F172A),
                                             ),
                                             const SizedBox(width: 8),
                                             Text(
-                                              "Bayar Hutang",
+                                              isPenitip ? "Setor Dana Titipan" : "Bayar Hutang",
                                               style: GoogleFonts.plusJakartaSans(
                                                 fontSize: 13,
                                                 fontWeight: FontWeight.w700,
-                                                color: const Color(0xFF0F172A),
+                                                color: isPenitip ? Colors.white : const Color(0xFF0F172A),
                                               ),
                                             ),
                                           ],
@@ -1677,17 +1718,17 @@ class _CustomerPageState extends State<CustomerPage> {
     );
   }
 
-  // ─── Bottom Sheet: Tambah / Edit Kontak (Pelanggan atau Supplier) ─────────
+  // ─── Bottom Sheet: Tambah / Edit Kontak (Pelanggan, Supplier atau Penitip) ─────────
   Future<void> _showAddOrEditContactSheet({_UnifiedContactItem? existing}) async {
     final isEditing = existing != null;
     String selectedType = existing != null
-        ? (existing.isSupplier ? 'Supplier' : 'Pelanggan')
-        : (_roleFilter == 'Supplier' ? 'Supplier' : 'Pelanggan');
+        ? (existing.isPenitip ? 'Penitip' : (existing.isSupplier ? 'Supplier' : 'Pelanggan'))
+        : (_roleFilter == 'Penitip' ? 'Penitip' : (_roleFilter == 'Supplier' ? 'Supplier' : 'Pelanggan'));
     final nameCtrl = TextEditingController(text: existing?.name ?? '');
     final phoneCtrl = TextEditingController(text: existing?.phone ?? '');
     final notesCtrl = TextEditingController(
-      text: existing != null && existing.isSupplier && existing.supplierSource != null
-          ? (existing.supplierSource!.address ?? existing.supplierSource!.notes ?? '')
+      text: existing != null && (existing.isSupplier || existing.isPenitip) && existing.supplierSource != null
+          ? (existing.supplierSource!.address ?? existing.supplierSource!.notes ?? '').replaceAll('[Titip]', '').trim()
           : (existing?.addressOrNotes ?? ''),
     );
 
@@ -1763,7 +1804,7 @@ class _CustomerPageState extends State<CustomerPage> {
                                   value: selectedType,
                                   isExpanded: true,
                                   dropdownColor: isDark ? const Color(0xFF1E293B) : Colors.white,
-                                  items: ['Pelanggan', 'Supplier', 'Pelanggan & Supplier'].map((t) {
+                                  items: ['Pelanggan', 'Supplier', 'Pelanggan & Supplier', 'Penitip'].map((t) {
                                     return DropdownMenuItem(
                                       value: t,
                                       child: Text(
@@ -1870,13 +1911,16 @@ class _CustomerPageState extends State<CustomerPage> {
                                   if (ctx.mounted) Navigator.pop(ctx);
 
                                   if (isEditing) {
-                                    if (existing.isSupplier && existing.supplierSource != null) {
+                                    if ((existing.isSupplier || existing.isPenitip) && existing.supplierSource != null) {
+                                      final combinedNotes = existing.isPenitip
+                                          ? (notes.isEmpty ? '[Titip] Barang Titipan' : (notes.contains('[Titip]') ? notes : '[Titip] $notes'))
+                                          : notes;
                                       await _supplierService.updateSupplier(
                                         existing.supplierSource!.copyWith(
                                           name: name,
                                           phone: phone,
                                           address: notes,
-                                          notes: notes,
+                                          notes: combinedNotes,
                                           unpaidBalance: existing.supplierSource!.unpaidBalance,
                                         ),
                                       );
@@ -1890,7 +1934,17 @@ class _CustomerPageState extends State<CustomerPage> {
                                       );
                                     }
                                   } else {
-                                    if (selectedType == 'Pelanggan & Supplier') {
+                                    if (selectedType == 'Penitip') {
+                                      final combinedNotes = notes.isEmpty ? '[Titip] Barang Titipan' : '[Titip] $notes';
+                                      await _supplierService.addSupplier(
+                                        storeId: storeId,
+                                        name: name,
+                                        phone: phone,
+                                        address: notes,
+                                        notes: combinedNotes,
+                                        unpaidBalance: 0.0,
+                                      );
+                                    } else if (selectedType == 'Pelanggan & Supplier') {
                                       await _customerService.addCustomer(
                                         storeId: storeId,
                                         name: name,
@@ -1960,7 +2014,7 @@ class _CustomerPageState extends State<CustomerPage> {
     }
 
     final supplierList = _allContacts
-        .where((c) => c.isSupplier && c.supplierSource != null)
+        .where((c) => (c.isSupplier || c.isPenitip) && c.supplierSource != null)
         .map((c) => c.supplierSource!)
         .toList();
     if (!supplierList.any((s) => s.id == supplier.id)) {
@@ -1988,6 +2042,9 @@ class _CustomerPageState extends State<CustomerPage> {
         return StatefulBuilder(
           builder: (ctx, setSheetState) {
             final isDark = Theme.of(ctx).brightness == Brightness.dark;
+            final bool isSelectedPenitip = (selectedSupplier.notes ?? '').contains('[Titip]') ||
+                (selectedSupplier.address ?? '').contains('[Titip]') ||
+                (selectedSupplier.notes ?? '').toLowerCase().contains('penitip');
             final bool hasDebt = selectedSupplier.unpaidBalance > 0;
             final sisaHutang = hasDebt
                 ? selectedSupplier.unpaidBalance
@@ -2013,7 +2070,7 @@ class _CustomerPageState extends State<CustomerPage> {
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
                               Text(
-                                "BAYAR HUTANG",
+                                isSelectedPenitip ? "SETOR DANA TITIPAN" : "BAYAR HUTANG",
                                 style: GoogleFonts.plusJakartaSans(
                                   fontSize: 17,
                                   fontWeight: FontWeight.w800,
@@ -2347,7 +2404,7 @@ class _CustomerPageState extends State<CustomerPage> {
                                             TransactionResultDialog.show(
                                               context: context,
                                               isSuccess: true,
-                                              title: "Pembayaran Hutang Berhasil!",
+                                              title: isSelectedPenitip ? "Penyetoran Dana Titipan Berhasil!" : "Pembayaran Hutang Berhasil!",
                                               subtitle: "Transaksi #${tx.transactionNo} telah berhasil dicatat.",
                                               transactionCode: tx.transactionNo,
                                               dateTime: tx.createdAt,
@@ -2358,10 +2415,10 @@ class _CustomerPageState extends State<CustomerPage> {
                                               statusBadgeBg: remDebt <= 0 ? const Color(0xFFECFDF5) : const Color(0xFFFEF3C7),
                                               statusBadgeText: remDebt <= 0 ? const Color(0xFF047857) : const Color(0xFFB45309),
                                               contactName: selectedSupplier.name,
-                                              contactRole: "Supplier",
+                                              contactRole: isSelectedPenitip ? "Penitip" : "Supplier",
                                               contactPhone: selectedSupplier.phone,
                                               accountName: selectedMethod.name,
-                                              category: "Bayar Hutang Supplier",
+                                              category: isSelectedPenitip ? "Setor Dana Titipan" : "Bayar Hutang Supplier",
                                               notes: notesCtrl.text.trim().isEmpty ? null : notesCtrl.text.trim(),
                                             );
                                           }
@@ -2371,12 +2428,12 @@ class _CustomerPageState extends State<CustomerPage> {
                                             TransactionResultDialog.show(
                                               context: context,
                                               isSuccess: false,
-                                              title: "Pembayaran Hutang Gagal",
-                                              subtitle: "Terjadi kesalahan saat memproses pembayaran hutang.",
+                                              title: isSelectedPenitip ? "Penyetoran Dana Titipan Gagal" : "Pembayaran Hutang Gagal",
+                                              subtitle: "Terjadi kesalahan saat memproses ${isSelectedPenitip ? 'penyetoran dana titipan' : 'pembayaran hutang'}.",
                                               errorMessage: e.toString(),
                                               totalAmount: amt,
                                               contactName: selectedSupplier.name,
-                                              contactRole: "Supplier",
+                                              contactRole: isSelectedPenitip ? "Penitip" : "Supplier",
                                             );
                                           }
                                         }

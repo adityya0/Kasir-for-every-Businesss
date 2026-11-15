@@ -83,7 +83,7 @@ class TransactionItem extends StatelessWidget {
               height: 28,
               margin: const EdgeInsets.only(right: 12),
               decoration: BoxDecoration(
-                color: const Color(0xFF00BF63).withValues(alpha: 0.1),
+                color: const Color(0xFF2CAED2).withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(6),
               ),
               alignment: Alignment.center,
@@ -92,7 +92,7 @@ class TransactionItem extends StatelessWidget {
                 style: GoogleFonts.plusJakartaSans(
                   fontWeight: FontWeight.w700,
                   fontSize: 12,
-                  color: const Color(0xFF00BF63),
+                  color: const Color(0xFF2CAED2),
                 ),
               ),
             ),
@@ -169,7 +169,7 @@ class TransactionItem extends StatelessWidget {
                   style: GoogleFonts.plusJakartaSans(
                     fontWeight: FontWeight.w800,
                     fontSize: 14,
-                    color: const Color(0xFF00BF63),
+                    color: const Color(0xFF2CAED2),
                   ),
                 ),
               ),

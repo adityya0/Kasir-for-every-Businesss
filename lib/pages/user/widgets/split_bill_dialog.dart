@@ -98,7 +98,7 @@ class _SplitItemDialogState extends State<SplitItemDialog> {
                         style: GoogleFonts.plusJakartaSans(
                           fontSize: 20,
                           fontWeight: FontWeight.bold,
-                        color: const Color(0xFF00BF63),
+                        color: const Color(0xFF2CAED2),
                         ),
                       ),
                       Text(
@@ -263,7 +263,7 @@ class _SplitItemDialogState extends State<SplitItemDialog> {
                           style: GoogleFonts.plusJakartaSans(
                             fontWeight: FontWeight.w600,
                             fontSize: 13,
-                        color: const Color(0xFF00BF63),
+                        color: const Color(0xFF2CAED2),
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -443,7 +443,7 @@ class _SplitPaymentSheetState extends State<SplitPaymentSheet> {
                     style: GoogleFonts.plusJakartaSans(
                       fontSize: 20,
                       fontWeight: FontWeight.bold,
-                        color: const Color(0xFF00BF63),
+                        color: const Color(0xFF2CAED2),
                     ),
                   ),
                   Text(
@@ -656,7 +656,7 @@ class _SplitPaymentSheetState extends State<SplitPaymentSheet> {
                       style: GoogleFonts.plusJakartaSans(
                         fontWeight: FontWeight.w600,
                         fontSize: 13,
-                        color: const Color(0xFF00BF63),
+                        color: const Color(0xFF2CAED2),
                       ),
                       items: methods
                           .map((m) => DropdownMenuItem(value: m, child: Text(m)))

@@ -165,7 +165,7 @@ class AdminController extends ChangeNotifier {
           await _db.into(_db.stores).insert(
             StoresCompanion.insert(
               id: initialStoreId,
-              name: const Value('OMNI POS'),
+              name: const Value('FLASH COIN LAUNDRY'),
               adminName: const Value('Owner'),
               createdAt: Value(DateTime.now()),
             ),
@@ -174,7 +174,14 @@ class AdminController extends ChangeNotifier {
         }
         final store = stores.first;
         _storeId = store.id;
-        _storeName = store.name;
+        if (store.name == null || store.name == 'OMNI POS' || store.name == 'Kasir Bersama' || store.name == 'Toko Saya' || store.name!.trim().isEmpty) {
+          await (_db.update(_db.stores)..where((t) => t.id.equals(store.id))).write(
+            const StoresCompanion(name: Value('FLASH COIN LAUNDRY')),
+          );
+          _storeName = 'FLASH COIN LAUNDRY';
+        } else {
+          _storeName = store.name;
+        }
         _storeLogo = store.logoUrl;
         _storeAddress = store.address;
         _storeEmail = store.email;

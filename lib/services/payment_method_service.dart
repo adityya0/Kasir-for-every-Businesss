@@ -177,7 +177,13 @@ class PaymentMethodService {
     return prefs.getDouble('payment_method_inflow_${storeId}_${method.id}') ?? 0.0;
   }
 
-  Future<void> addOutflow(String storeId, PaymentMethod method, double amount, {String? notes}) async {
+  Future<void> addOutflow(
+    String storeId,
+    PaymentMethod method,
+    double amount, {
+    String? category,
+    String? notes,
+  }) async {
     final prefs = await SharedPreferences.getInstance();
     final cur = prefs.getDouble('payment_method_outflow_${storeId}_${method.id}') ?? 0.0;
     await prefs.setDouble('payment_method_outflow_${storeId}_${method.id}', cur + amount);
@@ -186,7 +192,7 @@ class PaymentMethodService {
       ExpensesCompanion.insert(
         id: _uuid.v4(),
         storeId: Value(storeId),
-        category: 'Prive / Tarik Saldo',
+        category: category ?? 'Prive / Pribadi',
         amount: Value(amount),
         date: Value(DateTime.now()),
         notes: Value(notes ?? 'Tarik saldo dari ${method.name}'),
@@ -417,6 +423,50 @@ class PaymentMethodService {
   Future<void> deleteWithdrawal(String storeId, Expense expense) =>
       deleteFinancialRecord(storeId, expense);
 
+  Future<Map<String, double>> getCachedBalances(String storeId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final jsonStr = prefs.getString('cached_balances_$storeId');
+    if (jsonStr != null) {
+      try {
+        final decoded = jsonDecode(jsonStr) as Map<String, dynamic>;
+        return decoded.map((k, v) => MapEntry(k, (v as num).toDouble()));
+      } catch (_) {}
+    }
+    return {};
+  }
+
+  Future<void> saveCachedBalances(String storeId, Map<String, double> balances) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('cached_balances_$storeId', jsonEncode(balances));
+  }
+
+  Future<void> updateIncrementalBalance({
+    required String storeId,
+    required String methodIdOrName,
+    required double delta,
+  }) async {
+    try {
+      final current = await getCachedBalances(storeId);
+      final methods = await getPaymentMethods(storeId);
+      String? matchedId;
+      final target = methodIdOrName.toLowerCase().trim();
+      for (final m in methods) {
+        if (m.id == methodIdOrName ||
+            m.name.toLowerCase().trim() == target ||
+            (target.contains('kas') && m.name.toLowerCase().contains('kas')) ||
+            (target.contains('tunai') && m.name.toLowerCase().contains('kas')) ||
+            (target.contains('qris') && m.name.toLowerCase().contains('qris'))) {
+          matchedId = m.id;
+          break;
+        }
+      }
+      if (matchedId != null) {
+        current[matchedId] = (current[matchedId] ?? 0.0) + delta;
+        await saveCachedBalances(storeId, current);
+      }
+    } catch (_) {}
+  }
+
   Future<Map<String, double>> calculateCurrentBalances(String storeId) async {
     final summaries = await calculateMethodSummaries(storeId);
     return summaries.map((k, v) => MapEntry(k, v.currentBalance));
@@ -426,8 +476,10 @@ class PaymentMethodService {
     await ensureDefaultPaymentMethods(storeId);
     final methods = await getPaymentMethods(storeId);
 
-    // Fetch all store transactions
-    final allTxs = await (_db.select(_db.transactions)).get();
+    // Fetch store transactions efficiently
+    final allTxs = await (_db.select(_db.transactions)
+      ..where((t) => t.storeId.equals(storeId) | t.storeId.isNull() | t.storeId.equals('default_store'))
+    ).get();
 
     final validTxs = allTxs.where((t) {
       final s = t.status.toLowerCase().trim();
@@ -497,6 +549,11 @@ class PaymentMethodService {
         currentBalance: curBal,
       );
     }
+
+    try {
+      final balancesMap = result.map((k, v) => MapEntry(k, v.currentBalance));
+      await saveCachedBalances(storeId, balancesMap);
+    } catch (_) {}
 
     return result;
   }

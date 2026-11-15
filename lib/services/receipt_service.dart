@@ -386,7 +386,7 @@ class ReceiptService {
 
               pw.SizedBox(height: 6),
               pw.Text(
-                "DIHASILKAN OLEH SISTEM OMNI POS",
+                "DIHASILKAN OLEH SISTEM FLASH COIN LAUNDRY",
                 style: pw.TextStyle(
                   fontSize: 6,
                   fontStyle: pw.FontStyle.italic,

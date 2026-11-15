@@ -41,7 +41,7 @@ class _SupplierLedgerPageState extends State<SupplierLedgerPage> {
     decimalDigits: 0,
   );
 
-  static const Color primaryGreen = Color(0xFF00BF63);
+  static const Color primaryGreen = Color(0xFF2CAED2);
 
   @override
   void initState() {

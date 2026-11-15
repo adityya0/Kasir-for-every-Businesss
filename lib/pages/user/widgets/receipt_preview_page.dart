@@ -164,7 +164,7 @@ class ReceiptPreviewPage extends StatelessWidget {
                   ),
                 ),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF00BF63),
+                  backgroundColor: const Color(0xFF2CAED2),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(16),
                   ),

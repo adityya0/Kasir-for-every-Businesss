@@ -43,7 +43,7 @@ void main() async {
       backgroundColor: Colors.transparent,
       skipTaskbar: false,
       titleBarStyle: TitleBarStyle.normal,
-      title: 'OMNI POS',
+      title: 'FLASH COIN LAUNDRY',
     );
     windowManager.waitUntilReadyToShow(windowOptions, () async {
       await windowManager.show();
@@ -154,7 +154,7 @@ class _RootAppState extends State<RootApp> {
               ],
               child: MaterialApp(
                 debugShowCheckedModeBanner: false,
-                title: 'OMNI POS',
+                title: 'FLASH COIN LAUNDRY',
                 themeMode: currentMode,
                 locale: currentLocale,
                 localizationsDelegates: const [
@@ -183,9 +183,9 @@ class _RootAppState extends State<RootApp> {
                 },
                 theme: ThemeData(
                   colorScheme: ColorScheme.fromSeed(
-                    seedColor: const Color(0xFF00BF63),
-                    primary: const Color(0xFF00BF63),
-                    secondary: const Color(0xFF10B981),
+                    seedColor: const Color(0xFF2CAED2),
+                    primary: const Color(0xFF2CAED2),
+                    secondary: const Color(0xFF0284C7),
                     brightness: Brightness.light,
                   ),
                   useMaterial3: true,
@@ -201,7 +201,7 @@ class _RootAppState extends State<RootApp> {
                       side: const BorderSide(color: Color(0xFF1E293B), width: 1.2),
                     ),
                     textStyle: GoogleFonts.plusJakartaSans(
-                      color: const Color(0xFF00BF63),
+                      color: const Color(0xFF2CAED2),
                       fontWeight: FontWeight.w600,
                       fontSize: 13,
                     ),
@@ -257,9 +257,9 @@ class _RootAppState extends State<RootApp> {
                 ),
                 darkTheme: ThemeData(
                   colorScheme: ColorScheme.fromSeed(
-                    seedColor: const Color(0xFF00BF63),
-                    primary: const Color(0xFF00BF63),
-                    secondary: const Color(0xFF10B981),
+                    seedColor: const Color(0xFF2CAED2),
+                    primary: const Color(0xFF2CAED2),
+                    secondary: const Color(0xFF0284C7),
                     brightness: Brightness.dark,
                   ),
                   useMaterial3: true,
@@ -275,7 +275,7 @@ class _RootAppState extends State<RootApp> {
                       side: const BorderSide(color: Color(0xFF475569), width: 1.2),
                     ),
                     textStyle: GoogleFonts.plusJakartaSans(
-                      color: const Color(0xFF00BF63),
+                      color: const Color(0xFF2CAED2),
                       fontWeight: FontWeight.w600,
                       fontSize: 13,
                     ),
@@ -459,7 +459,7 @@ class AuthGuardGate extends StatelessWidget {
         if (!snapshot.hasData) {
           return const Scaffold(
             body: Center(
-              child: CircularProgressIndicator(color: Color(0xFFBD1B19)),
+              child: CircularProgressIndicator(color: Color(0xFF2CAED2)),
             ),
           );
         }
@@ -475,7 +475,7 @@ class AuthGuardGate extends StatelessWidget {
               if (!prefsSnapshot.hasData) {
                 return const Scaffold(
                   body: Center(
-                    child: CircularProgressIndicator(color: Color(0xFFBD1B19)),
+                    child: CircularProgressIndicator(color: Color(0xFF2CAED2)),
                   ),
                 );
               }
